@@ -94,14 +94,14 @@ export interface TokenRecord {
 // Moved to `types-knowledge.ts` — a LEAF that imports nothing, so it cannot become half of a cycle. See that
 // file for why that matters. Imported as well as re-exported, because `export ... from` does not bring a name
 // into local scope and `TtlBucket` below is built from `KnowledgeType`.
-import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RecordType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
+import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RecordType, TombstoneType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
 export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta };
 // A VALUE, so it needs its own import and re-export: everything else above is a type. Re-exported from here
 // rather than importing the leaf directly, because `config/types.js` is the one path this codebase's modules
 // already reach for, and a second path to the same tuple is how a second copy of it starts.
-import { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS } from './types-knowledge.js';
-export { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS };
-export type { RecordType, BrainCollection } from './types-knowledge.js';
+import { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS, TOMBSTONE_TYPES, TOMBSTONE_COLLECTION, TOMBSTONE_TYPE_OF } from './types-knowledge.js';
+export { KNOWLEDGE_TYPES, RECORD_TYPES, COLLECTION_SUFFIX, RECORD_COLLECTION, BRAIN_COLLECTIONS, TOMBSTONE_TYPES, TOMBSTONE_COLLECTION, TOMBSTONE_TYPE_OF };
+export type { RecordType, BrainCollection, TombstoneType } from './types-knowledge.js';
 
 /**
  * What kind of thing a record is, for the purpose of the SPACE retention tier.
@@ -1511,6 +1511,63 @@ export interface EdgeDoc extends StampSkewable {
   _expireAt?: Date;
 }
 
+/**
+ * A link record: one record concerns another, and nothing else.
+ *
+ * ## Why this is not an `EdgeDoc`, and not in `_edges`
+ *
+ * Owner's design, 2026-08-29: *"make all edges on 'index cards' and make everyone look there from now on"*.
+ * Six public array fields say that a record concerns others — `memory.entityIds`, `chrono.entityIds`,
+ * `chrono.memoryIds`, and `file.entityIds`/`memoryIds`/`chronoIds` — and each was scanned by a different
+ * subset of five disagreeing adjacency readers. They become records, so there is one place to look.
+ *
+ * They are NOT edges, and the ruling is that `GET /edges` must not see them: an edge is a MODELLED
+ * relationship with a label an operator chose, a schema that can govern it, and content of its own to rank.
+ * A link is derived from a field and asserts nothing beyond "these two are connected". Mixing them would
+ * mean every edge listing suddenly returns thousands of rows nobody wrote.
+ *
+ * ## The two kinds ARE the class, so nothing here stores which one it is
+ *
+ * The six classes are `memory→entity`, `chrono→entity`, `chrono→memory`, `file→entity`, `file→memory`,
+ * `file→chrono` — six distinct `(fromKind, toKind)` pairs, one per class. So the label a traverse shows
+ * stays DERIVED, exactly as `LINK_CLASSES` prints it today (`chrono.entityIds`). Storing it would add a
+ * degree of freedom the arrays never had, and two spellings of one fact is the defect shape this codebase
+ * produces most.
+ *
+ * ## What it deliberately has none of
+ *
+ * No `label`, `type`, `weight`, `properties` or `description`: a link carries no meaning of its own to
+ * describe. No `embedding` or `matchedText`, and no `suppressEmbeddings` either — a record with nothing to
+ * embed needs no way to say so, and `VECTOR_INDEXED_COLLECTIONS` states in its own comment why this
+ * collection must never get a vector index.
+ *
+ * No `_expireAt`. A link's lifetime is its endpoints' — it is meaningless once either end is gone, and a
+ * window of its own could outlive or predecease both. The cascade belongs with the readers, not here.
+ */
+export interface LinkDoc extends StampSkewable {
+  _id: string;
+  spaceId: string;
+  /** The record that HELD the array — a memory, a chrono entry or a file's meta record. */
+  from: string;
+  /**
+   * What kind of record `from` is.
+   *
+   * Required here where `EdgeDoc` leaves both kinds optional, and the difference is not an inconsistency.
+   * An edge's absent kind means `entity`, which is what every edge in every existing space is; a link has
+   * no such default, because three of the six classes have a non-entity at each end. Absent would mean
+   * "unknown", and an unknown endpoint kind is a link that cannot be resolved at all.
+   */
+  fromKind: RefKind;
+  /** The record it names. */
+  to: string;
+  /** What kind of record `to` is. Required, for the reason on {@link LinkDoc.fromKind}. */
+  toKind: RefKind;
+  author: AuthorRef;
+  createdAt: string;
+  updatedAt: string;
+  seq: number;
+}
+
 export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
@@ -1582,7 +1639,13 @@ export interface ChronoEntry extends StampSkewable {
 
 export interface TombstoneDoc {
   _id: string;
-  type: KnowledgeType;
+  /**
+   * `TombstoneType` and not `KnowledgeType`: the four knowledge types plus `link`, never `file`.
+   *
+   * It read `KnowledgeType`, and `asFilter` casts — so a query for a link tombstone typechecked while the
+   * field could not hold the value it was looking for. The declaration is the only place that catches it.
+   */
+  type: TombstoneType;
   spaceId: string;
   deletedAt: string;
   instanceId: string;

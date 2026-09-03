@@ -456,8 +456,19 @@ export interface CompletenessCheck {
   weight: number;
   earned: number;
   sample: string[];
-  /** Where the affected records are, or `null` for a finding about the space itself. */
-  targetTab: BrainCollection | null;
+  /**
+   * Where the affected records are, or `null` for a finding about the space itself.
+   *
+   * Narrower than `BrainCollection`: this value opens a TAB, and the two lists stopped being the same five
+   * members when link records arrived. A link has no tab and will not get one — it is derived from an array
+   * on another record, so a "go and fix these" button pointing at it would open nothing.
+   *
+   * Spelled as the exclusion rather than imported from `brain-tabs.ts`, which is where that decision lives:
+   * a type in `core/` must not depend on a page. This is the MIRROR of the server's own narrowing in
+   * `spaces/completeness.ts`, written the same way, and the components' `output<CollectionTab>()` is what
+   * catches it if the two ever stop lining up.
+   */
+  targetTab: Exclude<BrainCollection, 'links'> | null;
 }
 
 export interface CompletenessReport {
@@ -475,7 +486,16 @@ export interface CompletenessReport {
  * A tuple for the same reason the type lists are: a template that renders one option per collection needs
  * the values. The Brain's TABS are a different set and live in `brain-tabs.ts`, which says so.
  */
-export const BRAIN_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
+export const BRAIN_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files', 'links'] as const;
+
+/*
+ * `links` is the sixth, and it is a COLLECTION only.
+ *
+ * A link record is what a `memory.entityIds`, `chrono.entityIds`/`memoryIds` or
+ * `file.entityIds`/`memoryIds`/`chronoIds` entry becomes when it is stored as a record. It is queryable and
+ * countable; it has no tab of its own, no write door of its own, and never appears in a meaning-ranked
+ * search. `brain-tabs.ts` holds that decision.
+ */
 
 export type BrainCollection = typeof BRAIN_COLLECTIONS[number];
 

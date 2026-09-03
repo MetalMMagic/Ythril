@@ -252,6 +252,60 @@ export const COLLECTION_SUFFIX = {
 } as const satisfies Record<KnowledgeType, string>;
 
 /**
+ * The kinds of thing a record TOMBSTONE can be for — the knowledge types plus `link`, and never `file`.
+ *
+ * ## A fourth key set, and it is the same trap one level down
+ *
+ * `A-10` found three collection SETS wearing one shape. The maps have the same problem: the key sets differ
+ * and the values do not, so a map written for one reads as a map for any of them. There are three:
+ *
+ *   - `KnowledgeType` — carries a type schema. Four members.
+ *   - `RecordType` — can be embedded, recalled or retained. The four plus `file`.
+ *   - `TombstoneType` — this one. The four plus `link`, and NOT `file`, because a deleted file has
+ *     `FileTombstoneDoc` and a wire protocol of its own with no `seq` in it.
+ *
+ * **A link is here and not in `RecordType`, and both halves matter.** A link record is deleted — when its
+ * endpoint goes, or when the array it came from loses an entry — and a delete that does not tombstone is a
+ * delete a peer undoes on the next cycle. It is not a `RecordType` because it is never embedded, recalled or
+ * retained.
+ *
+ * The failure it removes was live and silent: `brain/tombstones.ts` mapped tombstone type to collection with
+ * a `Record<string, string>` — a map with no keys — so a link tombstone would have found no entry, stored
+ * itself, deleted nothing, and reported success. Two of exactly that shape were removed by `A-10`; this was
+ * the third.
+ */
+export const TOMBSTONE_TYPES = [...KNOWLEDGE_TYPES, 'link'] as const;
+
+/** What a record tombstone is for. Derived, so it cannot drift from the tuple. */
+export type TombstoneType = typeof TOMBSTONE_TYPES[number];
+
+/**
+ * Where a TOMBSTONE's underlying document lives.
+ *
+ * Derived from the knowledge map plus the one member that is not a knowledge type, exactly as
+ * `RECORD_COLLECTION` is — two projections of one vocabulary rather than two lists to keep in step.
+ */
+export const TOMBSTONE_COLLECTION = {
+  ...COLLECTION_SUFFIX,
+  link: 'links',
+} as const satisfies Record<TombstoneType, string>;
+
+/**
+ * The inverse: a COLLECTION name back to the tombstone type stored in it.
+ *
+ * Both directions are asked, so both exist — but only one is written down. A wipe knows the collection
+ * (`memories`) and has to clear tombstones by their `type` (`memory`), and `wipeSpace` carried its own
+ * four-entry copy of exactly this, in the same function as a SECOND copy for the review findings. That is
+ * the seventh and eighth copies of one mapping; `A-10` removed five and the shape kept coming back.
+ *
+ * Derived rather than typed, so the two can never disagree — and a collection with no tombstone type,
+ * `files`, is simply absent rather than being a name somebody remembered to leave out.
+ */
+export const TOMBSTONE_TYPE_OF = Object.fromEntries(
+  TOMBSTONE_TYPES.map(t => [TOMBSTONE_COLLECTION[t], t]),
+) as Record<string, TombstoneType | undefined>;
+
+/**
  * The same map over RECORD types — the knowledge collections plus `files`.
  *
  * Two maps rather than one because the two key sets differ: a file has no type schema, so it is not a
@@ -274,15 +328,26 @@ export const RECORD_COLLECTION = {
  *     tombstones, conflicts, and the two candidate queues. It is what CREATES them, and nothing else does.
  *   - `VECTOR_INDEXED_COLLECTIONS` (`spaces/vector-index.ts`) is this list MINUS anything never embedded.
  *
- * `M-2` is what separates them: a link record is stored in its own collection, so it joins
- * `SPACE_COLLECTIONS` and this one — and it must stay OUT of the vector-indexed set, because a link has no
- * content to embed and a content-free record in a ranked list is the hazard that migration is written
- * around.
+ * `M-2` is what separated them, and `links` below is it: a link record is stored in its own collection,
+ * so it joins `SPACE_COLLECTIONS` and this one — and it stays OUT of the vector-indexed set, because a link
+ * has no content to embed and a content-free record in a ranked list is the hazard that migration is
+ * written around.
  *
  * `one-definition-of-the-collections.test.js` holds the rule: derive from here, or say in your own comment
  * that you are a deliberate subset and why.
+ *
+ * ## Why `links` is APPENDED rather than derived like the rest
+ *
+ * The other five come from `RECORD_COLLECTION`, which is keyed by `RecordType` — and a link is not one.
+ * That tuple means *can be embedded, recalled or retained*, and a link is none of the three: it has no
+ * content, it is never a recall result, and its lifetime is its endpoints'. Adding it there to save a line
+ * here would hand it an embed-text builder, a lexical field, a recall projection and a retention bucket,
+ * which is the same mistake as making it a fifth `KnowledgeType` — priced by the compiler and rejected.
+ *
+ * So: five derived, one appended, and the append is the whole statement that a link is a collection and
+ * nothing more.
  */
-export const BRAIN_COLLECTIONS = RECORD_TYPES.map(t => RECORD_COLLECTION[t]);
+export const BRAIN_COLLECTIONS = [...RECORD_TYPES.map(t => RECORD_COLLECTION[t]), 'links'] as const;
 
 /** One knowledge collection. */
 export type BrainCollection = (typeof BRAIN_COLLECTIONS)[number];

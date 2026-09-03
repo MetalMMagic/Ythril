@@ -142,8 +142,22 @@ export function docLeaf(collType: string, doc: Record<string, unknown>): string 
 export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> {
   const leaves: string[] = [];
 
-  // ── Brain documents ────────────────────────────────────────────────────
-  for (const collType of ['memories', 'entities', 'edges', 'chrono'] as const) {
+  /*
+   * ── Brain documents ────────────────────────────────────────────────────
+   *
+   * NOT ALL BRAIN COLLECTIONS: `files` is missing on purpose and `links` is present on purpose.
+   *
+   * A file's bytes are hashed from the manifest below, because the DOCUMENT is meta about a blob and two
+   * instances agreeing on the meta while holding different bytes is the thing that matters. Every other
+   * collection is hashed from its documents.
+   *
+   * `links` is here because a link record is data. Absent, two instances holding different links would
+   * compute the same root and report themselves IDENTICAL — which is worse than not replicating at all,
+   * because `MERKLE_DIVERGENCE` is the one signal that says data really is missing, and a permanent false
+   * NEGATIVE is silent forever. Links have no embedding to project away, so the projection below reaches
+   * them harmlessly.
+   */
+  for (const collType of ['memories', 'entities', 'edges', 'chrono', 'links'] as const) {
     const collName = `${spaceId}_${collType}`;
     const cursor = col<Record<string, unknown>>(collName)
       .find(asFilter({}))

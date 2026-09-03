@@ -1,9 +1,11 @@
 /**
- * Peer document sync — the four record families (memories/entities/edges/chrono) plus batch-upsert.
+ * Peer document sync — the five record families plus batch-upsert.
  *
- * Split out of the api/sync.ts monolith (A17.6); handlers are unchanged.
+ * Split out of the api/sync.ts monolith (A17.6). The two READS are now one function each rather than four
+ * copies apiece: see `pageBySeq` for what a page is and which tombstones ride in it, and why `M-2`'s fifth
+ * family is what forced the extraction.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
@@ -14,72 +16,132 @@ import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
 import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
-import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
+import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, LinkDoc, TombstoneDoc } from '../../config/types.js';
+import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
-syncDocsRouter.get('/memories', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
+/**
+ * ONE paging read for every record family. It was written FOUR times, and `M-2` needed a fifth.
+ *
+ * The four list routes were identical apart from three names — the collection suffix, the document type, and
+ * the tombstone `type` string — and this is the sync CONTRACT: what a page is, where the cursor comes from,
+ * which tombstones ride along with it. A copy that drifts makes replication depend on which record family a
+ * peer happened to ask for, which is the defect class `CLAUDE.md` names as this repo's most expensive.
+ *
+ * ## The rule, now that it is in one place to read
+ *
+ * A page is `seq > since`, ordered by `seq`, capped at 500, with ONE extra row fetched so `nextCursor` can
+ * be decided without a second query.
+ *
+ * Tombstones for the same family ride in the same page. Three filters, and each removes a specific way for a
+ * deletion to be delivered twice or too early:
+ *
+ *   - `seq <= pageMaxSeq` — a tombstone with a high seq would otherwise appear on this page AND the next
+ *     one, because the cursor only advances to the last ITEM's seq. That was a real duplicate bug.
+ *   - not already in `items` — the record is the newer fact, so the deletion is stale within the page.
+ *   - `originalSeq > since` — the peer never had the record, so there is nothing to tell it to delete.
+ *
+ * `full=true` returns whole documents in one pass; without it a page is ids and seqs only. The pull engine
+ * always asks for `full`, because the alternative is N per-document fetches over a WAN.
+ */
+function pageBySeq<T extends { _id: string; seq: number }>(collection: string, tombstoneType: string) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
+      if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
+      if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
-    const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
-    const returnFull = fullParam === 'true';
+      const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
+      const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
+      const returnFull = fullParam === 'true';
 
-    const rawDocs = returnFull
-      ? await col<MemoryDoc>(`${spaceId}_memories`).find(asFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as MemoryDoc[]
-      : await col<MemoryDoc>(`${spaceId}_memories`).find(asFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
+      const found = col<T>(`${spaceId}_${collection}`)
+        .find(asFilter<T>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1);
+      const rawDocs = returnFull
+        ? await found.toArray() as T[]
+        : await found.project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
-    const hasMore = rawDocs.length > pageSize;
-    const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
-    const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
+      const hasMore = rawDocs.length > pageSize;
+      const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
+      const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
 
-    // Tombstone stubs are appended within the current page's seq range only.
-    // Capping at the last memory item's seq prevents tombstones with high seq
-    // from appearing on both the current page AND the next page (cursor duplicate bug).
-    const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
-    const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
-    // Exclude tombstones for docs already returned on previous pages (originalSeq <= sinceVal)
-    // and tombstones for docs in the current page's items list (within-page dedup).
-    const itemIds = new Set(items.map(i => (i as { _id: string })._id));
-    const tombs = tombstones
-      .filter(t =>
-        t.type === 'memory' &&
-        t.seq <= pageMaxSeq &&
-        !itemIds.has(t._id) &&
-        (t.originalSeq === undefined || t.originalSeq > sinceVal),
-      )
-      .map(t => ({ _id: t._id, seq: t.seq, deletedAt: t.deletedAt }));
+      const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
+      const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
+      const itemIds = new Set(items.map(i => (i as { _id: string })._id));
+      const tombs = tombstones
+        .filter(t =>
+          t.type === tombstoneType &&
+          t.seq <= pageMaxSeq &&
+          !itemIds.has(t._id) &&
+          (t.originalSeq === undefined || t.originalSeq > sinceVal),
+        )
+        .map(t => ({ _id: t._id, seq: t.seq, deletedAt: t.deletedAt }));
 
-    res.json({ items: [...items, ...tombs].sort((a, b) => (a as { seq: number }).seq - (b as { seq: number }).seq), nextCursor });
-  } catch (err) {
-    log.error(`sync GET memories: ${err}`);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
+      res.json({ items: [...items, ...tombs].sort((a, b) => (a as { seq: number }).seq - (b as { seq: number }).seq), nextCursor });
+    } catch (err) {
+      reportServerFailure(`sync GET /${collection}`, err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  };
+}
+
+/**
+ * One document by id — the other read, written four times for the same reason.
+ *
+ * A peer reaches this when a page gave it ids and seqs and it wants one specific record. Deliberately not
+ * the same thing as `full=true`: that is the bulk path, this answers about a document a peer already knows
+ * it needs.
+ *
+ * **One of the four copies reported its 500 differently, and the stronger one is what shipped here.**
+ * `memories/:id` logged `err` through `log.error`, the other three through `reportServerFailure` — which
+ * carries the STACK, and exists because an operator on another team once reasoned for ten days from a log
+ * that held no line for the 500 they were asking about. The message alone ("Cannot read properties of
+ * undefined") sends that reader back to grep source they do not have. Four copies of one rule with the
+ * weakest winning is exactly the shape this extraction removes, so it is fixed rather than preserved.
+ */
+function oneById<T extends { _id: string }>(collection: string) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { spaceId, networkId } = req.query as Record<string, string>;
+      if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
+      if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+      const doc = await col<T>(`${spaceId}_${collection}`).findOne(asFilter<T>({ _id: req.params['id'] as string }));
+      if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
+      res.json(doc);
+    } catch (err) {
+      reportServerFailure(`sync GET /${collection}/:id`, err);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  };
+}
+
+/*
+ * The five families, and the fifth is why the four above became one function.
+ *
+ * A link record replicates like any other document: same page, same cursor, same tombstone rule. What it
+ * does not have is a type schema, a fork resolution or an embedding — `IncomingLinkDoc` and the
+ * batch-upsert block below carry those differences. A collection missing from this router is one a peer can
+ * never fetch, and nothing reports that, because a peer which never receives a link has none to hash either.
+ */
+syncDocsRouter.get('/memories', syncRateLimit, requireAuth, pageBySeq<MemoryDoc>('memories', 'memory'));
+syncDocsRouter.get('/entities', syncRateLimit, requireAuth, pageBySeq<EntityDoc>('entities', 'entity'));
+syncDocsRouter.get('/edges', syncRateLimit, requireAuth, pageBySeq<EdgeDoc>('edges', 'edge'));
+syncDocsRouter.get('/chrono', syncRateLimit, requireAuth, pageBySeq<ChronoEntry>('chrono', 'chrono'));
+syncDocsRouter.get('/links', syncRateLimit, requireAuth, pageBySeq<LinkDoc>('links', 'link'));
+
+syncDocsRouter.get('/memories/:id', syncRateLimit, requireAuth, oneById<MemoryDoc>('memories'));
+syncDocsRouter.get('/entities/:id', syncRateLimit, requireAuth, oneById<EntityDoc>('entities'));
+syncDocsRouter.get('/edges/:id', syncRateLimit, requireAuth, oneById<EdgeDoc>('edges'));
+syncDocsRouter.get('/chrono/:id', syncRateLimit, requireAuth, oneById<ChronoEntry>('chrono'));
+syncDocsRouter.get('/links/:id', syncRateLimit, requireAuth, oneById<LinkDoc>('links'));
 
 
 /**
  * GET /api/sync/memories/:id?spaceId=
  * Fetch a single full memory document.
  */
-syncDocsRouter.get('/memories/:id', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const doc = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: req.params['id'] }));
-    if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json(doc);
-  } catch (err) {
-    log.error(`sync GET memory/:id: ${err}`);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
 /**
@@ -180,58 +242,8 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
 // ENTITIES
 // ═══════════════════════════════════════════════════════════════════════════
 
-syncDocsRouter.get('/entities', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
-    const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
-    const returnFull = fullParam === 'true';
-
-    const rawDocs = returnFull
-      ? await col<EntityDoc>(`${spaceId}_entities`).find(asFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EntityDoc[]
-      : await col<EntityDoc>(`${spaceId}_entities`).find(asFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
-
-    const hasMore = rawDocs.length > pageSize;
-    const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
-    const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
-
-    const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
-    const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
-    const itemIds = new Set(items.map(i => (i as { _id: string })._id));
-    const tombs = tombstones
-      .filter(t =>
-        t.type === 'entity' &&
-        t.seq <= pageMaxSeq &&
-        !itemIds.has(t._id) &&
-        (t.originalSeq === undefined || t.originalSeq > sinceVal),
-      )
-      .map(t => ({ _id: t._id, seq: t.seq, deletedAt: t.deletedAt }));
-
-    res.json({ items: [...items, ...tombs].sort((a, b) => (a as { seq: number }).seq - (b as { seq: number }).seq), nextCursor });
-  } catch (err) {
-    log.error(`sync GET entities: ${err}`);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
-syncDocsRouter.get('/entities/:id', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const doc = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: req.params['id'] }));
-    if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json(doc);
-  } catch (err) {
-    reportServerFailure('sync GET /entities/:id', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
 syncDocsRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
@@ -288,58 +300,8 @@ syncDocsRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async
 // EDGES
 // ═══════════════════════════════════════════════════════════════════════════
 
-syncDocsRouter.get('/edges', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
-    const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
-    const returnFull = fullParam === 'true';
-
-    const rawDocs = returnFull
-      ? await col<EdgeDoc>(`${spaceId}_edges`).find(asFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EdgeDoc[]
-      : await col<EdgeDoc>(`${spaceId}_edges`).find(asFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
-
-    const hasMore = rawDocs.length > pageSize;
-    const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
-    const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
-
-    const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
-    const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
-    const itemIds = new Set(items.map(i => (i as { _id: string })._id));
-    const tombs = tombstones
-      .filter(t =>
-        t.type === 'edge' &&
-        t.seq <= pageMaxSeq &&
-        !itemIds.has(t._id) &&
-        (t.originalSeq === undefined || t.originalSeq > sinceVal),
-      )
-      .map(t => ({ _id: t._id, seq: t.seq, deletedAt: t.deletedAt }));
-
-    res.json({ items: [...items, ...tombs].sort((a, b) => (a as { seq: number }).seq - (b as { seq: number }).seq), nextCursor });
-  } catch (err) {
-    log.error(`sync GET edges: ${err}`);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
-syncDocsRouter.get('/edges/:id', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const doc = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: req.params['id'] }));
-    if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json(doc);
-  } catch (err) {
-    reportServerFailure('sync GET /edges/:id', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
 syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
@@ -420,58 +382,8 @@ syncDocsRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (r
 // CHRONO
 // ═══════════════════════════════════════════════════════════════════════════
 
-syncDocsRouter.get('/chrono', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
-    const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
-    const returnFull = fullParam === 'true';
-
-    const rawDocs = returnFull
-      ? await col<ChronoEntry>(`${spaceId}_chrono`).find(asFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as ChronoEntry[]
-      : await col<ChronoEntry>(`${spaceId}_chrono`).find(asFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
-
-    const hasMore = rawDocs.length > pageSize;
-    const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
-    const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
-
-    const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
-    const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
-    const itemIds = new Set(items.map(i => (i as { _id: string })._id));
-    const tombs = tombstones
-      .filter(t =>
-        t.type === 'chrono' &&
-        t.seq <= pageMaxSeq &&
-        !itemIds.has(t._id) &&
-        (t.originalSeq === undefined || t.originalSeq > sinceVal),
-      )
-      .map(t => ({ _id: t._id, seq: t.seq, deletedAt: t.deletedAt }));
-
-    res.json({ items: [...items, ...tombs].sort((a, b) => (a as { seq: number }).seq - (b as { seq: number }).seq), nextCursor });
-  } catch (err) {
-    log.error(`sync GET chrono: ${err}`);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
-syncDocsRouter.get('/chrono/:id', syncRateLimit, requireAuth, async (req, res) => {
-  try {
-    const { spaceId, networkId } = req.query as Record<string, string>;
-    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-
-    const doc = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: req.params['id'] }));
-    if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json(doc);
-  } catch (err) {
-    reportServerFailure('sync GET /chrono/:id', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
 
 
 syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
@@ -567,7 +479,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
     if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
-    const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[] };
+    const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[]; links?: unknown[] };
     /*
      * A document the schema rejects is REPORTED, never silently removed.
      *
@@ -600,6 +512,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const entitiesRaw = parsed<EntityDoc>(Array.isArray(body?.entities) ? body.entities.slice(0, 500) : [], IncomingEntityDoc, 'entity');
     const edgesRaw = parsed<EdgeDoc>(Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [], IncomingEdgeDoc, 'edge');
     const chronoRaw = parsed<ChronoEntry>(Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [], IncomingChronoDoc, 'chrono');
+    const linksRaw = parsed<LinkDoc>(Array.isArray(body?.links) ? body.links.slice(0, 500) : [], IncomingLinkDoc, 'link');
 
     // Drop documents whose seq is too close to the protocol ceiling — one such
     // doc would otherwise drag the counter toward it via the bumpSeq below (see
@@ -619,6 +532,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const entities = plausible(entitiesRaw, 'entity');
     const edges = plausible(edgesRaw, 'edge');
     const chrono = plausible(chronoRaw, 'chrono');
+    const links = plausible(linksRaw, 'link');
 
     // ── Memories ─────────────────────────────────────────────────────────
     // `skipped` = the peer is already current (benign). `forkDepthRefused` = a record was DROPPED. They were
@@ -766,6 +680,40 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     /*
+     * ── Links ────────────────────────────────────────────────────────────
+     *
+     * The shortest of the five blocks, and every absence is a decision rather than an omission:
+     *
+     *   - **No schema violations.** A link has no type schema to check it against, so there is nothing to
+     *     record. `RECORD_TYPE` in the importer says the same thing with a `null`.
+     *   - **No fork resolution.** A fork exists because two peers can write different CONTENT under one id
+     *     at one seq. A link has no content — it is two endpoints and their kinds — so two peers writing
+     *     "these two records are connected" have written the same fact, and the newer seq simply wins.
+     *   - **No embedding.** `ingestBrainDoc` is passed `null` for the record type, which is that function's
+     *     way of saying this kind has nothing to embed. See its docblock for why that is an argument rather
+     *     than a second ingest function.
+     *
+     * The tombstone check IS here, and unchanged: a delete that has already been applied must not be undone
+     * by a stale copy of the record arriving afterwards.
+     */
+    const linkStats = { upserted: 0, skipped: 0, tombstoned: 0 };
+    for (const incoming of links) {
+      const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
+        .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'link' })) as TombstoneDoc | null;
+      if (tomb && tomb.seq >= incoming.seq) { linkStats.tombstoned++; continue; }
+      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
+
+      const existing = await col<LinkDoc>(`${spaceId}_links`)
+        .findOne(asFilter<LinkDoc>({ _id: incoming._id })) as LinkDoc | null;
+      if (!existing || incoming.seq > existing.seq) {
+        await ingestBrainDoc<LinkDoc>(spaceId, null, 'links', incoming);
+        linkStats.upserted++;
+      } else {
+        linkStats.skipped++;
+      }
+    }
+
+    /*
      * X-20 instrumentation, the RECEIVER half — and it is the half that matters now.
      *
      * The sender's side is answered: with `DEBUG` on, its log shows it pushing the record and advancing its
@@ -788,9 +736,10 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       + `memories ${JSON.stringify(memStats)} seq ${range(memories)}; `
       + `entities ${JSON.stringify(entStats)} seq ${range(entities)}; `
       + `edges ${JSON.stringify(edgeStats)} seq ${range(edges)}; `
-      + `chrono ${JSON.stringify(chronoStats)} seq ${range(chrono)}`);
+      + `chrono ${JSON.stringify(chronoStats)} seq ${range(chrono)}; `
+      + `links ${JSON.stringify(linkStats)} seq ${range(links)}`);
 
-    res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats });
+    res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats, links: linkStats });
 
     // Bump the local seq counter so future local writes always get a seq higher
     // than any document received via push.  Fire-and-forget after the response.

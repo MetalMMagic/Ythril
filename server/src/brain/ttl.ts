@@ -21,12 +21,25 @@ const DAY_MS = 86_400_000;
 /** Collections that carry per-record TTL. (`files` = the file-level FileMeta records; the sweep's
  *  deleter runs the full file cascade, and only file-level records ever carry `_expireAt`.) */
 /**
- * The collections the TTL sweep walks — every knowledge collection.
+ * The collections the TTL sweep walks.
  *
- * Kept as its own name because the sweep's maps are keyed by it and the name says what the sweep is for. It
- * is set 2 of three exactly (see `BRAIN_COLLECTIONS` in the types leaf), so it derives rather than listing.
+ * ## NOT ALL BRAIN COLLECTIONS, as of `M-2` — and it used to be
+ *
+ * This was `BRAIN_COLLECTIONS` exactly, and that equality held only while every collection had an
+ * `_expireAt` to expire by. A link record has none, deliberately: a link's lifetime is its ENDPOINTS' — it
+ * is meaningless once either end is gone, and a window of its own could outlive or predecease both. So the
+ * cascade belongs on the delete path, and a per-record window would be a second, disagreeing answer to when
+ * a link stops existing.
+ *
+ * Excluded rather than given an empty deleter, because the sweep's `DELETERS` map is deliberately TOTAL
+ * over this list — that totality is what turns "a new collection can expire" into a compiler error instead
+ * of a collection nothing ever sweeps. A no-op entry would satisfy the compiler and answer the question
+ * wrongly, and it would cost one pointless query per space per cycle for ever.
+ *
+ * Derived by exclusion rather than written out, so a sixth collection is swept by default and has to be
+ * argued OUT here — which is the safer direction to be wrong in.
  */
-export const TTL_COLLECTIONS = BRAIN_COLLECTIONS;
+export const TTL_COLLECTIONS = BRAIN_COLLECTIONS.filter(c => c !== 'links');
 
 // `COLLECTION_SUFFIX` moved to the types LEAF and is re-exported below, because five callers that needed it
 // could not import this module: it sits on the delete path and half of them are imported BY it.

@@ -87,7 +87,9 @@ Base path: `/api/sync` — used by the sync engine between peers. All endpoints 
 | `/api/sync/chrono` | GET | Page chrono changes |
 | `/api/sync/chrono/:id` | GET | Fetch one full chrono doc |
 | `/api/sync/chrono` | POST | Upsert one remote chrono doc |
-| `/api/sync/batch-upsert` | POST | Bulk upsert memories/entities/edges/chrono |
+| `/api/sync/links` | GET | Page link-record changes |
+| `/api/sync/links/:id` | GET | Fetch one full link doc |
+| `/api/sync/batch-upsert` | POST | Bulk upsert memories/entities/edges/chrono/links |
 | `/api/sync/tombstones` | GET | List tombstones by seq |
 | `/api/sync/tombstones` | POST | Apply remote tombstones |
 | `/api/sync/manifest` | GET | File manifest diff |
@@ -99,6 +101,12 @@ Base path: `/api/sync` — used by the sync engine between peers. All endpoints 
 | `/api/sync/networks/:networkId/votes` | GET | Pull open governance rounds |
 | `/api/sync/networks/:networkId/votes/:roundId` | POST | Relay a yes/veto vote |
 | `/api/sync/warm` | POST | Pre-sync warm-up (auth/embedding/DB) |
+
+**Link records have no single-record `POST`, and that is deliberate.** A link is written by writing the array
+field it comes from on the record that holds it — `memory.entityIds`, `chrono.entityIds`/`memoryIds`,
+`file.entityIds`/`memoryIds`/`chronoIds` — so there is no independent create for a peer to mirror. Link
+records reach a peer through `batch-upsert`, which is what a sync cycle uses for every family anyway; the
+per-family `POST` routes are the older single-record path.
 
 ### Common Query Parameters
 
@@ -285,7 +293,7 @@ reader rather than merely non-conforming, and nothing else in the pipeline would
 
 ### Tombstones
 
-- `GET /api/sync/tombstones?spaceId=general&sinceSeq=0` returns grouped `{ memories, entities, edges, chrono }` tombstones.
+- `GET /api/sync/tombstones?spaceId=general&sinceSeq=0` returns grouped `{ entities, memories, edges, chrono, links }` tombstones. The keys are derived from the tombstone types, so a new record kind appears here without a protocol change; a client should read the keys it knows and ignore the rest.
 - `POST /api/sync/tombstones` accepts `{ tombstones: [...] }` and applies deletions.
 
 **The `sinceSeq` you send is recorded.** The serving instance stores it as `lastSeqServed` for your peer identity and prunes tombstones that every member has pulled past — that is the only retention bound on the collection, because an age-based one would let a long-absent peer resurrect a deleted record. Two consequences for an integrator:

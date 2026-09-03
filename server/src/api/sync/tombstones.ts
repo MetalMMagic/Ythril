@@ -4,6 +4,7 @@
  * Split out of the api/sync.ts monolith (A17.6); handlers are unchanged.
  */
 import { Router } from 'express';
+import { TOMBSTONE_TYPES, TOMBSTONE_COLLECTION } from '../../config/types.js';
 import { toSafeRelPath } from '../../util/paths.js';
 import { z } from 'zod';
 import { col, asFilter, asUpdate } from '../../db/mongo.js';
@@ -44,19 +45,26 @@ syncTombstonesRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, 
 
     const since = parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 1000, 5000);
-    const memories = await listTombstones(spaceId, since, pageSize, 'memory');
-    const entities = await listTombstones(spaceId, since, pageSize, 'entity');
-    const edges = await listTombstones(spaceId, since, pageSize, 'edge');
-    const chrono = await listTombstones(spaceId, since, pageSize, 'chrono');
+    /*
+     * DERIVED from `TOMBSTONE_TYPES`, and it was four hand-written calls with a four-key response.
+     *
+     * A tombstone type absent from here is never SERVED: the deleting instance stores its tombstone, the
+     * peer asks for tombstones and is handed a response with no key for that kind, and the deleted record
+     * lives on there for ever. Nothing reports it — the peer got a 200 with a well-formed body, and the
+     * record it still holds looks exactly like a record nobody deleted.
+     *
+     * `M-2` is the fifth type, and the key each one takes is its COLLECTION name (`memory` is served under
+     * `memories`) — which is a mapping that already exists rather than a naming convention to re-derive
+     * here. The response keys are the same as before plus `links`; JSON has no key order, so nothing a peer
+     * parses changes.
+     */
+    const grouped = Object.fromEntries(await Promise.all(TOMBSTONE_TYPES.map(async (t) =>
+      [TOMBSTONE_COLLECTION[t], await listTombstones(spaceId, since, pageSize, t)] as const,
+    )));
 
     // After the read, so a bookkeeping failure can never cost the peer its tombstones.
     recordServedSeq(callerPeerId(req.authToken as Record<string, unknown>), spaceId, since);
-    res.json({
-      memories,
-      entities,
-      edges,
-      chrono,
-    });
+    res.json(grouped);
   } catch (err) {
     log.error(`sync GET tombstones: ${err}`);
     res.status(500).json({ error: 'Internal error' });

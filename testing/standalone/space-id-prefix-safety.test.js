@@ -76,12 +76,30 @@ describe('wipe → review findings', () => {
     ({ candidateTypesForWipe, WIPE_COLLECTION_TYPES } = await import('../../server/dist/spaces/lifecycle.js'));
   });
 
-  it('maps every wipeable collection to a finding type — a gap here orphans findings silently', () => {
-    // The collection plural ("memories") and the finding type ("memory") are different vocabularies. A
-    // missing entry does not fail; it just leaves findings pointing at records that no longer exist.
+  it('every wipeable collection either maps to a finding type or has none by construction', () => {
+    /*
+     * The collection plural ("memories") and the finding type ("memory") are different vocabularies. A
+     * missing entry does not fail; it just leaves findings pointing at records that no longer exist.
+     *
+     * ## This asserted a COUNT, and the count stopped being the question
+     *
+     * It required `mapped.length === WIPE_COLLECTION_TYPES.length` — every wipeable collection mapped —
+     * which was right while all five had findings. `M-2`'s links have none by construction: a link record is
+     * two ids and their kinds, so there is nothing to find a duplicate of and nothing to contradict.
+     *
+     * A count cannot tell that apart from the omission this test exists to catch, so the map behind
+     * `candidateTypesForWipe` is TOTAL now, with an explicit `null` where a collection has no findings — and
+     * what is asserted here is that every mapped value is a real finding type, and that the ones with
+     * findings are still all there. A new collection is then a compiler error at the map, where its author
+     * has to decide which of the two it is, rather than a silent gap here.
+     */
     const mapped = candidateTypesForWipe(new Set(WIPE_COLLECTION_TYPES));
-    assert.equal(mapped.length, WIPE_COLLECTION_TYPES.length,
-      `every wipeable type needs a finding-type mapping; got ${JSON.stringify(mapped)}`);
+    assert.ok(mapped.every(t => typeof t === 'string' && t.length > 0),
+      `a mapped finding type is empty or not a string: ${JSON.stringify(mapped)}`);
+    assert.deepEqual([...mapped].sort(), ['chrono', 'edge', 'entity', 'file', 'memory'],
+      `the collections that DO have findings must all still map; got ${JSON.stringify(mapped)}`);
+    assert.ok(WIPE_COLLECTION_TYPES.length > mapped.length,
+      'if every wipeable collection has findings again, this expectation is the thing to update');
   });
 
   it('clears only the wiped type', () => {

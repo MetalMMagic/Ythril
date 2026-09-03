@@ -58,7 +58,7 @@ Four high-water marks are kept per member. The first two prevent redundant data 
 
 All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced past the failure — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
 
-**One watermark, five transfers, and that is what "the last safe point" has to mean.** A cycle runs five independent transfers under each watermark — tombstones plus memories, entities, edges and chrono — and any one of them can stop early: a non-`2xx` from the peer, or its page cap. **The watermark advances only as far as EVERY transfer in the cycle is complete through.** A transfer that finished places no limit; one that stopped early limits the advance to the last position it actually delivered, and the lowest such limit wins.
+**One watermark, six transfers, and that is what "the last safe point" has to mean.** A cycle runs six independent transfers under each watermark — tombstones plus memories, entities, edges, chrono and links — and any one of them can stop early: a non-`2xx` from the peer, or its page cap. **The watermark advances only as far as EVERY transfer in the cycle is complete through.** A transfer that finished places no limit; one that stopped early limits the advance to the last position it actually delivered, and the lowest such limit wins.
 
 Before 3.2.0 both watermarks were set to the *maximum* across the transfers, which is only correct when all of them finished. A memories push that failed at seq 300, in a cycle where the entities push succeeded to seq 500, moved the watermark to 500 — and the memory at seq 400 was behind it permanently, re-sent by nothing, while every later cycle reported success. A held-back cycle now says so in the log, naming which transfers stopped, because a watermark quietly staying put reads exactly like a cycle with nothing to do.
 
@@ -101,11 +101,12 @@ GET /api/sync/memories?spaceId=&...&full=true&limit=200                     (cei
 GET /api/sync/entities?...                                                  (ceil(N/200) requests)
 GET /api/sync/edges?...                                                     (ceil(N/200) requests)
 GET /api/sync/chrono?...                                                    (ceil(N/200) requests)
+GET /api/sync/links?...                                                     (ceil(N/200) requests)
 ```
 
 ### Why `?full=true`
 
-Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the caller would need a second `GET /api/sync/memories/:id` request per document to fetch the full content — **N additional round-trips** per sync cycle.
+Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the caller would need a second `GET /api/sync/memories/:id` request per document to fetch the full content — **N additional round-trips** per sync cycle. Each family has that per-document route: `GET /api/sync/entities/:id`, `GET /api/sync/edges/:id`, `GET /api/sync/chrono/:id` and `GET /api/sync/links/:id`.
 
 With `?full=true` the full document payload is embedded in the paginated list response. The pull phase is `ceil(N/200)` requests regardless of how many documents exist.
 
@@ -136,11 +137,11 @@ Together this prevents a member from forging a tombstone with `instanceId` set t
 
 ### Document ID collision safety
 
-All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUIDv4** — 122 bits of cryptographic randomness from Node.js `uuid` v4. The probability of two independent instances generating the same `_id` is astronomically low (~2.7 × 10⁻²⁰ after 1 billion documents). In practice, a publisher's tombstone targeting `_id = X` will never match a subscriber-created document because the subscriber's documents will always have different UUIDv4 identifiers. The tombstone deletion-authorisation checks are a defence-in-depth layer on top of this structural guarantee.
+All document `_id` values (`memories`, `entities`, `edges`, `chrono`, `links`) are **UUIDv4** — 122 bits of cryptographic randomness from Node.js `uuid` v4. The probability of two independent instances generating the same `_id` is astronomically low (~2.7 × 10⁻²⁰ after 1 billion documents). In practice, a publisher's tombstone targeting `_id = X` will never match a subscriber-created document because the subscriber's documents will always have different UUIDv4 identifiers. The tombstone deletion-authorisation checks are a defence-in-depth layer on top of this structural guarantee.
 
 ### `lastSeqReceived` update
 
-After all four document types (memories, entities, edges, chrono) are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
+After all five document types (memories, entities, edges, chrono, links) are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
 
 Docs that originate from a third instance but were relayed through the peer (e.g. during braintree or pubsub fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
 
@@ -193,7 +194,7 @@ If the peer has never been synced (`lastSeqPushed` = 0), the full history is sen
 
 ### `POST /batch-upsert`
 
-Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], chrono?: ChronoEntry[] }` in a single request. Up to 500 documents per type per request. The server applies the same conflict rules as the individual `POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono` endpoints:
+Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], chrono?: ChronoEntry[], links?: LinkDoc[] }` in a single request. Up to 500 documents per type per request. The server applies the same conflict rules as the individual `POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono` endpoints:
 
 | Type | Rule |
 |------|------|
@@ -202,7 +203,13 @@ Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], ch
 | Edges | same as entities |
 | Chrono | same as entities |
 
-Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned}, entities: {upserted,skipped,tombstoned}, edges: {upserted,skipped,tombstoned}, chrono: {upserted,skipped,tombstoned} }`
+Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned}, entities: {upserted,skipped,tombstoned}, edges: {upserted,skipped,tombstoned}, chrono: {upserted,skipped,tombstoned}, links: {upserted,skipped,tombstoned} }`
+
+**A link has no fork counter, and that is a property of the record rather than an omission.** A fork exists
+because two peers can write different CONTENT under one id at one `seq`. A link record is two endpoints and
+their kinds — no label, no text, no properties — so two peers that both noticed the same connection wrote the
+same fact, and the higher `seq` simply wins. The links collection carries a unique index on
+`(from, fromKind, to, toKind)`, so the second write is a duplicate rather than a conflict.
 
 ### `lastSeqPushed` update
 
@@ -278,7 +285,7 @@ In a braintree, a child stores its **parent** with `direction='pull'` (the child
 
 The direction field controls not only which phases the sync *engine* runs on the initiating side, but also which writes the *receiving server* accepts.
 
-**The data-write surface is peer-only.** A POST to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`) must be presented with a **peer token** (a PAT carrying `peerInstanceId` — issued by the invite handshake, or minted explicitly via `POST /api/tokens { peerInstanceId }` for manually-configured topologies) or an **admin token** (the local operator, who could write through the regular REST API anyway). A space-scoped user PAT is refused with `403 { error: 'Sync writes require a peer token (peerInstanceId) or an admin token — use the regular REST API for user writes' }`. Unlike the REST API, which assigns `seq`/`_id`/`author` server-side, sync writes carry raw stream metadata — accepting user PATs here would let anyone holding one forge sync state, e.g. a downstream operator pushing content upstream in a directional network.
+**The data-write surface is peer-only.** A POST to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`) — link records arrive through `/batch-upsert` and have no single-record write door — must be presented with a **peer token** (a PAT carrying `peerInstanceId` — issued by the invite handshake, or minted explicitly via `POST /api/tokens { peerInstanceId }` for manually-configured topologies) or an **admin token** (the local operator, who could write through the regular REST API anyway). A space-scoped user PAT is refused with `403 { error: 'Sync writes require a peer token (peerInstanceId) or an admin token — use the regular REST API for user writes' }`. Unlike the REST API, which assigns `seq`/`_id`/`author` server-side, sync writes carry raw stream metadata — accepting user PATs here would let anyone holding one forge sync state, e.g. a downstream operator pushing content upstream in a directional network.
 
 For an identified peer, the server then derives the direction check from **its own membership records covering the target space** — never from the caller-supplied `networkId` query parameter. The write is allowed only when at least one of the caller's network relationships carrying that space permits inbound flow (`direction` pull/both, or a non-directional network type). If every relationship covering the space is `push` — "we push to them, they should not write to us" — the server responds `403 { error: 'Directional network: write not permitted from this peer' }`. A peer that is a member of no local network carrying the space (asymmetric/single-side topologies, a braintree child receiving from its unlisted parent) is governed by token space scope and the pending-join hold instead.
 

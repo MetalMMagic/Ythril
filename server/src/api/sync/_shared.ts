@@ -148,7 +148,7 @@ export async function checkEntityIdLinkViolations(
  */
 export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings?: boolean; excludeFromVectorSearch?: boolean }>(
   spaceId: string,
-  recordType: BrainEmbedRecordType,
+  recordType: BrainEmbedRecordType | null,
   collection: string,
   incoming: T,
 ): Promise<void> {
@@ -157,7 +157,19 @@ export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings
     asDoc<T>(incoming),
     { upsert: true },
   );
-  await enqueueIngestedRecord(spaceId, recordType, incoming);
+  /*
+   * `null` means this record kind has NOTHING TO EMBED — not "skip the queue this time".
+   *
+   * A link record (`M-2`) is the first: it says one record concerns another and carries no text at all, so
+   * there is no `BrainEmbedRecordType` for it and `VECTOR_INDEXED_COLLECTIONS` states in its own comment
+   * why its collection must never get a vector index.
+   *
+   * Made an explicit argument rather than a second ingest function on purpose. This is the only thing in the
+   * ingest router permitted to write a brain document, precisely so that a new ingest site cannot be written
+   * without the queue — and a separate `ingestLinkDoc` would be exactly that second site. A caller that
+   * embeds nothing now has to say `null` out loud, at the call, where a reviewer sees it.
+   */
+  if (recordType !== null) await enqueueIngestedRecord(spaceId, recordType, incoming);
 }
 
 // ── Safety limits ─────────────────────────────────────────────────────────
@@ -290,6 +302,39 @@ export const IncomingEdgeDoc = z.object({
   tags: z.array(z.string()).max(100).default([]),
   description: z.string().optional(),
   properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  author: AuthorRefSchema,
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
+});
+
+/**
+ * A link record on the wire.
+ *
+ * Short because a link IS short: two endpoints, their kinds, and the bookkeeping every replicated document
+ * carries. What is missing is the point — no label, no type, no weight, no properties, no tags, no
+ * description, and no suppression marks, because a record with nothing to embed needs no way to say so.
+ *
+ * **Both kinds are REQUIRED here, where an edge's are optional.** An edge's absent kind means `entity`,
+ * which every edge in every existing space is. A link has no such default: three of the six classes have a
+ * non-entity at each end, so absent would mean "unknown" — and an unknown endpoint kind is a link nothing
+ * can resolve. There is no legacy link on any wire to be lenient towards, because this schema and the
+ * document arrive together.
+ *
+ * **Every field of `LinkDoc` is here, and that is not a courtesy.** `brain/merkle.ts` hashes every field
+ * except the five in `DERIVED_FIELDS`, a link has none of those, so every field of a link is hashed — and a
+ * hashed field that does not replicate makes the sender's copy carry a key the receiver's lacks. The two
+ * roots then differ for ever on identical data, and every cycle logs a `MERKLE_DIVERGENCE` for a space
+ * where nothing is wrong. `a-replicated-field-reaches-its-incoming-schema.test.js` derives that rule from
+ * `merkle.ts` rather than keeping a list.
+ */
+export const IncomingLinkDoc = z.object({
+  _id: z.string().min(1),
+  spaceId: z.string().min(1),
+  from: z.string().min(1),
+  fromKind: RefKindSchema,
+  to: z.string().min(1),
+  toKind: RefKindSchema,
   author: AuthorRefSchema,
   createdAt: z.string(),
   updatedAt: z.string().optional(),

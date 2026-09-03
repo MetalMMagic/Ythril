@@ -342,7 +342,14 @@ export const RECORD_COLLECTION = {
  * That tuple means *can be embedded, recalled or retained*, and a link is none of the three: it has no
  * content, it is never a recall result, and its lifetime is its endpoints'. Adding it there to save a line
  * here would hand it an embed-text builder, a lexical field, a recall projection and a retention bucket,
- * which is the same mistake as making it a fifth `KnowledgeType` — priced by the compiler and rejected.
+ * which is the same mistake as making it a fifth `KnowledgeType`. FIFTEEN of that tuple's sixteen consumers
+ * outside this module use it to mean *carries a type schema* — the schema library's enum, the per-type
+ * schema routes' guard, `SCHEMA_KTS`, the schema audit summary, the chrono redaction sweep, and three
+ * schema SCREENS in the client. The sixteenth was the tombstone `type` enum, which is not about schemas and
+ * DID need links, so it got its own tuple (`TOMBSTONE_TYPES`) rather than widening this one.
+ *
+ * Decided on that count. It goes against the owner's literal wording from 2026-08-30, so
+ * `todo/_LINKS-AND-SCHEMA-TODOS.md` records it as his to overturn, with what the alternative costs.
  *
  * So: five derived, one appended, and the append is the whole statement that a link is a collection and
  * nothing more.

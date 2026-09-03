@@ -910,6 +910,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Records already holding a nested value keep it: nothing rewrites stored data, and
   `deleteFields: ["properties.theKey"]` removes one.
 
+  **The same defect was one record type over, and sweeping the class is what found it.** FILE META had it
+  too, and it would have survived a fix scoped to what was reported. `write_file` — the create door for a
+  file's properties — declared the value types and always refused a nested one; `update_file_meta`
+  declared only that the bag was an object; `PATCH .../file-meta/:path` checked the bag's shape and never
+  looked inside it; and the UPLOAD, which is where a file's properties are first set, silently DROPPED a
+  malformed bag and answered `2xx` — the worst of the four, because an upload is not a cheap request to
+  repeat. All four agree now.
+
+  **And `update_file_meta`'s published schema had been telling callers the opposite of what it does.** Its
+  `properties` description said the whole object is REPLACED and unnamed keys DELETED. It has merged since
+  3.1, the tool's own prose says so, and the implementation does — only the schema disagreed. A schema
+  description is what a caller reads while constructing arguments, which makes it the one surface where
+  being wrong is invisible: nobody reports a behaviour they were told they did not have.
+
+  **The gate is named for the rule rather than the record type** — `a-property-value-is-primitive-on-every-door`
+  — because it was written as `an-entity-property-…` and covered file meta within the hour.
+
 - **Fourteen source files held a stray carriage return, so git treated them as BINARY and a pull request
   touching one showed the whole file as rewritten.** Git decides per file whether it holds text, and a
   carriage return that is not followed by a newline makes it answer no. A binary file gets no line diff and

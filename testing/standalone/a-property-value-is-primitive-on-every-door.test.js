@@ -1,5 +1,10 @@
 /**
- * An entity property value must be a string, a number or a boolean — on EVERY door that writes one.
+ * A property value must be a string, a number or a boolean — on EVERY door that writes one.
+ *
+ * Named for the RULE and not for the record type it was reported against: it began as
+ * `an-entity-property-is-primitive-on-every-door` and covered file meta within the hour, because that is
+ * where reading the source took it. A gate named after one instance of a class goes stale the first time
+ * the class widens, and the name is the one place nothing checks.
  *
  * ## The report, and it is not a feature request
  *
@@ -41,7 +46,7 @@
  * product decision and not a defect fix. What this gate holds is that the rule the product HAS is the same on
  * every door that has it.
  *
- * Run: node --test testing/standalone/an-entity-property-is-primitive-on-every-door.test.js
+ * Run: node --test testing/standalone/a-property-value-is-primitive-on-every-door.test.js
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -72,6 +77,8 @@ describe('the primitive-property rule has ONE implementation', () => {
     const doors = {
       'server/src/api/brain/entities.ts': 'the create AND patch routes',
       'server/src/brain/bulk.ts': 'the bulk writer, which cast the bag with no value check at all',
+      'server/src/api/brain/file-meta.ts': 'the file-meta patch route — the same defect, one type over',
+      'server/src/api/files-upload.ts': 'the upload, which is the CREATE door for a file\'s properties',
     };
     for (const [f, why] of Object.entries(doors)) {
       assert.match(code(f), new RegExp(`\\b${SHARED}\\(`), `${f} — ${why}`);
@@ -97,6 +104,40 @@ describe('the primitive-property rule has ONE implementation', () => {
     const calls = [...code('server/src/api/brain/entities.ts').matchAll(new RegExp(`\\b${SHARED}\\(`, 'g'))];
     assert.equal(calls.length, 2,
       `expected the create route and the patch route to call it, found ${calls.length} call(s)`);
+  });
+
+  it('FILE-META is covered too, on all three of its doors', () => {
+    /*
+     * The report named entities. Reading the source found the identical shape on file meta, and it would
+     * have survived a fix scoped to what was reported — which is the whole reason a reporter's location is
+     * a starting point rather than the boundary.
+     *
+     *   - `write_file` (MCP) DECLARED it and always refused: `additionalProperties` with the three types.
+     *   - `update_file_meta` (MCP) declared `type: 'object'` and nothing else.
+     *   - `PATCH .../file-meta/:path` (REST) checked the bag's shape and never looked inside it.
+     *   - the UPLOAD, which is the create door for these fields, silently DROPPED a malformed bag and
+     *     answered 2xx — the worst of the four, because an upload is not a cheap request to repeat.
+     *
+     * MCP is asserted on the SCHEMA rather than on a call: the dispatcher compiles each tool's published
+     * schema and refuses what it does not match, so the declaration IS the enforcement there.
+     */
+    const mcp = code('server/src/mcp/tools/file.ts');
+    const declarations = [...mcp.matchAll(/additionalProperties:\s*\{\s*oneOf/g)];
+    assert.equal(declarations.length, 2,
+      `expected write_file AND update_file_meta to declare the value types, found ${declarations.length}`);
+    for (const f of ['server/src/api/brain/file-meta.ts', 'server/src/api/files-upload.ts']) {
+      assert.match(code(f), new RegExp(`\\b${SHARED}\\(`), `${f} must check the values, not only the shape`);
+    }
+  });
+
+  it('and update_file_meta no longer says REPLACES, which it has not done since 3.1', () => {
+    // Found in the same reading. The tool's PROSE says `properties` merges, the implementation merges, and
+    // the published schema's own description said the whole object is REPLACED and unnamed keys DELETED.
+    // A schema description is what a caller reads while constructing arguments — the one surface where
+    // being wrong is invisible, because nobody reports a behaviour they were told they did not have.
+    const mcp = code('server/src/mcp/tools/file.ts');
+    assert.doesNotMatch(mcp, /REPLACES the whole properties object/,
+      'the published schema still tells a caller the opposite of what update_file_meta does');
   });
 
   it('the refusal message is unchanged, because a caller is parsing it', () => {

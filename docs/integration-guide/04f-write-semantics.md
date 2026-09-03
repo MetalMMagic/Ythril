@@ -480,6 +480,15 @@ PATCH /api/brain/spaces/:spaceId/files?path=…
 >
 > **The lists still replace on every type**: `tags`, `entityIds`, `memoryIds` and `chronoIds` are overwritten
 > by what you send. Only `properties` merge. And **patching an edge's `label` changes its `_id`** — see the graph API page, which owns edge identity.
+>
+> **Also fixed in 4.0: `update_file_meta`'s published SCHEMA said the opposite of all of this.** Its
+> `properties` description read *"REPLACES the whole properties object — keys you do not send are DELETED"*,
+> which had not been true since 3.1. The tool's own prose said merge, the implementation merged, and only
+> the schema — the thing an agent reads while constructing its arguments — disagreed.
+>
+> **And a file's property VALUES are now checked on all four of its doors.** `write_file` always refused a
+> nested object or an array; `update_file_meta`, `PATCH .../files` and the upload did not — the upload
+> silently discarded a malformed bag and answered `2xx`, so the file stored and its properties did not.
 
 <!-- markdownlint-disable-next-line MD028 -->
 

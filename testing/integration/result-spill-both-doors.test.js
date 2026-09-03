@@ -122,6 +122,34 @@ const recall = (body) => post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/
   { includeFreshWrites: true, ...body });
 
 /**
+ * The full match total, measured NOW — never the `COUNT` constant.
+ *
+ * ## The flake this removes, and why the constant was the bug rather than the timing
+ *
+ * These assertions read `count === COUNT` (28). CI failed three of them with `27 !== 28`, which the
+ * docblock above `before()` had already diagnosed against itself: with no wait for the vector index, a
+ * record is reachable through the fresh-write channel only until `DUPE_FRESH_WINDOW_MS` expires, and the
+ * OLDEST one can age out between the seed and an assertion — in neither channel, and `count` is short by
+ * exactly the records that lapsed.
+ *
+ * The mitigation was a ten-minute window in the compose file, which is **the maximum `env-num.ts` accepts**.
+ * So there was no larger number to reach for, and a test whose premise is "a wall clock has not run out yet"
+ * is a guard on the wrong axis: the property being tested has nothing to do with elapsed time.
+ *
+ * **The property is that `count` is the FULL total rather than the returned prefix or the post-skip
+ * remainder.** So it is compared against a total measured milliseconds earlier, by the same door, on the
+ * same corpus — which cannot disagree about what has aged out. If a record lapses, both numbers move
+ * together and the property still holds; if `count` ever became the prefix, both would not.
+ *
+ * The floor is what keeps it from passing vacuously: a corpus that had collapsed to two records would
+ * satisfy any equality, so `ready()` requires a total worth truncating.
+ */
+const fullCount = async () => {
+  const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000 });
+  return r.status === 200 && r.body.truncated === false ? r.body.count : 0;
+};
+
+/**
  * Skip when the environment could not seed; FAIL when it seeded and the calibration still did not happen.
  *
  * The two are not the same and must not share an exit. "Writes unavailable" is an honest environment skip;
@@ -134,9 +162,27 @@ const ready = (t) => {
   return true;
 };
 
+/**
+ * The total to compare against, plus the floor that stops the comparison being vacuous.
+ *
+ * At most `COUNT`, and allowed to be less — a record aged out of the fresh-write window is a fact about the
+ * environment, not a defect. Below the floor it IS a defect, or a corpus so collapsed that "count is the
+ * full total" would be true of almost any number.
+ */
+const totalNow = async () => {
+  const total = await fullCount();
+  assert.ok(total >= COUNT - 3 && total <= COUNT,
+    `the unbudgeted total is ${total}, outside ${COUNT - 3}..${COUNT} — too far off to compare a budgeted `
+    + 'count against, and a corpus that small would satisfy the equality without testing it');
+  return total;
+};
+
 describe('REST: a tight budget returns a prefix and a way to reach the rest', () => {
   it('says what it sent, what exists, and where to continue from', async (t) => {
     if (!ready(t)) return;
+    // Measured first and used below: the same door's answer to "how many match", taken milliseconds before
+    // the budgeted call so the two cannot disagree about what has aged out of the fresh-write window.
+    const total = await totalNow();
     const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: tightBytes });
     assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
 
@@ -156,7 +202,7 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
     assert.ok(r.body.returned > 3,
       `a budget must return what fits, not a constant — got ${r.body.returned} of ${r.body.count}`);
     assert.ok(r.body.returned < r.body.count, 'and it must not be the whole set, or nothing was truncated');
-    assert.equal(r.body.count, COUNT, 'count is the full match total, so a caller can size what they are missing');
+    assert.equal(r.body.count, total, 'count is the full match total, so a caller can size what they are missing');
     assert.ok(r.body.bytesReturned <= tightBytes, `bytesReturned ${r.body.bytesReturned} exceeds the budget`);
 
     // Every returned record is WHOLE. A description cut in half would be the one failure the byte accounting
@@ -314,6 +360,7 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
       return r.status === 200 && r.body.truncated === false ? r.body.results.map(x => x._id).join(',') : null;
     };
     const before = await orderOf();
+    const total = await totalNow();
 
     const seen = [];
     let skip = 0;
@@ -321,7 +368,7 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
     for (;;) {
       const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: tightBytes, skip });
       assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
-      assert.equal(r.body.count, COUNT, 'count stays the FULL total on every page, never the post-skip total');
+      assert.equal(r.body.count, total, 'count stays the FULL total on every page, never the post-skip total');
       seen.push(...r.body.results.map(x => x._id));
       pages++;
       assert.ok(pages <= COUNT, 'a page that returns nothing and still says truncated would loop forever');
@@ -361,6 +408,9 @@ describe('MCP: the same answer through the other door', () => {
       return t.skip(`MCP session unavailable: ${e.message}`);
     }
     try {
+      // Measured over the REST door on purpose: the total is a fact about the CORPUS, and reading it through
+      // the surface under test would let one door's own bug supply the number it is checked against.
+      const total = await totalNow();
       const res = await session.callTool('recall', {
         space: SPACE, query: QUERY, types: ['entity'], topK: COUNT,
         includeFreshWrites: true, maxBytes: tightBytes,
@@ -375,7 +425,7 @@ describe('MCP: the same answer through the other door', () => {
       assert.equal(out.budgetBytes, tightBytes, 'the same parameter, honoured the same way');
       assert.equal(out.returned, out.results.length);
       assert.ok(out.returned > 3, `a prefix, not a sample — got ${out.returned}`);
-      assert.equal(out.count, COUNT, 'count is the full set');
+      assert.equal(out.count, total, 'count is the full set');
       // Same default as REST, and the parity is the point: a dump that happened on one door and not the other
       // would make a truncated read cost different amounts depending on which client the caller picked.
       assert.equal(out.nextSkip, out.returned, 'and the continuation is there');
@@ -394,7 +444,7 @@ describe('MCP: the same answer through the other door', () => {
         space: SPACE, query: QUERY, types: ['entity'], topK: COUNT,
         includeFreshWrites: true, maxBytes: tightBytes, skip: out.nextSkip,
       }))?.content?.[0]?.text ?? '{}');
-      assert.equal(next.count, COUNT, 'count stays the full total on a skipped page');
+      assert.equal(next.count, total, 'count stays the full total on a skipped page');
       assert.ok(next.results.length > 0, 'the next page must not be empty');
       // Counted, not identity-compared. `skip` continues one ranked answer rather than a snapshot, and this
       // space is still ingesting into the vector index — so two calls can legitimately rank differently and an

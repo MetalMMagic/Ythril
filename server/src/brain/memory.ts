@@ -6,6 +6,7 @@
  * duplicate check; nothing here is imported back by those modules.
  */
 import { v4 as uuidv4 } from 'uuid';
+import { reconcileLinks, removeLinksFrom } from './links.js';
 import { authorRef } from '../config/author.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
@@ -203,6 +204,17 @@ export async function remember(
     // Not queued when suppressed: skipping the inline embed and queueing anyway stores the vector the flag
     // forbids a few seconds later, with nothing to come back and remove it.
     if (!embResult && !suppressed) await enqueueEmbedJob(spaceId, 'memory', converged._id);
+    /*
+     * The link records, after the write and before the event.
+     *
+     * This branch writes `entityIds` UNCONDITIONALLY, from a parameter that defaults to `[]` — so a retried
+     * `remember` carrying the id and no entities WIPES the stored links. Whether that is right is not this
+     * change's question; what matters is that the link records follow it either way, because a link left
+     * behind describes a connection the memory itself no longer claims. `createChrono`'s equivalent branch
+     * is guarded and does not clear, and that asymmetry is recorded on the `M-2` row rather than smoothed
+     * over here.
+     */
+    await reconcileLinks(spaceId, converged._id, 'memory', { entity: entityIds }, converged.author);
     // `memory.updated`, not `created` — a subscriber must be able to tell a converged retry from a new record.
     if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
     return withoutVector((similar || contradicts)
@@ -250,6 +262,9 @@ export async function remember(
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   if (!embResult && !suppressed) await enqueueEmbedJob(spaceId, 'memory', doc._id);
+  // The link records for a new memory. One call whether the array is empty or not: `reconcileLinks` is a
+  // reconcile, so "nothing to do" is a cheap answer rather than a decision this site has to make.
+  await reconcileLinks(spaceId, doc._id, 'memory', { entity: entityIds }, doc.author);
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
@@ -397,6 +412,12 @@ export async function updateMemory(
   // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
   // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
   await enqueueEmbedJob(spaceId, 'memory', result._id);
+  // Only when the caller NAMED the field. Omitting `entityIds` on a patch means "leave the links alone",
+  // and passing `{ entity: undefined }` would read as "remove them all" — the same absent-versus-empty
+  // distinction `deleteFields` exists for, one level down.
+  if (updates.entityIds !== undefined || deleteFieldsPaths?.some(p => p.startsWith('entityIds'))) {
+    await reconcileLinks(spaceId, result._id, 'memory', { entity: result.entityIds ?? [] }, result.author);
+  }
   if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }
@@ -435,6 +456,11 @@ export async function deleteMemory(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  // The cascade. A deleted memory's links describe a connection whose SUBJECT no longer exists, and nothing
+  // else would ever remove them — the reconcile hook only runs on a write to the record that is now gone.
+  // Links pointing AT this memory are a different question and belong to the readers' slice: removing them
+  // here would delete another record's data.
+  await removeLinksFrom(spaceId, memoryId, 'memory');
   if (actor) emitWebhookEvent({ event: 'memory.deleted', spaceId, entry: { _id: memoryId }, ...actor });
   return true;
 }

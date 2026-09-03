@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { reconcileLinks, removeLinksFrom } from './links.js';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
@@ -212,6 +213,10 @@ export async function createChrono(
     );
     const converged = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
     if ('_expireAt' in $unset) delete (converged as { _expireAt?: unknown })._expireAt;
+    // Both classes, from the CONVERGED document rather than the parameters: this branch merges, so what
+    // the entry now says is the only correct input to a reconcile.
+    await reconcileLinks(spaceId, converged._id, 'chrono',
+      { entity: converged.entityIds ?? [], memory: converged.memoryIds ?? [] }, converged.author);
     // `chrono.updated`, not `created` — a subscriber must be able to tell a converged retry from a new entry.
     if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...converged, embedding: undefined }, ...actor });
     return withoutVector((similar || contradicts)
@@ -257,6 +262,10 @@ export async function createChrono(
   stampSkewOnCreate(doc, getSpaceMeta(spaceId));
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
   if (!embeddingFields.embedding && !suppressed) await enqueueEmbedJob(spaceId, 'chrono', doc._id);
+  // A chrono entry is the only record kind that holds TWO classes, and they are told apart by the to-kind
+  // rather than by a field name — which is why one reconcile call takes both.
+  await reconcileLinks(spaceId, doc._id, 'chrono',
+    { entity: doc.entityIds ?? [], memory: doc.memoryIds ?? [] }, doc.author);
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   // Advisory only — the entry is stored either way.
   return withoutVector((similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc);
@@ -388,6 +397,20 @@ export async function updateChrono(
   // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
   // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
   await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
+  /*
+   * The writer whose `$set` key is COMPUTED — `$set[k] = v` over `Object.entries(updates)` — so no grep for
+   * either field name finds this path in either spelling. Reconciled from the STORED document for that
+   * reason: reading the updates object would mean re-deriving which of the two classes the loop happened to
+   * touch, and getting that wrong is invisible.
+   *
+   * Both classes are passed only when the caller named one of them. Omitting `memoryIds` on a patch means
+   * "leave the memory links", not "remove them".
+   */
+  if (updates.entityIds !== undefined || updates.memoryIds !== undefined
+      || deleteFieldsPaths?.some(p => p.startsWith('entityIds') || p.startsWith('memoryIds'))) {
+    await reconcileLinks(spaceId, updatedChrono._id, 'chrono',
+      { entity: updatedChrono.entityIds ?? [], memory: updatedChrono.memoryIds ?? [] }, updatedChrono.author);
+  }
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
   return withoutVector(updatedChrono);
 }
@@ -582,6 +605,8 @@ export async function deleteChrono(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  // The cascade — see `removeLinksFrom`. Links pointing AT this entry belong to the readers' slice.
+  await removeLinksFrom(spaceId, chronoId, 'chrono');
   if (actor) emitWebhookEvent({ event: 'chrono.deleted', spaceId, entry: { _id: chronoId }, ...actor });
   return true;
 }

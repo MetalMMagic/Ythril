@@ -18,6 +18,7 @@ import { escapeRegex } from '../util/redos.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { assertRefsResolve } from '../brain/entity-refs.js';
+import { reconcileLinks, removeLinksFrom } from '../brain/links.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
 import { expiryForCreate } from '../brain/ttl.js';
 import { enqueueEmbedJob } from '../brain/embed-queue.js';
@@ -304,6 +305,23 @@ export async function updateFileMeta(
   // could only be computed from the read above, which is the stale value this change exists to stop using.
   await enqueueEmbedJob(spaceId, 'file', normalised);
 
+  /*
+   * A file's THREE classes — the only record kind with all of them, and the only one whose `_id` is a path.
+   *
+   * Reconciled from the merged values this function computed, and only for the classes the caller named:
+   * omitting `chronoIds` on a patch means "leave the chrono links", not "remove them". `updateFileMeta` is
+   * also the ONLY writer of these three fields, so this one call covers every door - REST, MCP and the face
+   * labeller, which appends through here rather than writing the array itself.
+   */
+  if (opts.entityIds !== undefined || opts.memoryIds !== undefined || opts.chronoIds !== undefined
+      || deleteFieldsPaths?.some(p => p.startsWith('entityIds') || p.startsWith('memoryIds') || p.startsWith('chronoIds'))) {
+    await reconcileLinks(spaceId, normalised, 'file', {
+      ...(opts.entityIds !== undefined ? { entity: ($set['entityIds'] as string[] | undefined) ?? [] } : {}),
+      ...(opts.memoryIds !== undefined ? { memory: ($set['memoryIds'] as string[] | undefined) ?? [] } : {}),
+      ...(opts.chronoIds !== undefined ? { chrono: ($set['chronoIds'] as string[] | undefined) ?? [] } : {}),
+    }, existing.author ?? authorRef());
+  }
+
   // Face recognition side-effects when entity links change.
   //
   // Two cases:
@@ -457,6 +475,25 @@ export async function renameFileMeta(
     path: normDst,
     updatedAt: now,
   }));
+
+  /*
+   * The link records move with it, and this is the path that hides them.
+   *
+   * A file's `_id` IS its path, so a rename changes the identity every `file.*` link hangs off. The three
+   * arrays ride across by object spread, so their field names never appear here — a grep for `entityIds`
+   * finds nothing in this function, in either spelling. Without this the links would still name the OLD
+   * path: a `from` pointing at a record that no longer exists.
+   *
+   * Removed from the old id first and created under the new one, because the id is derived from the `from`
+   * — so there is no rename of a link record either, only a delete and a create. The tombstone that the
+   * removal writes is what stops a peer restoring the links under the old path on the next pull.
+   */
+  await removeLinksFrom(spaceId, normSrc, 'file');
+  await reconcileLinks(spaceId, normDst, 'file', {
+    entity: existing.entityIds ?? [],
+    memory: existing.memoryIds ?? [],
+    chrono: existing.chronoIds ?? [],
+  }, existing.author ?? authorRef());
 }
 
 /**

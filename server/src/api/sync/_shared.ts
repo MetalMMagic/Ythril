@@ -170,6 +170,26 @@ export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings
    * embeds nothing now has to say `null` out loud, at the call, where a reviewer sees it.
    */
   if (recordType !== null) await enqueueIngestedRecord(spaceId, recordType, incoming);
+
+  /*
+   * The link records for an ARRIVING record, and this is the site that matters most for them.
+   *
+   * A document reaching us from a peer, or from the admin importer, carries its six array fields and no link
+   * records — the sender may be on a build that has none. Nothing else would ever create them: the reconcile
+   * hooks live in the three writer functions, and this path deliberately bypasses all three by replacing the
+   * whole document.
+   *
+   * Left out, the collection would be right for locally-written records and empty for everything received,
+   * which is invisible until the readers switch and then presents as a peer's connections having vanished.
+   * Hooked HERE rather than in each caller because this function is already the only thing the ingest router
+   * may use to write a brain document — the same argument that put the embed queue here.
+   *
+   * A link record arriving is skipped: it IS the thing, and reconciling it against itself would recurse.
+   */
+  if (recordType !== null) {
+    await reconcileLinksForDocument(spaceId, incoming._id, recordType as RefKind,
+      incoming as unknown as Record<string, unknown>);
+  }
 }
 
 // ── Safety limits ─────────────────────────────────────────────────────────
@@ -199,6 +219,8 @@ export const MAX_FORK_DEPTH = 10;
 
 // ── Incoming document schemas (Zod validation for peer-submitted docs) ─────
 
+import { reconcileLinksForDocument } from '../../brain/links.js';
+import type { RefKind } from '../../config/types-knowledge.js';
 import { validateEntity, validateEdge, validateChrono, validateMemory, getSpaceMeta, type SchemaViolation }
   from '../../spaces/schema-validation.js';
 

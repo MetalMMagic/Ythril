@@ -110,6 +110,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Link records are now WRITTEN — every path that writes one of the six array fields maintains them.**
+  `M-2` slice 2a. Slice 1 gave a link record a collection, a content hash, replication and a query door;
+  nothing created one. Now writing `memory.entityIds`, `chrono.entityIds`/`memoryIds` or
+  `file.entityIds`/`memoryIds`/`chronoIds` also creates, updates and removes the matching link records.
+
+  **NOTHING READS THEM YET, and that is the slice.** Every existing answer is unchanged — the 3.x
+  behaviour baseline stays green with no edits, which is the property this slice was scoped around. The
+  readers switch in 2b.
+
+  **ONE function does it, called from every writer.** `brain/links.ts` reconciles: it takes the desired
+  end state and makes the stored rows equal it. A caller never says what CHANGED — the arrays are
+  replaced wholesale on every write — so the end state is the only honest input, and a per-writer copy of
+  "work out what moved" is the defect shape this codebase produces most.
+
+  **The id is DERIVED and a removal writes a TOMBSTONE.** Both are load-bearing. The id is a UUIDv5 over
+  the two records and the class, so one connection has one id for ever — a re-write is a no-op instead of
+  a duplicate, which is what will let a conversion script run twice over a space without recording that
+  it has. And a link deleted without a tombstone comes back on the next pull from any peer that still
+  holds it: the delete would undo itself within minutes and nothing would report it.
+
+  **Four paths bypass all three writer functions by replacing the whole document, and each is hooked:**
+
+  - a record PUSHED by a peer, and the admin importer — both reach `ingestBrainDoc`, which is the ingest
+    router's only write door by design, so one hook covers both.
+  - a record PULLED from a peer, which lands in a separate `bulkWrite` in the sync engine. **The copy
+    that would have been forgotten**, because push is the direction people picture — and left out, a
+    space that only ever pulls would hold arrays with no link records at all.
+  - a file RENAME, which deletes and re-inserts under a new `_id`. A file's id is its path, so a rename
+    moves the identity every `file.*` link hangs off — and the three arrays ride across by object spread,
+    so **their field names never appear in that function**. A sweep for `entityIds` reports it clean in
+    both spellings while every link still names a path that no longer exists.
+
+  A new gate holds the coverage, and it matches on the reconcile CALL rather than on the field names for
+  exactly that reason.
+
 - **The 3.x link baseline is written down, from a real database, before the migration replaces it.**
   Slice 2 of the link migration switches every adjacency reader from array fields to link records, and
   the moment it does, *"what did 3.x answer?"* is unrecoverable from the code. So it is captured now:

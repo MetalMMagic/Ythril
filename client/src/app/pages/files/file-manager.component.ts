@@ -2,7 +2,7 @@ import { FileExtractStore } from './file-extract.store';
 import { FileMetaStore } from './file-meta.store';
 import { FileUploadStore } from './file-upload.store';
 import { FilePreviewStore } from './file-preview.store';
-import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { FilePreviewComponent } from './file-preview.component';
 import { UploadQueueComponent, type UploadItem, type UploadStatus } from './upload-queue.component';
 import { FileMetaEditorComponent, type FileMetaModel } from './file-meta-editor.component';
@@ -11,6 +11,7 @@ import { FileListingComponent, type FileRow } from './file-listing.component';
 import { joinPath } from './file-format';
 import { FileTreeComponent, type TreeNode } from './file-tree.component';
 import { FileToolbarComponent, type BreadcrumbSegment } from './file-toolbar.component';
+import { FileDetailPaneComponent, type DetailMode } from './file-detail-pane.component';
 import { FileTreeStore } from './file-tree.store';
 import { FileListingStore, LISTING_FAILURE_KEYS } from './file-listing.store';
 import { CommonModule } from '@angular/common';
@@ -52,7 +53,7 @@ import { ModalDirective } from '../../shared/modal.directive';
    * provider does for free.
    */
   providers: [FileTreeStore, FileListingStore, FileExtractStore, FileMetaStore, FileUploadStore, FilePreviewStore],
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent, FileToolbarComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, ModalDirective, FilePreviewComponent, UploadQueueComponent, FileMetaEditorComponent, FileExtractViewComponent, FileListingComponent, FileTreeComponent, FileToolbarComponent, FileDetailPaneComponent],
   styles: [`
     /* A background refresh, as a 2px indeterminate hairline above the table. Deliberately NOT a spinner and
        deliberately not an overlay: the whole point is that nothing on screen moves or disappears while a poll
@@ -95,50 +96,12 @@ import { ModalDirective } from '../../shared/modal.directive';
 
     /* ── Upload queue panel (U12) ─────────────────────────────── */
 
-    /* ── Docked detail pane (preview + description ⇄ file meta) ─── */
-    /* A third in-flow column of .fm-layout; the list (.fm-main) reflows to full width when it's absent. */
-    .fm-detail {
-      width: min(480px, 42vw);
-      flex-shrink: 0;
-      border-left: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      max-height: calc(100vh - 180px);
-    }
-    .detail-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .detail-header .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Segmented [Preview & description | File meta] toggle */
-    .seg-toggle { display: inline-flex; flex: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-    .seg-toggle button {
-      flex: 1; background: none; border: none; padding: 5px 10px; cursor: pointer;
-      font-size: 0.82em; color: var(--text-muted); white-space: nowrap;
-    }
-    .seg-toggle button.active { background: var(--bg-muted); color: var(--text); font-weight: 600; }
-    .seg-toggle button:not(.active):hover { background: var(--bg-hover); }
-    .detail-body { flex: 1; overflow: auto; padding: 14px; }
-    /* Description shown beneath the preview */
-    .detail-desc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-    .detail-desc h4 { margin: 0 0 6px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-    .detail-desc p { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
-    /* Provenance sits inside the heading, quieter than it: it qualifies the description rather than
-       announcing itself. Lower-case against the upper-case heading so it reads as an aside. */
-    .detail-desc .desc-src { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px;
-      font-size: 0.92em; text-transform: none; letter-spacing: 0; color: var(--text-muted); cursor: help; }
-    /* Full-screen toggle floats at the top-right of the preview body. */
-    .preview-body { position: relative; }
-    .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
-    .preview-fs-btn:hover { opacity: 1; }
-    /* Formatted markdown */
-    .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
-    .mermaid-diagram svg { max-width: 100%; height: auto; }
+    /* THE MERMAID RULE IS NOT HERE ANY MORE, and it never worked here.
+       A diagram is inline SVG inside markdown bound with [innerHTML] in file-preview.component.ts, so a
+       rule declared on this page could not reach it — no error, just a diagram that was never centred and
+       never width-capped. It is now .md-rendered ::ng-deep .mermaid-diagram in FILE_PREVIEW_STYLES,
+       beside the other rules that have to reach the same content. */
+
     /* Full-screen preview overlay */
     .preview-fs-overlay {
       position: fixed; inset: 0; z-index: 1200;
@@ -150,6 +113,9 @@ import { ModalDirective } from '../../shared/modal.directive';
     }
     .preview-fs-bar .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .preview-fs-body { flex: 1; overflow: auto; padding: 20px; max-width: 1100px; width: 100%; margin: 0 auto; }
+    /* The overlay's body wears .preview-body too, and the DOCKED pane's copy of this rule lives in
+       FILE_DETAIL_PANE_STYLES. Two elements, one class, so the rule exists in both places — the same
+       arrangement .rename-form has with the listing. */
     .preview-body {
       flex: 1;
       overflow: auto;
@@ -245,77 +211,20 @@ import { ModalDirective } from '../../shared/modal.directive';
 
           <!-- Docked detail pane: preview + description ⇄ file-meta record (the merged File Meta view).
                The list runs full width until a file is opened; opening one adds this column. -->
-          @if (preview.file(); as pf) {
-            <div class="fm-detail" tabindex="0" #detailPane>
-              <div class="detail-header">
-                @if (embeddedSpaceId) {
-                  <div class="seg-toggle" role="tablist" [attr.aria-label]="'files.detail.tabsAriaLabel' | transloco">
-                    <button type="button" role="tab" [class.active]="detailMode() === 'preview'" [attr.aria-selected]="detailMode() === 'preview'" (click)="detailMode.set('preview')">{{ 'files.detail.previewTab' | transloco }}</button>
-                    <button type="button" role="tab" [class.active]="detailMode() === 'meta'" [attr.aria-selected]="detailMode() === 'meta'" (click)="showMetaMode()">{{ 'files.detail.metaTab' | transloco }}</button>
-                    <!-- Extract: what retrieval actually sees. Only for files that HAVE been through the
-                         pipeline — offering it on a file with no chunks and no conversion would be a tab
-                         that always says "nothing here". -->
-                    @if (hasExtract()) {
-                      <button type="button" role="tab" [class.active]="detailMode() === 'extract'" [attr.aria-selected]="detailMode() === 'extract'" (click)="showExtractMode()">{{ 'files.detail.extractTab' | transloco }}</button>
-                    }
-                  </div>
-                } @else {
-                  <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
-                }
-                <button class="icon-btn" (click)="closePreview()" [attr.aria-label]="'files.closePreviewAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
-              </div>
-
-              <div class="detail-body">
-                @if (detailMode() === 'preview' || !embeddedSpaceId) {
-                  <div class="preview-body">
-                    <!-- Full-screen toggle: shown once there's rendered content (not while loading / on error). -->
-                    @if (!preview.loading() && preview.error() === null && preview.kind() !== 'unknown') {
-                      <button class="btn-ghost btn btn-sm preview-fs-btn" type="button" (click)="preview.fullscreen.set(true)" [attr.title]="'files.preview.fullscreen' | transloco" [attr.aria-label]="'files.preview.fullscreen' | transloco"><ph-icon name="corners-out" [size]="16"/></button>
-                    }
-                    <app-file-preview [preview]="preview.model()" />
-                  </div>
-                  @if (metaStore.selectedMeta()?.description) {
-                    <div class="detail-desc">
-                      <h4>
-                        {{ 'files.detail.description' | transloco }}
-                        <!-- Whose words these are. The release note said "generated" while the value was
-                             the head of the document's own text, and nothing on screen could tell them
-                             apart; a description a person typed carries no badge at all. -->
-                        @if (metaStore.selectedMeta()!.descriptionSource; as src) {
-                          <span class="desc-src" [attr.title]="'files.detail.descriptionSource.' + src + 'Hint' | transloco">{{ 'files.detail.descriptionSource.' + src | transloco }}</span>
-                        }
-                      </h4>
-                      <p>{{ metaStore.selectedMeta()!.description }}</p>
-                    </div>
-                  }
-                } @else if (detailMode() === 'extract') {
-                  <!-- Extract: what retrieval actually sees.
-                       The _converted/ and _extracted/ folders are hidden from browsing, which is right and
-                       which removed the only way to answer "what did the pipeline get out of this file?" —
-                       the first question when a document answers queries badly. Hidden from browsing, not
-                       from inspection. Nothing here is new data; these are records conversion already wrote. -->
-                  <app-file-extract-view
-                    [extract]="extractStore.extract()"
-                    [loading]="extractStore.loading()"
-                    [error]="extractStore.error()"
-                    (more)="moreChunks(pf)"
-                    (retry)="loadExtract(pf)" />
-                } @else {
-                  <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
-                  <app-file-meta-editor
-                    [model]="metaStore.model"
-                    [spaceId]="activeSpaceId()"
-                    [error]="metaStore.error()"
-                    [saving]="metaStore.saving()"
-                    [canRetryEmbedding]="pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial'"
-                    [retryPending]="metaStore.requeueingPath() === relPath(pf)"
-                    (save)="saveMeta(pf)"
-                    (cancel)="cancelMeta()"
-                    (retryEmbedding)="requeueEmbedding(pf)" />
-                }
-              </div>
-            </div>
-          }
+          <app-file-detail-pane
+            [embedded]="!!embeddedSpaceId"
+            [spaceId]="activeSpaceId()"
+            [relPath]="preview.file() ? relPath(preview.file()!) : ''"
+            [hasExtract]="hasExtract()"
+            [(mode)]="detailMode"
+            (close)="closePreview()"
+            (showMeta)="showMetaMode()"
+            (showExtract)="showExtractMode()"
+            (more)="moreChunks(preview.file()!)"
+            (retryExtract)="loadExtract(preview.file()!)"
+            (save)="saveMeta(preview.file()!)"
+            (cancelEdit)="cancelMeta()"
+            (retryEmbedding)="requeueEmbedding(preview.file()!)" />
         </div><!-- .fm-layout -->
       }
     }
@@ -350,7 +259,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
-  private detailPaneRef = viewChild<ElementRef<HTMLDivElement>>('detailPane');
+  private detailPaneRef = viewChild(FileDetailPaneComponent);
   // Brain-provided (only present when embedded in the Brain). Optional so the standalone /files route,
   // where the Brain injector isn't in the tree, still constructs — there the meta edit mode is hidden.
   private picker = inject(EntityRefPicker, { optional: true });
@@ -566,7 +475,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   // ── Docked detail-pane state (preview+description ⇄ file-meta record) ──────
   /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
-  detailMode = signal<'preview' | 'meta' | 'extract'>('preview');
+  detailMode = signal<DetailMode>('preview');
   /** The FileMeta record for the open file (its description + links); null until the fetch lands. */
   /** The file's metadata record, its edit model and its three requests — see `file-meta.store.ts`. */
   readonly metaStore = inject(FileMetaStore);
@@ -963,7 +872,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.preview.open(entry, this.fileApiUrl(entry));
 
     document.addEventListener('keydown', this._keyHandler);
-    setTimeout(() => this.detailPaneRef()?.nativeElement?.focus());
+    // WHEN to focus is part of what opening means, so it stays here; the element is in the pane.
+    setTimeout(() => this.detailPaneRef()?.focusPane());
   }
 
   /** Space-relative path of an entry (matches the FileMeta `_id`/`path`; leading slashes stripped). */

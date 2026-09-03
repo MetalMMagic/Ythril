@@ -386,6 +386,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The detail pane is its own component, and `file-manager.component.ts` is no longer a god file — `G-3`
+  is CLOSED.** 1 618 → 591 code lines over thirteen cuts, and the file has come off the frozen list in
+  `no-new-god-files.test.js` rather than being kept there at a low number.
+
+  `file-detail-pane.component.ts` takes the header and its tab strip, the preview body with its
+  full-screen toggle, the description block, and the three faces — preview, the Extract view and the
+  file-meta editor.
+
+  **It READS three stores, and every other child on this page takes inputs.** That is a deliberate
+  exception: rendering from three stores at once as a dumb component means about fifteen inputs, and
+  `file-preview.component.ts` argues against exactly that shape in its own docblock — *"eight inputs on a
+  presentational component is a class definition wearing a template's clothes."* Fifteen bindings is also
+  fifteen places one can be silently dropped. The stores are `providers` on the page, so the child gets the
+  same instances; nothing is shared more widely and nothing is duplicated.
+
+  **What it does not do is decide.** Every gesture is an output, because what a click MEANS belongs to the
+  page: switching to Meta re-seeds the edit model, switching to Extract fetches on the FIRST open and not on
+  every switch back, closing releases a blob URL and unhooks a key listener, and saving reloads a listing
+  that belongs to a fourth store.
+
+  `.preview-body` is DUPLICATED rather than moved, for the reason `.rename-form` already carries: two
+  elements wear the class, and the full-screen overlay's body is still on the page. Moving it to one of them
+  leaves the other an unstyled block — no error, just a preview that no longer scrolls.
+
+  **What the last four cuts actually say.** Chasing "how many API calls does this page still make" moved 65
+  lines. A THIRD of the file was its inline template and stylesheet, which no store extraction could reach,
+  and taking those out as two components is what ended it.
+
 - **The toolbar is its own component — `G-3.3`, and the first cut into the page's TEMPLATE.**
   `file-toolbar.component.ts` takes the space selector, the breadcrumb trail, the new-folder form, the
   upload picker and the sidebar toggle: 764 → 682 code lines.
@@ -702,6 +730,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
 
 ### Fixed
+
+- **A mermaid diagram in a markdown preview was rendering unstyled, and had been since the preview was
+  split out.** Its rule sat in the page's stylesheet while the diagram is drawn inside a child component —
+  and a page cannot style into a child's template, let alone into content that child binds with
+  `[innerHTML]`. So the two things the rule does, centring the diagram and capping its width, did neither.
+  A wide diagram overflowed its column.
+
+  It looked like a slightly wonky diagram rather than a missing stylesheet, which is why it survived the cut
+  that moved `.preview-body img` and `iframe` to the renderer and left this one behind. It is now
+  `.md-rendered ::ng-deep .mermaid-diagram`, beside the other rules that reach the same content, and the
+  fix was read on a screenshot: the diagram is centred and the SVG is width-capped to its container.
 
 - **A source preview could show one file's contents under another file's name.** Arrow from a large `.ts` to
   a small one and the order is: start A, start B, B comes back and is shown, A comes back and overwrites it.

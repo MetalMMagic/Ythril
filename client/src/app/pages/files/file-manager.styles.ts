@@ -79,6 +79,19 @@ export const FILE_TOOLBAR_STYLES = `
 
 export const FILE_PREVIEW_STYLES = `
   .md-rendered { line-height: 1.6; word-break: break-word; }
+  /*
+   * A mermaid fence renders to inline SVG inside the markdown HTML, so this needs ::ng-deep for the
+   * same reason every other rule below does: the content arrives through [innerHTML] and carries no
+   * component scoping at all.
+   *
+   * This rule lived in file-manager.component.ts until 2026-09-03, where it matched NOTHING — a page
+   * cannot style into a child's template, let alone into that child's [innerHTML]. So a diagram in a
+   * previewed document was neither centred nor width-capped, and a wide one overflowed its column. It
+   * looked like a slightly wonky diagram rather than a missing stylesheet, which is why it survived the
+   * cut that moved .preview-body img and iframe here and left it behind.
+   */
+  .md-rendered ::ng-deep .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
+  .md-rendered ::ng-deep .mermaid-diagram svg { max-width: 100%; height: auto; }
   .md-rendered ::ng-deep h1, .md-rendered ::ng-deep h2, .md-rendered ::ng-deep h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }
   .md-rendered ::ng-deep h1 { font-size: 1.5em; } .md-rendered ::ng-deep h2 { font-size: 1.3em; } .md-rendered ::ng-deep h3 { font-size: 1.12em; }
   .md-rendered ::ng-deep p { margin: 0.5em 0; }
@@ -139,6 +152,67 @@ export const FILE_PREVIEW_STYLES = `
  * element in the client carries `.upload-zone` at all. It was a dead rule, found by asking this gate about
  * this module, and it is deleted rather than moved.
  */
+/**
+ * The docked detail pane: its column, its header and tab strip, and the description beneath the preview.
+ *
+ * **`.preview-body` is DUPLICATED here rather than moved**, and the reason is the same one `.rename-form`
+ * carries: two elements wear the class. The docked body is in this component; the full-screen overlay's
+ * body is still on the page, where the overlay lives. Moving the rule to one of them leaves the other an
+ * unstyled block — no error, no warning, just a preview that no longer scrolls.
+ *
+ * `:host` is not styled. The pane is a flex COLUMN of `.fm-layout`, and that geometry is on `.fm-detail`
+ * inside it — a `:host` given the width and border without an explicit `display` would apply them to a
+ * shrink-wrapping inline box, which still renders and looks nearly right.
+ */
+export const FILE_DETAIL_PANE_STYLES = `
+  /* A third in-flow column of .fm-layout; the list (.fm-main) reflows to full width when it's absent. */
+  .fm-detail {
+    width: min(480px, 42vw);
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    max-height: calc(100vh - 180px);
+  }
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .detail-header .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Segmented [Preview & description | File meta | Extract] toggle */
+  .seg-toggle { display: inline-flex; flex: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg-toggle button {
+    flex: 1; background: none; border: none; padding: 5px 10px; cursor: pointer;
+    font-size: 0.82em; color: var(--text-muted); white-space: nowrap;
+  }
+  .seg-toggle button.active { background: var(--bg-muted); color: var(--text); font-weight: 600; }
+  .seg-toggle button:not(.active):hover { background: var(--bg-hover); }
+  .detail-body { flex: 1; overflow: auto; padding: 14px; }
+  /* Description shown beneath the preview */
+  .detail-desc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .detail-desc h4 { margin: 0 0 6px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+  .detail-desc p { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+  /* Provenance sits inside the heading, quieter than it: it qualifies the description rather than
+     announcing itself. Lower-case against the upper-case heading so it reads as an aside. */
+  .detail-desc .desc-src { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 0.92em; text-transform: none; letter-spacing: 0; color: var(--text-muted); cursor: help; }
+  /* SEE THE CLASS NOTE: the full-screen overlay's body wears this class too, and its copy is on the page. */
+  .preview-body {
+    position: relative;
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+  }
+  /* Full-screen toggle floats at the top-right of the preview body. */
+  .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
+  .preview-fs-btn:hover { opacity: 1; }
+`;
+
 export const UPLOAD_QUEUE_STYLES = `
   :host {
     /*

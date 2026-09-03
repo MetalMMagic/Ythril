@@ -13,6 +13,7 @@ import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityBy
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
+import { primitivePropertyError } from '../../brain/property-values.js';
 import { getConfig } from '../../config/loader.js';
 import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/pagination.js';
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
@@ -74,16 +75,12 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
     res.status(400).json({ error: '`tags` must be an array of strings' });
     return;
   }
-  if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
-    res.status(400).json({ error: '`properties` must be a plain object' });
-    return;
-  }
-  for (const [k, v] of Object.entries(properties)) {
-    if (typeof k !== 'string' || (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean')) {
-      res.status(400).json({ error: '`properties` values must be string, number, or boolean' });
-      return;
-    }
-  }
+  // The rule lives in `brain/property-values.ts` now, because it was HERE and nowhere else — so the PATCH
+  // route below stored what this one refused, and `bulk` cast the bag with no value check at all. Reported
+  // by the fleet integrator 2026-09-02T1047Z, who had written a nested value through PATCH, read it back
+  // whole, and reasonably concluded the product supported it.
+  const propErr = primitivePropertyError(properties);
+  if (propErr) { res.status(400).json({ error: propErr }); return; }
   const safeDesc: string | undefined = typeof description === 'string' ? description : undefined;
   const safeId: string | undefined = typeof id === 'string' ? id : undefined;
 
@@ -321,7 +318,11 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
     updates.tags = tags;
   }
   if (properties !== undefined) {
-    if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) { res.status(400).json({ error: '`properties` must be a plain object' }); return; }
+    // THE REPORTED GAP. This checked the bag was an object and never looked inside it, so a nested value
+    // was refused on create and stored here — same field, same record, same space, two answers. The cast on
+    // the next line is what made it invisible: the type says primitive and nothing had asked.
+    const patchPropErr = primitivePropertyError(properties);
+    if (patchPropErr) { res.status(400).json({ error: patchPropErr }); return; }
     updates.properties = properties as Record<string, string | number | boolean>;
   }
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a

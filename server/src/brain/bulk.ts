@@ -12,6 +12,7 @@
  */
 
 import { col, asFilter } from '../db/mongo.js';
+import { primitivePropertyError } from './property-values.js';
 import { getConfig } from '../config/loader.js';
 import {
   resolveMetaRefs, getAllowedChronoTypes, validateMemory, validateEntity, validateEdge, validateChrono,
@@ -154,6 +155,19 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
         ? await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId }),
           { projection: NEVER_RETURNED_PROJECTION })
         : null;
+      /*
+       * THE THIRD DOOR, and nobody reported it — `optProps` above casts the bag and checks no value.
+       *
+       * Reported for the create/patch pair only, so this is the sweep going wider than the report. It fails
+       * the ITEM rather than the request, which is this endpoint's whole contract: one bad row is reported
+       * and skipped, never a reason to abandon the rest of a batch.
+       *
+       * Entity only, matching the single-record doors — `04-brain-api.md` states that the memory, edge and
+       * chrono paths deliberately do not reject non-primitives at the API layer, and changing that would
+       * refuse writes that work today.
+       */
+      const propErr = primitivePropertyError(item['properties']);
+      if (propErr) { errors.push({ type: 'entity', index: i, reason: propErr }); continue; }
       const mergedEnt = mergeTagsAndProperties(existing as EntityDoc | null, { tags: strArray(item['tags']), properties });
       if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties }))) continue;
       const result = await upsertEntity(spaceId, name, type, strArray(item['tags']), properties,

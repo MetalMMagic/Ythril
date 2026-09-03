@@ -65,6 +65,12 @@ Entities are named concepts — people, services, projects, tools, anything you 
 
 Each entity has a **name**, optional **type** (e.g. `person`, `service`), optional **tags**, an optional **description**, and optional **properties** (key-value pairs like `{ "version": "3.0", "active": true }`).
 
+**A property value has to be plain — a word, a number, or true/false.** You cannot nest one property inside
+another, and that is on purpose: something with parts inside it is a set of connected things, and those work
+better as their own entities joined with edges. A plan with three phases stored as one nested value has to be
+rewritten whole to change one phase, and nothing on the Graph tab can see the phases at all. Three entities
+with an edge each can be edited one at a time, and they show up.
+
 **Creating an entity:** Click **+ Add entity**, fill in the fields, and click **Save**.
 
 When a **type** is selected and the space has a schema defined for that type, the properties section is automatically pre-populated with all property fields from that type's schema:

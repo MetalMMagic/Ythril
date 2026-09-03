@@ -225,6 +225,23 @@ follows, so there is one thing to know across memories, entities, edges and chro
 an empty `properties: {}` is a no-op rather than a wipe. If you need a key gone, name it:
 `deleteFields: ["properties.oldKey"]`.
 
+**A property value is a string, a number or a boolean — and on an entity that is enforced, on every door.**
+`POST .../entities`, `PATCH .../entities/:id`, `POST .../bulk` and both MCP entity tools all refuse a nested
+object or an array with **`properties` values must be string, number, or boolean**. The merge is one level
+deep, so there is no level below it for a structure to live in.
+
+**Structure belongs in records and edges, not in a property bag.** A nested value in a property is usually a
+graph in the wrong place, and the reason is not the API's — it is that a property bag cannot be improved a
+piece at a time. Storing the phases of a plan as one nested value means rewriting the whole value to change
+one phase; storing each phase as a record with scalar properties, linked to what it belongs to, means editing
+the phase. The second shape is also the one `traverse`, `er_model` and the backlink scans can see at all.
+
+> **Fixed in 4.0.** `PATCH .../entities/:id` checked that `properties` was an object and never looked inside it, so
+> a nested value was refused on create and **stored** on update — same field, same record, same space, two
+> answers. Reported by an integrator who had written one through `PATCH`, read it back intact, and reasonably
+> concluded nested properties were supported. If you have records carrying one, they are still there: nothing
+> rewrites stored data, and `deleteFields: ["properties.theKey"]` removes it.
+>
 > **Changed in 2.4.1.** `PATCH .../memories/:id` and chrono updates previously **replaced** the whole
 > `properties` map, so a patch naming one key silently dropped the rest — while `update_memory`'s own schema
 > described the field as "properties to merge". If you were relying on the replace to clear keys, switch to

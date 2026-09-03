@@ -880,6 +880,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A nested entity property was refused on create and STORED on update, and it taught a caller the wrong
+  contract.** Reported by an integrator who measured both writes minutes apart against one space, on the
+  same record type and the same field name: `POST .../entities` answered
+  `400 `properties` values must be string, number, or boolean`, and `PATCH .../entities/:id` answered
+  `200` and read the object back three levels deep.
+
+  **The damage was not the refusal that did not happen.** In their words: *"the hole did not fail, it
+  taught us the wrong contract."* They wrote a nested value through the permissive door, read it back
+  whole, concluded the product supported nested properties, and built on that — so the failure was
+  scheduled to arrive later, on a different route, as a puzzle instead of a message.
+
+  **And it was three doors, not the two reported.** `POST .../bulk` cast the property bag with no value
+  check at all. A reporter names where they saw it; the sweep has to be wider than the report. The rule now
+  has one implementation (`brain/property-values.ts`) and every entity door calls it, with the refusal
+  message unchanged because a caller is already parsing it.
+
+  **MCP was correct all along**, on both of its entity tools — they declare
+  `additionalProperties: { oneOf: [string, number, boolean] }` and the dispatcher enforces the schema. So
+  this was MCP refusing what REST accepted: the parity rule broken in the direction nobody reports, because
+  the door that complains is the one that looks broken.
+
+  **Nested properties are not being added, and the guides now say why.** The integrator's own conclusion,
+  which we share: *"a nested value in a property is usually a graph in the wrong place."* A property bag
+  cannot be improved a piece at a time — changing one phase of a plan stored as one nested value means
+  rewriting the value — and nothing that walks the graph can see inside it. `04f-write-semantics.md` and
+  the Brain user guide both carry that now.
+
+  Records already holding a nested value keep it: nothing rewrites stored data, and
+  `deleteFields: ["properties.theKey"]` removes one.
+
 - **Fourteen source files held a stray carriage return, so git treated them as BINARY and a pull request
   touching one showed the whole file as rewritten.** Git decides per file whether it holds text, and a
   carriage return that is not followed by a newline makes it answer no. A binary file gets no line diff and

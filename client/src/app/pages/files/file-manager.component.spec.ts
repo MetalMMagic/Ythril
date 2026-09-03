@@ -11,7 +11,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { of, Observable, Subject } from 'rxjs';
+import { of, Observable, Subject, throwError } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { type FileEntry, type FileMeta, type UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
@@ -1108,6 +1108,43 @@ describe('FileManagerComponent — live refresh on the shell tick', () => {
       const before = listFiles.mock.calls.length;
       vi.advanceTimersByTime(4_000);
       expect(listFiles.mock.calls.length).toBeGreaterThan(before);
+    });
+
+    it('a FAILED refresh does not retire the poll — that is how it recovers', () => {
+      /*
+       * The one case the other seven do not reach, and the one the docblock overclaimed about.
+       *
+       * `syncProgressPolling` runs on a landed listing. There is no such hook on a FAILED one — and after
+       * `G-14` a failed refresh CLEARS the rows, so "only while a row on screen is in flight" stops being
+       * true of the code the moment a poll's own request fails.
+       *
+       * Keeping it running is the right answer, which is why this pins the behaviour rather than changing
+       * it: retiring the poll on one failed request would mean a single blip stops progress updating until
+       * the person navigates away and back, and the file they are watching finishes with the bar frozen.
+       * A stopped poll after a transient failure is indistinguishable from the wedged pipeline this whole
+       * mechanism exists to fix.
+       */
+      const { fixture, listFiles } = create(PROCESSING);
+
+      // The poll's own request fails.
+      listFiles.mockReturnValue(throwError(() => ({ status: 500 })));
+      vi.advanceTimersByTime(4_000);
+      fixture.detectChanges();
+      // A failed REFRESH keeps its rows — that is the load-versus-refresh rule, and it is what makes
+      // carrying on correct: the file is still processing, the table still says so, and one failed
+      // request changed neither of those facts.
+      expect(fixture.componentInstance.listing.entries().length, 'a failed refresh keeps its rows').toBe(1);
+
+      // It keeps trying, so the view repairs itself when the server answers again.
+      const during = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(8_000);
+      expect(listFiles.mock.calls.length, 'the poll must survive a failed request').toBeGreaterThan(during);
+
+      // And when it does answer, the rows come back without anyone touching anything.
+      listFiles.mockReturnValue(of({ entries: PROCESSING }));
+      vi.advanceTimersByTime(4_000);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.listing.entries().length).toBe(1);
     });
 
     it('is cleared on destroy, so it cannot outlive the view', () => {

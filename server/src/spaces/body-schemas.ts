@@ -42,6 +42,7 @@ import { getSchemaLibrary } from '../config/loader.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { SPACE_PURPOSE_MAX } from './_shared.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS } from '../config/types.js';
+import type { KnowledgeType } from '../config/types.js';
 
 // ── Zod schema for PropertySchema ──────────────────────────────────────────
 /**
@@ -169,7 +170,7 @@ const COLLECTION_SCOPED_FIELDS: ReadonlyArray<{
   /** Dotted path within one type object. */
   path: string;
   /** The one knowledge type it means anything on. */
-  only: 'entity' | 'memory' | 'edge' | 'chrono';
+  only: KnowledgeType;
   /** Why it is scoped, in the refusal message. */
   why: string;
 }> = [

@@ -400,6 +400,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The four knowledge types are enumerated ONCE per side of the wire, where they were written out 27
+  times.** A space holds four kinds of record — entity, memory, edge, chrono — and that list decides more
+  than a type union: which kinds a space can hold a type schema for, which the schema library accepts, which
+  appear in an audit summary, which have a retention bucket, and which collections a redaction sweep walks.
+
+  `KNOWLEDGE_TYPES` is now a tuple in `config/types-knowledge.ts` with the union derived from it, mirrored
+  once in the client's `api.types.ts`. A tuple rather than a union because a union cannot be iterated —
+  `z.enum`, a `Set`, a `for` loop and a JSON-schema `enum` all need the values, and that is exactly why
+  every one of those sites had its own copy.
+
+  **This is groundwork for `M-2`, which adds a fifth kind.** With the list written out per site, adding one
+  means finding them all, and each one missed fails differently and silently: a schema library that refuses
+  the new kind, an audit summary with a kind absent, a retention bucket that never expires anything because
+  nothing maps the kind to a collection. `one-definition-of-the-knowledge-types.test.js` refuses the next
+  copy.
+
+  **One existing gate got stronger rather than being re-anchored.** `retention-reaches-every-collection`
+  asserted that the retention sweep's collection list reads `['entity', 'memory', 'edge', 'chrono']` — which
+  could only check the list somebody had already typed, so a fifth kind would have left it green while that
+  kind's records were never stamped. It now asserts the sweep list IS the knowledge types, which cannot be
+  four-of-five by construction.
+
+  Two frozen files gained one line each and both raises are recorded: in both cases a local copy of the
+  vocabulary became a reference to it, which is the opposite of the growth that list exists to catch.
+
 - **The detail pane is its own component, and `file-manager.component.ts` is no longer a god file — `G-3`
   is CLOSED.** 1 618 → 591 code lines over thirteen cuts, and the file has come off the frozen list in
   `no-new-god-files.test.js` rather than being kept there at a low number.

@@ -24,7 +24,7 @@ import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState, emptyTypeSchemaState, typeSchemaFromState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
-import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema, recordTtlWindows } from '../../core/api.types';
+import { KnowledgeType, KNOWLEDGE_TYPES, PropertySchema, SchemaLibraryEntry, TypeSchema, recordTtlWindows } from '../../core/api.types';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 
@@ -579,7 +579,7 @@ export class SpaceSchemaTabComponent implements OnInit {
           return;
         }
         const tsObj = ts as Record<string, unknown>;
-        const KINDS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
+        const KINDS: readonly KnowledgeType[] = KNOWLEDGE_TYPES;
         const merged = { ...this.state.schTypeSchemas };
         let imported = 0;
 

@@ -14,6 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { finalize, forkJoin } from 'rxjs';
 import {
   SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema, Space,
+  KNOWLEDGE_TYPES,
 } from '../../core/api.types';
 import { AuthApi } from '../../core/auth-api.service';
 import { SchemaApi } from '../../core/schema-api.service';
@@ -94,7 +95,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 // ── Component ───────────────────────────────────────────────────────────────
 
 /** The four schema-bearing knowledge types, in the server's `export-space` iteration order. */
-const KNOWLEDGE_TYPES: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
+// The list is imported from `api.types`, which is the client's single source for it.
 
 /**
  * If `raw` is a space-schema export (a `{ typeSchemas: {...} }` envelope OR a bare typeSchemas map
@@ -244,7 +245,7 @@ export function entriesFromTypeSchemas(
     </div>
     @if (pageTab() === 'library' && entries().length) {
       <div class="type-filters">
-        @for (kt of ['entity','memory','edge','chrono']; track kt) {
+        @for (kt of knowledgeTypes; track kt) {
           <button class="type-filter-btn" [class.active]="typeFilter() === kt" [attr.aria-pressed]="typeFilter() === kt" type="button" (click)="typeFilter.set(typeFilter() === kt ? null : $any(kt))">{{ kt }}</button>
         }
         @for (g of availableGroups(); track g) {
@@ -644,6 +645,16 @@ export function entriesFromTypeSchemas(
   `,
 })
 export class SchemaLibraryComponent implements OnInit {
+  /**
+   * The kinds, as a CLASS member because a template can only reach class members.
+   *
+   * An AOT build is what says so: the unit tests and `tsc` both pass with a module-scope const in the
+   * template, and `ng build --configuration production` answers
+   * `TS2339: Property KNOWLEDGE_TYPES does not exist on type SchemaLibraryComponent`. Which is the whole
+   * reason preflight runs the production build.
+   */
+  readonly knowledgeTypes = KNOWLEDGE_TYPES;
+
   private authApi   = inject(AuthApi);
   private schemaApi = inject(SchemaApi);
   private spacesApi = inject(SpacesApi);

@@ -25,6 +25,10 @@
  * and no signals to exercise every branch.
  */
 
+// The kinds, from the client's one mirror of the API's shapes. This module had no imports at all — a leaf
+// by construction — and one to a shape module cannot make a cycle, which is the property worth keeping.
+import { KnowledgeType } from '../../core/api.types';
+
 /** A stored record's id. Anything else in an edge's `_id` is synthetic. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,7 +36,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export type Unavailable = 'file' | 'derived';
 
 export type RecordLookup =
-  | { fetch: 'entity' | 'memory' | 'chrono' | 'edge' }
+  | { fetch: KnowledgeType }
   | { unavailable: Unavailable };
 
 /**

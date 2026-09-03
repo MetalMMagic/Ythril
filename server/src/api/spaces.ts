@@ -30,6 +30,7 @@ import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import { proposedMetaFields } from '../sync/meta-round-merge.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 import {
@@ -506,7 +507,7 @@ spacesRouter.get('/:id/completeness', globalRateLimit, requireSpaceAuthScoped('i
 
 // ── Granular type schema CRUD ─────────────────────────────────────────────────
 
-const VALID_KNOWLEDGE_TYPES = new Set(['entity', 'memory', 'edge', 'chrono']);
+const VALID_KNOWLEDGE_TYPES = new Set<string>(KNOWLEDGE_TYPES);
 const MAX_TYPES_PER_KIND = 200;
 
 // GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
@@ -525,7 +526,7 @@ spacesRouter.get('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
     return;
   }
 
-  const kt = knowledgeType as 'entity' | 'memory' | 'edge' | 'chrono';
+  const kt = knowledgeType as KnowledgeType;
   const typeMap = space.meta?.typeSchemas?.[kt] ?? {};
   if (!(typeName in typeMap)) {
     res.status(404).json({ error: `Type '${typeName}' not found in typeSchemas.${kt}` });
@@ -573,7 +574,7 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
     return;
   }
 
-  const kt = knowledgeType as 'entity' | 'memory' | 'edge' | 'chrono';
+  const kt = knowledgeType as KnowledgeType;
   const existingMeta: SpaceMeta = space.meta ?? {};
   const existingKtMap: Record<string, import('../config/types.js').TypeSchema> = { ...(existingMeta.typeSchemas?.[kt] ?? {}) };
 
@@ -637,7 +638,7 @@ spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRate
     return;
   }
 
-  const kt = knowledgeType as 'entity' | 'memory' | 'edge' | 'chrono';
+  const kt = knowledgeType as KnowledgeType;
   const existingMeta: SpaceMeta = space.meta ?? {};
   const existingKtMap = existingMeta.typeSchemas?.[kt] ?? {};
 

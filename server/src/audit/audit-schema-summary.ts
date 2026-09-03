@@ -27,9 +27,11 @@
  */
 import type { AuditChange } from './audit-changes.js';
 import type { KnowledgeType } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types.js';
 
 /** The four knowledge collections a space's `typeSchemas` can describe. */
-const KNOWLEDGE_TYPES: readonly KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
+// Imported rather than listed: a fifth kind must appear in an audit summary without anyone remembering to
+// add it here, because a kind silently missing from a summary is a summary nobody can tell is incomplete.
 
 /** Property keys reported per type before the list is truncated. Keeps one paste-of-a-huge-schema from
  *  writing thousands of names into a retained store; the count still tells the reader it happened. */

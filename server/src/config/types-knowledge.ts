@@ -183,8 +183,31 @@ export interface TypeSchema {
 /** Validation mode for write operations against a space's schema. */
 export type ValidationMode = 'off' | 'warn' | 'strict';
 
-/** Knowledge type keys used in typeSchemas. */
-export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
+/**
+ * The kinds of record a space holds — the ONE enumeration, and the tuple is the declaration.
+ *
+ * This list decides considerably more than a type union: which kinds a space can hold a type schema for,
+ * which the schema library accepts, which appear in an audit summary, which have a retention bucket, and
+ * which collections a redaction sweep walks. It was written out 43 times across `server/src` and
+ * `client/src` before `M-2` — which adds a fifth — needed to add one member.
+ *
+ * **Each of those copies fails differently and none of them throws.** A schema library that refuses the new
+ * kind. An audit summary with a kind missing. A retention bucket that never expires anything because nothing
+ * maps the kind to a collection. That is the same shape as a capability shipped on one door of two.
+ *
+ * A tuple rather than a union, because a union cannot be iterated: `z.enum`, a `Set`, a `for` loop and a
+ * `Record` key list all need the VALUES. The union is derived from it, so the two can never disagree.
+ * `one-definition-of-the-knowledge-types.test.js` refuses the forty-fourth copy.
+ *
+ * **Order is meaningful and this is it**: entity, memory, edge, chrono — the order every UI already lists
+ * them in, so an iteration over the tuple renders the way the product already reads.
+ *
+ * Not to be confused with {@link RefKind}, which is what a reference points AT and deliberately differs.
+ */
+export const KNOWLEDGE_TYPES = ['entity', 'memory', 'edge', 'chrono'] as const;
+
+/** Knowledge type keys used in typeSchemas. Derived, so it cannot drift from the tuple above. */
+export type KnowledgeType = typeof KNOWLEDGE_TYPES[number];
 
 /**
  * What kind of record a reference points AT.

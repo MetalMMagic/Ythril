@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { PropertySchemaZ } from '../spaces/body-schemas.js';
 import rateLimit from 'express-rate-limit';
 import type { SchemaLibraryEntry, SchemaCatalog } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types.js';
 import { EndpointMemberZ } from '../spaces/body-schemas.js';
 
 export const schemaLibraryRouter = Router();
@@ -140,7 +141,7 @@ const LIBRARY_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/;
 
 const LibraryEntryBodyZ = z.object({
   name: z.string().min(1).max(200).regex(LIBRARY_NAME_RE, 'name must start with an alphanumeric character and contain only letters, digits, dots, dashes, or underscores'),
-  knowledgeType: z.enum(['entity', 'memory', 'edge', 'chrono']),
+  knowledgeType: z.enum(KNOWLEDGE_TYPES),
   typeName: z.string().min(1).max(200),
   schema: LibraryTypeSchemaZ,
   description: z.string().max(1000).optional(),
@@ -152,7 +153,7 @@ const LibraryEntryBodyZ = z.object({
 
 /** Body for PUT (name comes from the URL param). */
 const LibraryEntryPutBodyZ = z.object({
-  knowledgeType: z.enum(['entity', 'memory', 'edge', 'chrono']),
+  knowledgeType: z.enum(KNOWLEDGE_TYPES),
   typeName: z.string().min(1).max(200),
   schema: LibraryTypeSchemaZ,
   /** Pass null to explicitly clear a previously set description. */
@@ -178,7 +179,7 @@ const LibraryEntryPutBodyZ = z.object({
  * one operation is how they diverge.
  */
 const LibraryEntryPatchBodyZ = z.object({
-  knowledgeType: z.enum(['entity', 'memory', 'edge', 'chrono']).optional(),
+  knowledgeType: z.enum(KNOWLEDGE_TYPES).optional(),
   typeName: z.string().min(1).max(200).optional(),
   schema: LibraryTypeSchemaZ.optional(),
   description: z.string().max(1000).nullable().optional(),
@@ -320,7 +321,7 @@ schemaLibraryRouter.post('/export-space', globalRateLimit, requireAdminMfa, (req
 
   const library = getSchemaLibrary();
   const now = new Date().toISOString();
-  const kts = ['entity', 'memory', 'edge', 'chrono'] as const;
+  const kts = KNOWLEDGE_TYPES;
   const resultEntries: SchemaLibraryEntry[] = [];
   let created = 0;
   let updated = 0;
@@ -672,7 +673,7 @@ schemaLibraryRouter.patch('/:name', globalRateLimit, requireAdminMfa, (req, res)
 schemaLibraryRouter.get('/:name/usages', globalRateLimit, requireAuth, (req, res) => {
   const name = req.params['name'] as string;
   const refValue = `library:${name}`;
-  const kts = ['entity', 'memory', 'edge', 'chrono'] as const;
+  const kts = KNOWLEDGE_TYPES;
 
   const usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] = [];
   for (const space of getConfig().spaces) {

@@ -96,6 +96,11 @@ export interface TokenRecord {
 // into local scope and `TtlBucket` below is built from `KnowledgeType`.
 import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
 export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta };
+// A VALUE, so it needs its own import and re-export: everything else above is a type. Re-exported from here
+// rather than importing the leaf directly, because `config/types.js` is the one path this codebase's modules
+// already reach for, and a second path to the same tuple is how a second copy of it starts.
+import { KNOWLEDGE_TYPES } from './types-knowledge.js';
+export { KNOWLEDGE_TYPES };
 
 /**
  * What kind of thing a record is, for the purpose of the SPACE retention tier.
@@ -1568,7 +1573,7 @@ export interface ChronoEntry extends StampSkewable {
 
 export interface TombstoneDoc {
   _id: string;
-  type: 'memory' | 'entity' | 'edge' | 'chrono';
+  type: KnowledgeType;
   spaceId: string;
   deletedAt: string;
   instanceId: string;
@@ -1720,7 +1725,7 @@ export interface LinkViolationDoc {
   _id: string;            // UUID v4
   spaceId: string;
   docId: string;          // ID of the violating document (entity/edge/memory/chrono)
-  docType: 'entity' | 'edge' | 'memory' | 'chrono';
+  docType: KnowledgeType;
   field: string;          // field name that violated (e.g. "from", "to", "entityIds")
   reason: string;         // human-readable explanation
   peerInstanceId: string; // which peer sent the document

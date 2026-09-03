@@ -12,6 +12,7 @@ import { getConfig } from '../../config/loader.js';
 import { reachesSpace } from '../../auth/space-reach.js';
 import { isInstanceAdmin } from '../../auth/instance-admin.js';
 import { REF_KINDS } from '../../config/types-knowledge.js';
+import type { KnowledgeType } from '../../config/types-knowledge.js';
 import { enqueueIngestedRecord } from '../../brain/embed-queue.js';
 import { isWellFormedRef, collectionForRefKind, edgeEndpointKind } from '../../brain/entity-refs.js';
 import type { TokenRights } from '../../config/rights-shape.js';
@@ -604,7 +605,7 @@ export function isDirectionalWriteBlocked(spaceId: string, authToken: Record<str
  */
 export function violationsAgainstLocalSchema(
   spaceId: string,
-  kind: 'memory' | 'entity' | 'edge' | 'chrono',
+  kind: KnowledgeType,
   doc: Record<string, unknown>,
 ): SchemaViolation[] {
   const meta = getSpaceMeta(spaceId);

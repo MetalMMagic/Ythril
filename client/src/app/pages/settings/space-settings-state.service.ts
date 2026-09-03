@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import {
   Space, SpaceMeta, SpaceStats, KnowledgeType, PropertySchema, TypeSchema,
   ValidationMode, DupeActionRule,
+  KNOWLEDGE_TYPES,
 } from '../../core/api.types';
 import { TranslocoService } from '@jsverse/transloco';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -213,7 +214,7 @@ export class SpaceSettingsState {
     });
   }
 
-  readonly KINDS: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
+  readonly KINDS: readonly KnowledgeType[] = KNOWLEDGE_TYPES;
   readonly KIND_LABELS: Record<KnowledgeType, string> = {
     entity: 'Entities', memory: 'Memories', edge: 'Edges', chrono: 'Chrono',
   };

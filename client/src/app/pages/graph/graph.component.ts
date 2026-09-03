@@ -30,6 +30,7 @@ import {
   TraverseNode,
   TraverseEdge,
   TraverseResult,
+  KnowledgeType,
 } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
@@ -342,7 +343,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   edgeCount = signal(0);
 
   popupRecord = signal<Record<string, unknown> | null>(null);
-  popupType = signal<'entity' | 'edge' | 'memory' | 'chrono'>('entity');
+  popupType = signal<KnowledgeType>('entity');
   canEdit = signal(false);
 
   // -- Record drawer (memory / chrono) ----------------------------------------

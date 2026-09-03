@@ -497,6 +497,74 @@ Raw model outputs — every question, every candidate answer, every judge verdic
 Append here, dated, with the reason and what was re-run. A silent edit elsewhere in this file invalidates the
 runs it covers; this section is how a change stays legitimate.
 
+### Amendment 6 — the LINK-READ comparison, pre-registered before the corpus exists
+
+**2026-09-03.** A second measurement family, and it is not an accuracy benchmark: it compares **read
+latency between two versions of Ythril** on one corpus. Pre-registered here rather than in a file of its own,
+because the rule it has to obey is this document's rule — the method is committed before the number, and the
+ordering is checkable from `git log`.
+
+**Why it exists.** Owner-directed, 2026-09-03: *"4.0 is a big change thanks to links and other stuff — it
+should not break or have worse performance than 3.x — we want to excite everyone."* Tracked as `Q-7`, whose
+third gate is a MEASURED pair. A number from one version answers nothing.
+
+**Why it is pre-registered NOW and not when the harness runs.** The 3.x side is perishable. The link
+migration turns every array mention into a record, so once records are being written the corpus is no longer
+a 3.x corpus and the "before" cannot be re-measured. Pinning the method first is also what stops the corpus
+being chosen after seeing which shape flatters the new code.
+
+#### What is timed — four reads, and only these four
+
+The four readers the link migration touches. Nothing else, because a wider set would dilute the one
+comparison being made:
+
+| # | read | why it is in the set |
+|---|---|---|
+| L1 | `traverseGraph`, depth 1 / 2 / 3 | the walk itself, and depth is where a per-hop cost compounds |
+| L2 | `recall` with graph expansion | the same walk reached through ranking, which is what a user waits on |
+| L3 | the entity backlink scan (`findEntityReferences`) | runs per candidate on a delete, and it is a REFUSAL path — slow here means a delete that appears to hang |
+| L4 | `buildErModel` | the only whole-space scan of the four |
+
+#### The corpus is sized from the LINK count, and that is the pinned part
+
+A corpus small enough that every plan is a collection scan would make both versions equal and the
+measurement vacuous — `Q-7` says so in as many words. So the size is fixed here, before any run:
+
+| parameter | value | why this value |
+|---|---|---|
+| entities | 200 | enough that a hop's fan-out is not the whole space |
+| memories | 2 000, each naming 3 entities | 6 000 links — the largest of the three classes, matching real spaces where memories dominate |
+| chrono | 500, each naming 3 entities and 2 memories | 2 500 links, and the only class ON by default |
+| files | 300, each naming 2 entities, 2 memories, 1 chrono | 1 500 links, and the class carrying the chunk-exclusion scope |
+| chunks | 3 per file | 900 records that must NOT be counted as links — the forty-passage-document defect |
+| **total links** | **10 000** | the number the comparison is about |
+
+**Seeded directly into Mongo, not through the API, and no embeddings.** These four reads are structural:
+none of them scores a vector. Writing 3 000 records through the write path would spend the measurement's
+wall-clock on the embedding queue and make the run too slow to repeat, which is how a benchmark stops being
+run at all.
+
+#### Runs and what is reported
+
+- **11 iterations per read, first discarded**, so a cold cache is never the number. Report **p50 and p95**,
+  the same two the accuracy tables use.
+- **Both versions on one machine, back to back, in one sitting.** A pair measured a week apart on a different
+  load is not a pair.
+- **Every result file records the commit** it was produced at, as every other result file here does.
+- The corpus is seeded from a **fixed seed**, so the two runs see byte-identical documents.
+
+#### What would falsify the claim we want to make
+
+Stated before the run, because a threshold chosen afterwards is not a threshold:
+
+- **A p95 regression above 20% on any of L1–L4 is a REGRESSION** and blocks the 4.0 tag under `Q-7`.
+- **Between 0% and 20% is reported, not hidden**, and needs a sentence saying why it is acceptable.
+- **L3 is the one to watch hardest.** It runs per candidate on a delete and it is a refusal path, so a
+  regression there is felt as a hang rather than as a slow page.
+- **A faster 4.0 is the expected outcome, and expecting it is a reason to be careful.** A hop goes from three
+  `$in`-over-array reads to one indexed lookup. If the measurement says otherwise, the measurement is the
+  finding — do not tune the corpus until it agrees.
+
 ### Amendment 5 — the grid's axis values, pinned before the first cell ran
 
 **2026-08-29.** The grid was specified by its axes and not by its values. `topK` named four numbers, but

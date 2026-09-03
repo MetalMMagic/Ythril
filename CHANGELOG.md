@@ -110,6 +110,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The 4.0 performance claim has a method, and it was committed before any number existed.**
+  `benchmarks/PROTOCOL.md` gains Amendment 6: a link-READ comparison between 3.x and 4.0, which is a
+  different measurement from the accuracy benchmarks that file already governs. Four reads and no others —
+  the graph walk at three depths, recall with graph expansion, the entity backlink scan that blocks a
+  delete, and the whole-space ER scan.
+
+  **Pre-registered because the 3.x side is perishable.** The link migration turns every array mention into
+  a record, so once records are being written the corpus is no longer a 3.x corpus and the "before" cannot
+  be re-measured. Pinning the method first is also what stops a corpus being chosen after seeing which
+  shape flatters the new code — and this repo already makes that checkable: every result file records the
+  commit it was produced at, so a reader can confirm from `git log` that the method predates the number.
+
+  **The corpus is SIZED in the amendment, not left to the harness:** 10 000 links across 3 000 records,
+  plus 900 chunk records that must not be counted as links. A corpus small enough that every query plan is
+  a collection scan would make both versions equal and the comparison worthless.
+
+  **And the falsification clause is in it, before the run:** a p95 regression above 20% on any of the four
+  blocks the release; 0–20% is reported with a reason rather than hidden; the delete-blocking backlink scan
+  is the one watched hardest, because a regression there is felt as a hang rather than a slow page. A
+  faster 4.0 is the expected outcome, which is precisely why the threshold is written down first.
+
 - **The 3.x link baseline is written down, from a real database, before the migration replaces it.**
   Slice 2 of the link migration switches every adjacency reader from array fields to link records, and
   the moment it does, *"what did 3.x answer?"* is unrecoverable from the code. So it is captured now:

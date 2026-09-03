@@ -35,6 +35,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
+// The collection list itself, so the transfer count below is derived rather than typed. Read from `dist`
+// the way every other gate that needs a server value does — preflight builds it first for exactly this.
+import { BRAIN_COLLECTIONS } from '../../server/dist/config/types.js';
 
 const { safeWatermark, truncatedTransfers } = await import('../../server/dist/sync/watermark.js');
 
@@ -124,23 +127,34 @@ describe('every transfer under a shared watermark is passed to the rule', () => 
       'the push watermark is assigned a bare max again — that is the defect verbatim');
   });
 
-  it('FIVE transfers on each side, tombstones included', () => {
+  it('EVERY transfer on each side, tombstones included — and the list is derived', () => {
     /*
      * Counted, because an omitted transfer places NO ceiling and is therefore exactly the one that gets
      * skipped. Tombstones are the one most likely to be left out: they are fetched and sent in their own block,
-     * before the loop over the four collections, and they do not look like "a type".
+     * before the loop over the document collections, and they do not look like "a type".
      *
      * They are also the transfer where the loss is worst — a deletion that never propagates, on a pull whose
      * `!resp.ok` branch used to be completely silent.
+     *
+     * ## The count is DERIVED now, and this test is the argument for it
+     *
+     * It asserted `keys.length === 5` against a hand-written list of five names, and the FILE was called
+     * `one-watermark-four-transfers` while the test said FIVE — so the number had already gone stale once, in
+     * the name, where nothing checks it. `M-2` added a sixth and it went stale again.
+     *
+     * A count somebody typed can only be right about the day it was typed. The transferred collections are
+     * `BRAIN_COLLECTIONS` minus `files` — a file crosses the wire as a blob plus a manifest entry, not as a
+     * document in this loop — so that is what this reads. A new collection now makes this gate DEMAND its
+     * transfer instead of quietly accepting its absence.
      */
+    const expected = [...BRAIN_COLLECTIONS.filter(c => c !== 'files'), 'tombstones'];
+    assert.ok(expected.length >= 5, `only ${expected.length} expected transfers — BRAIN_COLLECTIONS did not load`);
     const lists = [...src.matchAll(/transfers: \{([^}]*)\}/g)].map(m => m[1]);
     assert.equal(lists.length, 2, `expected two transfer sets, found ${lists.length}`);
     for (const list of lists) {
       const keys = list.split(',').map(x => x.split(':')[0].trim()).filter(Boolean);
-      assert.equal(keys.length, 5, `a cycle passes ${keys.length} transfers, not 5: ${list.trim()}`);
-      for (const k of ['memories', 'entities', 'edges', 'chrono', 'tombstones']) {
-        assert.ok(keys.includes(k), `${k} is missing from a transfer set: ${list.trim()}`);
-      }
+      assert.deepEqual([...keys].sort(), [...expected].sort(),
+        `a cycle's transfer set is not every collection plus tombstones: ${list.trim()}`);
     }
   });
 

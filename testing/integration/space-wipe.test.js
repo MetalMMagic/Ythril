@@ -108,7 +108,18 @@ describe('Space wipe — full wipe', () => {
 
     const wipeR = await post(INSTANCES.a, adminToken, `/api/admin/spaces/${spaceId}/wipe`, {});
     assert.equal(wipeR.status, 200, `Wipe empty: ${JSON.stringify(wipeR.body)}`);
-    assert.deepEqual(wipeR.body.deleted, { memories: 0, entities: 0, edges: 0, chrono: 0, files: 0 });
+    /*
+     * The WHOLE object, deliberately, and it earned that on 2026-09-03.
+     *
+     * A per-key check would pass a wipe that had quietly stopped clearing a collection nobody thought to
+     * assert on. This equality is what noticed `links` arriving — the only place in the suite that did,
+     * because `npm run preflight` cannot run the Docker suites and a response-shape contract pinned only
+     * here is invisible until CI.
+     *
+     * So a new collection means one edit in this line, on purpose. If that ever feels like friction, the
+     * friction is the check working.
+     */
+    assert.deepEqual(wipeR.body.deleted, { memories: 0, entities: 0, edges: 0, chrono: 0, files: 0, links: 0 });
   });
 
   it('wipe on non-existent space returns 404', async () => {

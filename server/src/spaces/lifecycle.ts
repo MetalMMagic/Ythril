@@ -6,7 +6,7 @@
  * `reconcilePendingSpaceOp` lives here yet reaches into rename.ts: it recovers rename ops too.
  */
 import fs from 'fs/promises';
-import { BRAIN_COLLECTIONS, type BrainCollection } from '../config/types.js';
+import { BRAIN_COLLECTIONS, TOMBSTONE_TYPE_OF, type BrainCollection, type TombstoneType } from '../config/types.js';
 import path from 'path';
 import { getDb, col } from '../db/mongo.js';
 import { getConfig, saveConfig, mutateConfig, getEmbeddingConfig, getDataRoot } from '../config/loader.js';
@@ -58,6 +58,7 @@ export async function initSpace(
   const entitiesColl = db.collection(`${spaceId}_entities`);
   const edgesColl = db.collection(`${spaceId}_edges`);
   const chronoColl = db.collection(`${spaceId}_chrono`);
+  const linksColl = db.collection(`${spaceId}_links`);
   const tombstonesColl = db.collection(`${spaceId}_tombstones`);
   const conflictsColl = db.collection(`${spaceId}_conflicts`);
   const dupeColl = db.collection(`${spaceId}_dupe_candidates`);
@@ -123,6 +124,24 @@ export async function initSpace(
   await chronoColl.createIndex({ status: 1 });
   await chronoColl.createIndex({ seq: 1 });
   await chronoColl.createIndex({ type: 1 });
+  /*
+   * Link records (`M-2`), and every one of these answers a question that would otherwise be a scan.
+   *
+   * **The unique index is the deduplication**, and it is why a link needs no conflict resolution at all. A
+   * link is `(from, fromKind, to, toKind)` and nothing else — no label, no content — so two peers that both
+   * notice the same connection have written the same fact. With a deterministic id they collide on `_id`;
+   * with this index they collide even if an id is ever generated some other way. Either way the second write
+   * is a duplicate rather than a fork, which is what lets the ingest path drop fork resolution entirely.
+   *
+   * Both directions are indexed separately because both are asked. From a record: what does this concern.
+   * From an entity: what concerns this — the backlink scan that blocks a delete, once per candidate.
+   *
+   * `seq` for the sync page, exactly as every other replicated collection has it: `pageBySeq` orders on it,
+   * and without the index every page a peer asks for sorts the whole collection.
+   */
+  await linksColl.createIndex({ from: 1, fromKind: 1, to: 1, toKind: 1 }, { unique: true });
+  await linksColl.createIndex({ to: 1, toKind: 1 });
+  await linksColl.createIndex({ seq: 1 });
   await tombstonesColl.createIndex({ seq: 1 });
   await conflictsColl.createIndex({ detectedAt: -1 });
   // Serves the list query: equality on `status` (now the leading field) + sort by (score desc,
@@ -553,10 +572,23 @@ export const WIPE_COLLECTION_TYPES: readonly WipeCollectionType[] = BRAIN_COLLEC
  * silently orphans findings rather than failing.
  */
 export function candidateTypesForWipe(targets: ReadonlySet<WipeCollectionType>): string[] {
-  const MAP: Partial<Record<WipeCollectionType, string>> = {
+  /*
+   * TOTAL over the wipeable collections, with `null` where a collection has no findings — not `Partial`.
+   *
+   * `Partial` was the shape, and it cannot tell "this collection has no findings" from "somebody forgot".
+   * The gate over this function asserted every wipeable type is mapped, which was true only while all five
+   * had findings; `links` legitimately has none — a link is two ids and their kinds, so there is nothing to
+   * find a duplicate of and nothing to contradict — and under `Partial` that reads as the omission the gate
+   * exists to catch.
+   *
+   * Spelled `null`, so a collection added later is a compiler error here and its author has to say which
+   * of the two it is.
+   */
+  const MAP: Record<WipeCollectionType, string | null> = {
     memories: 'memory', entities: 'entity', edges: 'edge', chrono: 'chrono', files: 'file',
+    links: null,
   };
-  return Array.from(targets).map(t => MAP[t]).filter((t): t is string => t !== undefined);
+  return Array.from(targets).map(t => MAP[t]).filter((t): t is string => t !== null && t !== undefined);
 }
 
 export interface WipeResult {
@@ -565,6 +597,8 @@ export interface WipeResult {
   edges: number;
   chrono: number;
   files: number;
+  /** Link records (`M-2`). A wipe that left these behind would leave a space's graph edges pointing at nothing. */
+  links: number;
 }
 
 /** Wipe data from a space — by default wipes memories, entities, edges, chrono,
@@ -601,29 +635,27 @@ export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): 
 
   // Run all applicable deletes in parallel.
   const zero = Promise.resolve({ deletedCount: 0 });
-  const [memRes, entRes, edgeRes, chronoRes, fileRes] = await Promise.all([
+  const [memRes, entRes, edgeRes, chronoRes, fileRes, linkRes] = await Promise.all([
     targets.has('memories') ? col(`${spaceId}_memories`).deleteMany({}) : zero,
     targets.has('entities') ? col(`${spaceId}_entities`).deleteMany({}) : zero,
     targets.has('edges') ? col(`${spaceId}_edges`).deleteMany({}) : zero,
     targets.has('chrono') ? col(`${spaceId}_chrono`).deleteMany({}) : zero,
     targets.has('files') ? col(`${spaceId}_files`).deleteMany({}) : zero,
+    targets.has('links') ? col(`${spaceId}_links`).deleteMany({}) : zero,
   ]);
 
   // Clear tombstones for the wiped types.
   // Full wipe: drop everything (single deleteMany with no filter).
   // Partial wipe: filter by the `type` field present on brain tombstones.
-  const TOMBSTONE_TYPE_MAP: Partial<Record<WipeCollectionType, string>> = {
-    memories: 'memory',
-    entities: 'entity',
-    edges: 'edge',
-    chrono: 'chrono',
-  };
+  // DERIVED. This was a four-entry copy of the collection-to-type mapping, in the same function as a second
+  // copy for the review findings — the seventh and eighth of that map in the codebase. `files` is absent from
+  // the derived one for the reason it was absent from this one: a deleted file has `FileTombstoneDoc`.
   if (isFullWipe) {
     await col(`${spaceId}_tombstones`).deleteMany({});
   } else {
     const tombstoneTypes = Array.from(targets)
-      .map(t => TOMBSTONE_TYPE_MAP[t])
-      .filter((t): t is string => t !== undefined);
+      .map(t => TOMBSTONE_TYPE_OF[t])
+      .filter((t): t is TombstoneType => t !== undefined);
     if (tombstoneTypes.length > 0) {
       await col(`${spaceId}_tombstones`).deleteMany({ type: { $in: tombstoneTypes } });
     }
@@ -675,9 +707,10 @@ export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): 
     edges: edgeRes.deletedCount ?? 0,
     chrono: chronoRes.deletedCount ?? 0,
     files: fileRes.deletedCount ?? 0,
+    links: linkRes.deletedCount ?? 0,
   };
   const typesLabel = isFullWipe ? 'all' : Array.from(targets).join(', ');
-  log.info(`Wiped space '${spaceId}' [${typesLabel}]: ${result.memories} memories, ${result.entities} entities, ${result.edges} edges, ${result.chrono} chrono, ${result.files} files`);
+  log.info(`Wiped space '${spaceId}' [${typesLabel}]: ${result.memories} memories, ${result.entities} entities, ${result.edges} edges, ${result.chrono} chrono, ${result.files} files, ${result.links} links`);
   return result;
 }
 

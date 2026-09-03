@@ -110,6 +110,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A link between two records is a record now, in a collection of its own — `M-2`, slice 1.** When a
+  memory, a chrono entry or a file names other records, each of those mentions is also stored as a small
+  record in a new `links` collection. Six array fields become records: `memory.entityIds`,
+  `chrono.entityIds`/`memoryIds` and `file.entityIds`/`memoryIds`/`chronoIds`. The owner's design,
+  2026-08-29: *"make all edges on 'index cards' and make everyone look there from now on"* — five different
+  parts of the product each followed a different subset of those six fields, and this is the first step
+  towards one place to look.
+
+  **This slice is the substrate, and nothing writes a link yet.** The arrays are untouched and still the
+  way you write a connection. What lands is everything a record needs before it can exist safely: the
+  collection with its indexes, the content hash, replication in both directions, a query door, and the
+  rights that already govern that door. New: `links` is accepted by `POST /query` and the `query` MCP
+  tool, so you can list and count them.
+
+  **A link is deliberately the smallest record in the product.** Two endpoints, their kinds, and the
+  bookkeeping — no label, no type, no weight, no properties, and no embedding. The two kinds already say
+  which of the six connections it is, so the label a traverse shows stays derived rather than stored: two
+  spellings of one fact is the defect this codebase produces most. And a link never gets a vector index,
+  because a record with no content in a meaning-ranked list is a content-free competitor at one row per
+  connection.
+
+  **A link is not a knowledge type and not a "record type" either, and the compiler priced both.** Making
+  it a fifth `KnowledgeType` would hand it a type schema, a schema tier and a retention tier that cannot
+  apply; putting it in `RECORD_TYPES` would hand it an embed-text builder, a lexical field and a recall
+  projection. It is a collection, and only that.
+
+- **Four more copies of one collection map, and two of them were silently broken.** `A-10` removed five
+  copies of the record-kind-to-collection mapping last week. Four more turned up on the paths this change
+  touches, and they are the ones that matter:
+
+  - **A tombstone found its collection through a `Record<string, string>`** — a map with no keys. A record
+    kind absent from it read as `undefined`, and the delete then stored the tombstone and removed nothing:
+    a 200 to the peer that asked, the record still there, and every later cycle agreeing there is nothing
+    to do. Live for links the moment one could be deleted.
+  - **`GET /api/sync/tombstones` served four hand-listed kinds.** A kind not listed is never offered to a
+    peer, so the deleting instance holds a tombstone nobody else ever sees.
+  - **A space wipe carried two more copies in one function** — one for the tombstones and one for the
+    review findings. Both derive now.
+
+  All four are derived from one keyed vocabulary, so a new record kind is a compiler error rather than a
+  quiet omission.
+
+- **The four sync read routes were one rule written four times, and are now one function.** `GET` of a
+  page by `seq`, and `GET` of one document by id, for each of memories, entities, edges and chrono —
+  byte-identical apart from three names. This is the replication contract (what a page is, where the cursor
+  comes from, which tombstones ride in it), so a copy that drifted would make replication depend on which
+  record family a peer happened to ask for.
+
+  **One of the eight reported its failures more weakly than the other seven**, and the stronger one is what
+  shipped: `GET /api/sync/memories/:id` logged only the exception message, where its three siblings
+  logged the stack. An operator reading "Cannot read properties of undefined" has nowhere to go.
+
+- **A completeness check can no longer be told to point at a collection with no screen.** The
+  "go and fix these" button on the Overview and Review tabs takes a Brain TAB, and the field feeding it was
+  typed as a collection. The two were the same five values until this release; the type now excludes the
+  one that has no tab, on both sides of the API, so a check that tried it is a compiler error where it is
+  written rather than a button that opens nothing.
+
 - **A processing poll whose own request FAILS keeps running, and now has a test saying so.** Seven cases
   already stood over that poll — it re-lists while something is in flight, keeps going, leaves an idle
   folder alone, retires itself when the file finishes, never stacks two timers, ignores which pane face is

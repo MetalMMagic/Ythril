@@ -295,7 +295,12 @@ const FROZEN = {
   // NO DECOMPOSITION: a type file grows with the domain it types, and the raise was ONE optional field on a
   // doc type. Splitting shared interfaces by size would put a record's fields in a different file from the
   // record, which is worse to read and worse to keep correct.
-  'server/src/config/types.ts': 579,
+  // RAISED 579 -> 580 for `LinkDoc`, twelve lines of one new record type. The file was at 568 when this was
+  // measured, so the recorded ceiling had eleven lines of slack in it and the true growth is twelve.
+  // NO DECOMPOSITION: the argument above still applies and this is the case it was written for — a record's
+  // fields belong in the same file as the records it is deliberately not. `LinkDoc` exists to say what an
+  // `EdgeDoc` is not, and reading the two apart is how they drift back together.
+  'server/src/config/types.ts': 580,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any
@@ -457,7 +462,10 @@ const FROZEN = {
   // NO DECOMPOSITION: the note below is the argument that applies — this is the client's single mirror of
   // the API's shapes and its consumers import one module deliberately. A third file holding one tuple
   // would be the split this one exists to avoid.
-  'client/src/app/core/api.types.ts': 659,
+  // RAISED 659 -> 660: ONE LINE, `WipeResult.links`. The wipe response gained a key on the server and this
+  // is the mirror of it; a mirror that is a field short is the shape that makes a client silently ignore
+  // part of a response. There is nowhere else a field of a response type can live.
+  'client/src/app/core/api.types.ts': 660,
 };
 
 describe('no file grows past what we already carry', () => {

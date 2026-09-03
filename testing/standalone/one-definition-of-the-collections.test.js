@@ -63,26 +63,74 @@ const DECLARATIONS = ['server/src/config/types-knowledge.ts', 'client/src/app/co
 /** The marker a deliberate subset carries, in its own words, beside the list. */
 const DECLARED_SUBSET = /NOT ALL BRAIN COLLECTIONS/;
 
+/** The five knowledge collections, PLURAL — never the singular type names, which are a different list. */
+const COLS = ['memories', 'entities', 'edges', 'chrono', 'files'];
+
+/**
+ * How many of the five a run must name before it counts as writing the list out. **FOUR, not five.**
+ *
+ * ## Five was the wrong line, and `M-2` is what proved it
+ *
+ * The first version of this gate fired only on a run naming all five. Every site the link migration has to
+ * edit names FOUR — because those four mean *the typed knowledge collections* and each handles files by
+ * another route entirely:
+ *
+ *   - `brain/merkle.ts` hashes four and takes files from a manifest. A collection absent from the hash means
+ *     two instances holding different data report themselves IDENTICAL, which is worse than not replicating,
+ *     because it reports agreement.
+ *   - `sync/engine.ts`'s `payloadKey` is a four-member union; files cross the wire by another path.
+ *   - `spaces/ensure-query-indexes.ts`'s `TYPE_FILTERED` is the four that have a `type` field to filter on.
+ *   - `metrics/registry.ts` pre-declares gauge labels for four.
+ *
+ * **A gate that only sees the complete list passes exactly the sites the next member breaks.** So four.
+ *
+ * And three stays out on purpose. `memories | chrono | files` is the set of collections that HOLD link
+ * arrays — a genuinely different question, with its own names (`LINK_SCANNED`, `LINK_CLASSES`) and three
+ * separate spellings. Lowering to three would report a real concept as debt.
+ */
+const NEAR_COMPLETE = 4;
+
 function sourceFiles() {
   return execFileSync('git', ['ls-files', 'server/src', 'client/src'], { cwd: ROOT, encoding: 'utf8' })
     .split('\n')
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.d.ts'));
 }
 
+/** A quoted string immediately after the run — so the run is the START of a longer list of strings. */
+const STRING_FOLLOWS = /^\s*,\s*['"]/;
+/** A quoted string immediately before it — so the run is the END of one. */
+const STRING_PRECEDES = /['"]\s*,\s*$/;
+
 /**
- * Every run naming ALL five knowledge collections as adjacent quoted literals.
+ * Every run of adjacent quoted collection names that is a LIST OF ITS OWN and names at least four of five.
  *
- * The whole list, and the plurals: `'entity', 'memory', 'edge', 'chrono'` is the TYPE list, a different
- * enumeration with its own gate, and a check that conflated them would report one as debt for looking like
- * the other.
+ * Two things make this structural rather than a count of names:
+ *
+ * **The plurals only.** `'entity', 'memory', 'edge', 'chrono'` is the TYPE list — a different enumeration
+ * with its own gate — and a check that conflated them would report one as debt for looking like the other.
+ *
+ * **A run that continues into other strings is a PREFIX, not a list.** `SPACE_COLLECTIONS` writes all nine
+ * of its members on one line and the first four are the knowledge collections, so a plain
+ * run-of-adjacent-names sweep sees a four-member list inside a nine-member one and reports set 1 as a hidden
+ * subset of set 2. It is not: it has a name, it is the thing that creates the collections, and it gains a new
+ * member for the ordinary reason. So a run whose neighbour on either side is another quoted string is
+ * skipped — that is a longer list of strings which happens to start or end with these.
  */
 function enumerationsIn(src) {
-  const COLS = ['memories', 'entities', 'edges', 'chrono', 'files'];
+  const clean = stripComments(src);
   const hits = [];
   const run = /(['"])(?:memories|entities|edges|chrono|files)\1(?:\s*[,|]\s*(['"])(?:memories|entities|edges|chrono|files)\2)+/g;
-  for (const m of stripComments(src).matchAll(run)) {
+  for (const m of clean.matchAll(run)) {
     const named = COLS.filter(c => m[0].includes(`'${c}'`) || m[0].includes(`"${c}"`));
-    if (named.length === COLS.length) hits.push(m[0].replace(/\s+/g, ' '));
+    if (named.length < NEAR_COMPLETE) continue;
+    // UNBOUNDED slices, anchored regexes. A `slice(end, end + 40)` would be a character count deciding how
+    // much of the subject this gate can see, which `gates-bound-their-subject-structurally.test.js` refuses
+    // — and correctly: a count spans a different number of lines on CRLF than on CI's LF. `^` and `$` do the
+    // bounding instead, so the window is exactly the neighbouring token however long the rest of the file is.
+    const end = m.index + m[0].length;
+    if (STRING_FOLLOWS.test(clean.slice(end))) continue;
+    if (STRING_PRECEDES.test(clean.slice(0, m.index))) continue;
+    hits.push(m[0].replace(/\s+/g, ' '));
   }
   return hits;
 }
@@ -132,12 +180,43 @@ describe('a collection list derives from the one tuple, or declares itself a sub
       'the record map has to add `file: "files"`, the one collection with no knowledge type above it');
   });
 
-  it('the two deliberate subsets each say so, so the exemption cannot be silent', () => {
-    // An exemption nobody has to justify is a hole. These two are the ones the rule exists to protect: a
-    // vector index a link must never get, and the UI's tabs, which answer a different question entirely.
-    for (const f of ['server/src/spaces/vector-index.ts', 'client/src/app/pages/brain/brain-tabs.ts']) {
+  it('the deliberate subsets each say so, so the exemption cannot be silent', () => {
+    // An exemption nobody has to justify is a hole. These are the ones the rule exists to protect: a vector
+    // index a link must never get, the UI's tabs — which answer a different question entirely — and the four
+    // four-member lists that mean "the typed knowledge collections" and route files elsewhere.
+    for (const f of [
+      'server/src/spaces/vector-index.ts',
+      'client/src/app/pages/brain/brain-tabs.ts',
+      'server/src/brain/merkle.ts',
+      'server/src/sync/engine.ts',
+      'server/src/spaces/ensure-query-indexes.ts',
+      'server/src/metrics/registry.ts',
+    ]) {
       assert.match(readFileSync(f, 'utf8'), DECLARED_SUBSET,
-        `${f} is a deliberate subset and must say so beside its list`);
+        `${f} writes the collections out as a deliberate subset and must say so beside its list`);
     }
+  });
+
+  it('a run inside a LONGER list of strings is a prefix, not a subset', () => {
+    // The false-positive floor, and it is a real shape: `SPACE_COLLECTIONS` opens with these four and
+    // continues into `tombstones`, `conflicts` and the two candidate queues. A gate that reported it would
+    // be tuned away rather than fixed, which is how a signature list starts.
+    const nine = "const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files', 'dupe_candidates', 'contradiction_candidates'] as const;";
+    assert.deepEqual(enumerationsIn(nine), [], 'a nine-member list must not read as a four-member subset');
+    assert.deepEqual(enumerationsIn(readFileSync('server/src/spaces/_shared.ts', 'utf8')), [],
+      'and the real file it was taken from must stay quiet for the same reason');
+  });
+
+  it('the detector actually detects', () => {
+    // Mutation-proof for the threshold and the plurals both: a detector that never fires passes everything,
+    // and one that cannot tell four from three would report `LINK_SCANNED` as debt.
+    assert.equal(enumerationsIn("x = ['memories', 'entities', 'edges', 'chrono'];").length, 1, 'four is the line');
+    assert.equal(enumerationsIn("x = ['memories', 'entities', 'edges', 'chrono', 'files'];").length, 1, 'five too');
+    assert.equal(enumerationsIn("t: 'memories' | 'entities' | 'edges' | 'chrono';").length, 1, 'a union counts');
+    assert.equal(enumerationsIn("x = ['memories', 'chrono', 'files'];").length, 0, 'three is a different concept');
+    assert.equal(enumerationsIn("x = ['entity', 'memory', 'edge', 'chrono', 'file'];").length, 0,
+      'the singular TYPE names are a different list with its own gate');
+    assert.equal(enumerationsIn("// ['memories', 'entities', 'edges', 'chrono']").length, 0,
+      'a comment explaining the rule must not trip it');
   });
 });

@@ -341,7 +341,13 @@ every other instance, the next time anybody rebuilt that space's search index.
 
 #### Advanced Query
 
-Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.
+Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, `files`, or `links`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.
+
+**`links` is the newest one and it is worth knowing what it holds.** When a memory, a chrono entry or a file
+names other records — the "related entities" and similar fields — each of those mentions is also stored as its
+own small record in `links`. Nothing new to fill in: you still write the connection on the record itself, and
+this collection is where you can list them, count them, or find the ones pointing at something. A row is just
+the two ends and what kind of record each end is.
 
 The API behind this tab also takes **`skip`** (page through the results), **`sort`** and **`dir`** (order by a field), and returns a **`total`** — every record the filter matches, not just the page. Those are useful when you are driving it from a script rather than this form; see [Structured Query](../integration-guide/04d-brain-ops-api.md#structured-query-read-only) for the parameters and the sortable fields per collection.
 

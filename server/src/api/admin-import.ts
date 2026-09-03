@@ -39,7 +39,7 @@
  * a rule for it to break.
  */
 import { col } from '../db/mongo.js';
-import { BRAIN_COLLECTIONS } from '../config/types.js';
+import { BRAIN_COLLECTIONS, KNOWLEDGE_TYPES } from '../config/types.js';
 import { log } from '../util/log.js';
 import type { SchemaViolation } from '../spaces/schema-validation.js';
 import { violationsAgainstLocalSchema, ingestBrainDoc } from './sync/_shared.js';
@@ -50,13 +50,21 @@ import type { BrainEmbedRecordType, KnowledgeType } from '../config/types.js';
 const IMPORT_TYPES = BRAIN_COLLECTIONS;
 export type ImportType = typeof IMPORT_TYPES[number];
 
-/** The record type each collection holds, for the embed queue and the schema lookup. */
-const RECORD_TYPE: Record<ImportType, BrainEmbedRecordType> = {
+/**
+ * The record type each collection holds, for the embed queue and the schema lookup.
+ *
+ * `null` for `links` and it is not a gap: a link record says one record concerns another and carries no
+ * text, so there is nothing to embed and no type schema to check it against. Spelled `null` rather than
+ * left out, because this map is TOTAL over the importable collections — which is what made adding a
+ * collection a compiler error here instead of a record kind the importer silently skipped.
+ */
+const RECORD_TYPE: Record<ImportType, BrainEmbedRecordType | null> = {
   memories: 'memory',
   entities: 'entity',
   edges: 'edge',
   chrono: 'chrono',
   files: 'file',
+  links: null,
 };
 
 /** One document that was stored despite breaking the space's schema. */
@@ -126,9 +134,23 @@ export async function importDocuments(spaceId: string, payload: Record<string, u
          */
         const retagged = { ...(doc as Record<string, unknown>), _id: docId, spaceId };
 
-        // Recorded, never refused — see the docblock. A file has no type schema, so it is stored unchecked.
-        if (t !== 'files') {
-          const found = violationsAgainstLocalSchema(spaceId, RECORD_TYPE[t] as KnowledgeType, retagged);
+        /*
+         * Recorded, never refused — see the docblock.
+         *
+         * Skipped where there is no type SCHEMA to check against, and the condition is membership in
+         * `KNOWLEDGE_TYPES` rather than a list of collection names. It read `t !== 'files'`, which was the
+         * same thing while files were the only such collection; `M-2`'s links are the second, and a name
+         * check would have validated a link against nothing while claiming it had been checked.
+         *
+         * **The axis matters and the first attempt got it wrong.** Guarding on "has a record type" reads as
+         * the same question and is not: a file HAS one (`file`) and has no type schema, so files went into
+         * `violationsAgainstLocalSchema`, whose switch has no case for them, and every file import threw
+         * into the outer catch and was counted as an error. What `violationsAgainstLocalSchema` takes is a
+         * `KnowledgeType` — so that is the question to ask.
+         */
+        const kind = RECORD_TYPE[t];
+        if (kind !== null && (KNOWLEDGE_TYPES as readonly string[]).includes(kind)) {
+          const found = violationsAgainstLocalSchema(spaceId, kind as KnowledgeType, retagged);
           if (found.length > 0) violations.push({ _id: docId, violations: found });
         }
 

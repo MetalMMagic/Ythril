@@ -527,7 +527,7 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `collection` | ✅ | One of: `memories`, `entities`, `edges`, `chrono`, `files` |
+| `collection` | ✅ | One of: `memories`, `entities`, `edges`, `chrono`, `files`, `links` |
 | `filter` | — | Query filter object (defaults to `{}`) |
 | `projection` | — | Projection object (`1` include / `0` exclude) |
 | `limit` | — | Max rows (default `20`, capped at `100`) |
@@ -537,6 +537,17 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 | `maxTimeMS` | — | Query timeout in milliseconds (default `5000`) |
 
 Any other field is a `400`. See **Unknown body fields are refused** below.
+
+**`links` is read-only through this route and has no write door of its own.** A link record says that one
+record concerns another — it is what a `memory.entityIds`, `chrono.entityIds`/`memoryIds` or
+`file.entityIds`/`memoryIds`/`chronoIds` entry becomes when it is stored as a record instead of an array
+element. You write one by writing that array on the record, exactly as before; querying this collection is how
+you read them back as rows.
+
+A link document is deliberately small: `from` and `to` with a `fromKind` and `toKind` (`entity`,
+`memory`, `chrono` or `file`), plus `author`, `createdAt`, `updatedAt` and `seq`. There is no label, type,
+weight or description, because the two kinds already say which of the six connections it is — and no
+embedding, so a link never competes in a meaning-ranked search.
 
 **Response** `200`:
 

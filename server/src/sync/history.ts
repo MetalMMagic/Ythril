@@ -7,6 +7,12 @@ export interface SyncCounts {
   edges: number;
   files: number;
   chrono: number;
+  /**
+   * Added with the link records (`M-2`). Stored history written before then has no key here, so a reader
+   * gets `undefined` rather than `0` — which is correct and not a gap: that cycle could not have pushed a
+   * link, and reporting `0` would claim it looked and found none.
+   */
+  links: number;
 }
 
 export interface SyncHistoryRecord {

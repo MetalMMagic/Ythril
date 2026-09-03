@@ -934,6 +934,12 @@ export const brainWriteSeqTotal = new Counter({
 // only `collection="memories"` and reasonably guessed the labels were lazy. Pre-declaring the other three
 // without instrumenting them would have been the worse fix: a permanent 0 on entities reads as "no
 // collisions here", which is the exact confusion pre-declaring exists to prevent.
+// NOT ALL BRAIN COLLECTIONS: these are the collections whose writes go through the seq allocator, which is
+// what a collision is measured against. `files` is absent because a file write is a blob plus a meta record
+// and its collisions are a different question; `links` is absent because a colliding link is a DUPLICATE
+// rather than a collision — two peers noticing the same connection have written the same fact, and the
+// unique index in `lifecycle.ts` absorbs it. Pre-declaring a permanent 0 for either would read as "no
+// collisions here", which is the exact confusion pre-declaring exists to prevent.
 for (const collection of ['memories', 'entities', 'edges', 'chrono']) {
   for (const outcome of ['clean', 'collision', 'refused']) {
     brainWriteSeqTotal.labels({ collection, outcome }).inc(0);

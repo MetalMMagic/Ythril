@@ -106,24 +106,53 @@ function merkleExcluded(src) {
  */
 const HASHED_BUT_NOT_REPLICATED = {};
 
-/** Every replicated document and the schema that guards its push door. */
-const REPLICATED = [
-  ['MemoryDoc', 'IncomingMemoryDoc'],
-  ['EntityDoc', 'IncomingEntityDoc'],
-  ['EdgeDoc', 'IncomingEdgeDoc'],
-  ['ChronoEntry', 'IncomingChronoDoc'],
-];
+/**
+ * Every replicated document and the schema that guards its push door — DERIVED from the schemas that exist.
+ *
+ * ## It was a hand-written list of four, and `M-2` is what that would have cost
+ *
+ * A fifth replicated document (`LinkDoc`) arrived and the list named four, so every assertion below would
+ * have run over the old four and passed — reporting clean about a document nobody had checked. That is the
+ * failure mode this whole file exists to catch, arriving through the file itself: a count cannot tell
+ * "absent" from "never looked at".
+ *
+ * So the pairs come from the `Incoming*` schemas declared in `api/sync/_shared.ts`, and the document name
+ * is derived from each one by dropping `Incoming`. Two names do not follow that rule and are mapped
+ * explicitly — `IncomingChronoDoc` guards `ChronoEntry`, whose name predates the convention.
+ *
+ * The floor assertion below then does double duty: an `Incoming*` schema whose document cannot be found is
+ * a re-anchor, and a replicated document with no `Incoming*` twin at all is caught by
+ * `a-link-collection-joins-every-set-it-must.test.js`, which asks the question from the collection's side.
+ */
+const DOC_NAME_EXCEPTIONS = { IncomingChronoDoc: 'ChronoEntry' };
+
+function replicatedPairs(sharedSrc) {
+  const pairs = [];
+  for (const m of sharedSrc.matchAll(/export const (Incoming\w*Doc)\s*=\s*z\.object\(/g)) {
+    const inc = m[1];
+    pairs.push([DOC_NAME_EXCEPTIONS[inc] ?? inc.replace(/^Incoming/, ''), inc]);
+  }
+  return pairs;
+}
 
 describe('a hashed field replicates, and a non-replicated field is not hashed', () => {
   const types = readFileSync(TYPES, 'utf8');
   const shared = readFileSync(SHARED, 'utf8');
   const merkle = readFileSync(MERKLE, 'utf8');
   const { fromSet, fromProjection } = merkleExcluded(merkle);
+  const REPLICATED = replicatedPairs(shared);
 
   it('the extractors find what they are looking for (the check itself works)', () => {
     // Floors every assertion below. A rename that broke any of these would make the comparisons run over
     // empty lists and pass, which is the failure mode a source-reading gate dies of.
+    // The derivation's own floor, and it is the point of deriving: this number GREW when `M-2` added a
+    // fifth replicated document, where a hand-written list would have gone on reporting clean about four.
+    assert.ok(REPLICATED.length >= 5,
+      `only ${REPLICATED.length} Incoming* schema(s) found in api/sync/_shared.ts — the extractor is broken, `
+      + 'and a broken extractor makes every assertion below run over an empty list and pass');
     for (const [doc, inc] of REPLICATED) {
+      // `LinkDoc` has nine fields and is the smallest replicated document there is — two endpoints, their
+      // kinds, and the bookkeeping. The floor is what a real document cannot be under, not a round number.
       assert.ok((docFields(types, doc) ?? []).length > 6, `${doc} fields not found — re-anchor`);
       assert.ok((incomingKeys(shared, inc) ?? []).length > 6, `${inc} keys not found — re-anchor`);
     }

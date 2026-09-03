@@ -29,7 +29,14 @@ import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 
-/** The record collections a `type` filter reaches, with the index that filter needs. */
+/**
+ * The record collections a `type` filter reaches, with the index that filter needs.
+ *
+ * NOT ALL BRAIN COLLECTIONS, and two are missing for two different reasons. `files` has no `type` field —
+ * a file's kind is its path and its media handling. `links` has no type field either, and cannot get one:
+ * a link's kind IS its two endpoint kinds, which the unique index in `lifecycle.ts` already covers. A
+ * `type` index on the links collection would index a field no link document has.
+ */
 const TYPE_FILTERED = ['memories', 'entities', 'edges', 'chrono'] as const;
 
 /**

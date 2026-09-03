@@ -210,7 +210,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `types` | `string[]` *(optional)* | Subset of collection types to wipe: `"memories"`, `"entities"`, `"edges"`, `"chrono"`, `"files"`. Omit (or send `{}`) to wipe **all** collections. |
+| `types` | `string[]` *(optional)* | Subset of collection types to wipe: `"memories"`, `"entities"`, `"edges"`, `"chrono"`, `"files"`, `"links"`. Omit (or send `{}`) to wipe **all** collections. |
 
 #### Full wipe (all collections)
 
@@ -221,7 +221,7 @@ Content-Type: application/json
 or explicitly:
 
 ```json
-{ "types": ["memories", "entities", "edges", "chrono", "files"] }
+{ "types": ["memories", "entities", "edges", "chrono", "files", "links"] }
 ```
 
 #### Partial wipe (specific types only)
@@ -243,13 +243,19 @@ or explicitly:
     "entities": 8,
     "edges": 5,
     "chrono": 0,
-    "files": 3
+    "files": 3,
+    "links": 17
   }
 }
 ```
 
 Each field in `deleted` is the number of documents actually removed from that
 collection.  On a partial wipe the unaffected fields will be `0`.
+
+`"links"` is usually the largest number and it is not a separate thing to clean up. A link record is one
+mention of one record by another, so a space with a few hundred memories that name entities holds a link per
+mention. Wiping `"memories"` alone leaves those links behind pointing at records that are gone — include
+`"links"`, or omit `types` entirely and wipe everything.
 
 #### Behaviour notes
 

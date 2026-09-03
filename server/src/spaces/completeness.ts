@@ -51,7 +51,27 @@ export interface CompletenessCheck {
   sample: string[];
   /** Which Brain tab shows the affected records, or `null` when the finding is about the space itself
    *  and no collection displays it. The UI turns it into a link. */
-  targetTab: BrainCollection | null;
+  /**
+   * Where the affected records are, or `null` for a finding about the space itself.
+   *
+   * ## Narrower than `BrainCollection`, and the compiler is what made that visible
+   *
+   * This field was `BrainCollection | null` on both sides of the API and it feeds a BUTTON: the Overview's
+   * tiles and the Review tab pass it straight into an `output<CollectionTab>()`. That typechecked for as
+   * long as the collections and the Brain's tabs had the same five members, and broke the hour `M-2` added
+   * a sixth — which is the same trap, one field down, as the three collection SETS that looked like one
+   * list because it had four members.
+   *
+   * A link record has no tab and will not get one: it is DERIVED from an array on another record, so a
+   * "go and fix these" button pointing at it would open nothing an operator could act on. The owner's
+   * ruling on how links surface says the same — *"on graph shown as info on click, and toggleable if
+   * memories and chronos appear"* — a graph affordance and a recall toggle, not a tab.
+   *
+   * So the exclusion lives in the type, where a check that tried to target links is a compiler error at the
+   * point it is written. The client's mirror narrows to its own `CollectionTab`, which is the authority on
+   * that side; `brain-tabs.ts` holds the decision and says why the two lists are not related.
+   */
+  targetTab: Exclude<BrainCollection, 'links'> | null;
 }
 
 export interface CompletenessReport {

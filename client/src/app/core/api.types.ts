@@ -38,6 +38,16 @@ export interface RecordTtlWindows {
 export const KNOWLEDGE_TYPES = ['entity', 'memory', 'edge', 'chrono'] as const;
 
 /**
+ * Every record kind that can be embedded, recalled or retained — the knowledge types PLUS `file`.
+ *
+ * A file has no type field, so no type schema and no schema-tier window; it is a record all the same. That
+ * is the whole difference, and it is why there are two tuples.
+ */
+export const RECORD_TYPES = [...KNOWLEDGE_TYPES, 'file'] as const;
+
+export type RecordType = typeof RECORD_TYPES[number];
+
+/**
  * The five buckets, in the order the UI shows them. `file` last: it is the one with no schema tier above it.
  *
  * Derived from `KNOWLEDGE_TYPES` rather than listed, because a bucket IS a knowledge type plus `file` —

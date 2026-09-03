@@ -41,6 +41,7 @@ import { newClaimToken } from '../files/media/lease.js';
 import { isSpillPath } from './spill-path.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import type { BrainEmbedJobDoc, BrainEmbedRecordType } from '../config/types.js';
+import { RECORD_TYPES } from '../config/types.js';
 
 /** Attempts before a job is left `failed` for an operator (or a rewrite) to deal with. */
 export const MAX_EMBED_ATTEMPTS = 5;
@@ -438,7 +439,8 @@ export async function getEmbedJobCounts(
  * caller that needed to check one was writing its own list. `file` is in here because file CHUNKS are embedded through
  * this same queue; the media pipeline that produces them has its own separate job queue.
  */
-export const EMBED_RECORD_TYPES = ['memory', 'entity', 'edge', 'chrono', 'file'] as const;
+/** One of the five names this repo had for the record types. Re-exported so call sites read well. */
+export const EMBED_RECORD_TYPES = RECORD_TYPES;
 
 /** Narrowing guard, so a route can reject an unknown type instead of enqueueing a job nothing will ever claim. */
 export function isEmbedRecordType(v: unknown): v is BrainEmbedRecordType {

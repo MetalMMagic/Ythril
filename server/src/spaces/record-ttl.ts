@@ -26,9 +26,10 @@
  * the UI and compare unequal in a snapshot.
  */
 import type { RecordTtlWindows, TtlBucket } from '../config/types.js';
+import { RECORD_TYPES } from '../config/types.js';
 
 /** The five buckets, in the order the UI shows them. `file` last: it is the odd one out (no schema tier). */
-export const TTL_BUCKETS: readonly TtlBucket[] = ['entity', 'memory', 'edge', 'chrono', 'file'];
+export const TTL_BUCKETS: readonly TtlBucket[] = RECORD_TYPES;
 
 /** A positive integer day count, or undefined. `0`, `null` and nonsense all mean "no window". */
 function window_(v: unknown): number | undefined {

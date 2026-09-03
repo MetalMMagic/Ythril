@@ -94,13 +94,14 @@ export interface TokenRecord {
 // Moved to `types-knowledge.ts` — a LEAF that imports nothing, so it cannot become half of a cycle. See that
 // file for why that matters. Imported as well as re-exported, because `export ... from` does not bring a name
 // into local scope and `TtlBucket` below is built from `KnowledgeType`.
-import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
+import type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, RecordType, RefKind, SpaceMeta, StampSkewable } from './types-knowledge.js';
 export type { MergeFn, NumericMergeFn, BooleanMergeFn, PropertySchema, TypeSchema, ValidationMode, KnowledgeType, SpaceMeta };
 // A VALUE, so it needs its own import and re-export: everything else above is a type. Re-exported from here
 // rather than importing the leaf directly, because `config/types.js` is the one path this codebase's modules
 // already reach for, and a second path to the same tuple is how a second copy of it starts.
-import { KNOWLEDGE_TYPES } from './types-knowledge.js';
-export { KNOWLEDGE_TYPES };
+import { KNOWLEDGE_TYPES, RECORD_TYPES } from './types-knowledge.js';
+export { KNOWLEDGE_TYPES, RECORD_TYPES };
+export type { RecordType } from './types-knowledge.js';
 
 /**
  * What kind of thing a record is, for the purpose of the SPACE retention tier.
@@ -108,7 +109,14 @@ export { KNOWLEDGE_TYPES };
  * `KnowledgeType` plus `file`, because files share the space-wide default but have no type and therefore no
  * schema tier — the one asymmetry between the two concepts, and the reason they are separate names.
  */
-export type TtlBucket = KnowledgeType | 'file';
+/**
+ * The retention buckets: {@link RecordType} under the name the retention code reads.
+ *
+ * It was `KnowledgeType | 'file'` — already derived, and the model the other four aliases should have
+ * followed. Spelled as `RecordType` now so all five names resolve to one tuple rather than to two
+ * equivalent-but-separate definitions.
+ */
+export type TtlBucket = RecordType;
 
 /**
  * The space-wide retention window per bucket. Absent or `null` means no window for that bucket.
@@ -948,7 +956,8 @@ export interface AuditConfig {
 }
 
 /** Knowledge types the background duplicate scanner can sweep (same values as RecallKnowledgeType). */
-export type DupeScanType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+/** One of the five names this repo had for {@link RecordType}. Kept as an alias so call sites read well. */
+export type DupeScanType = RecordType;
 
 /**
  * Optional background semantic-duplicate scanner. Off by default (opt-in). When
@@ -1929,7 +1938,8 @@ export interface MediaJobDoc {
  * The alternative — a second re-embed mechanism just for files — is what produced the bug in the first place:
  * the update path had its own copy of the embed-text builder while the queue had `buildEmbedText`.
  */
-export type BrainEmbedRecordType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+/** One of the five names this repo had for {@link RecordType}. Kept as an alias so call sites read well. */
+export type BrainEmbedRecordType = RecordType;
 
 /**
  * One queued embedding job. `_id` is `<recordType>:<recordId>`, so a record rewritten five times has

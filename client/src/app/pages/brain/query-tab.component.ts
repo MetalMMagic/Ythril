@@ -3,7 +3,7 @@ import { groupRecallResults, chunkLabel, passageText, flattenRecallItems } from 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult } from '../../core/api.types';
+import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RECORD_TYPES } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { RecallFormComponent, type RecallFormState, type RecallTypeOpt } from './recall-form.component';
@@ -282,7 +282,10 @@ export class QueryTabComponent {
   queryProjectionError = signal('');
 
   // Semantic search
-  recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
+  //
+  // `recallKnowledgeTypes` was here and was DEAD: declared, never read, not by the template either. The
+  // rendered list is `recallTypeOpts` below. Deleted rather than converted — a copy of an enumeration that
+  // nothing reads is the cheapest kind to keep and the easiest to start believing in.
   // `maxPerType: 0` and `includeContent: true` are the SERVER's defaults expressed as form state, not new policy:
   // 0 means "no cap" and is omitted from the request, and `includeContent` starts true because sending false makes
   // recall look as though it has stopped returning passages. `includeFreshWrites` starts false because it is an
@@ -338,8 +341,7 @@ export class QueryTabComponent {
   }
   /** Type restriction + per-type minimums. Unchecked types are simply not sent. */
   recallTypeOpts: RecallTypeOpt[] =
-    (['memory', 'entity', 'edge', 'chrono', 'file'] as RecallKnowledgeType[])
-      .map(type => ({ type, on: false, min: null }));
+    RECORD_TYPES.map(type => ({ type, on: false, min: null }));
   /*
    * `showRecallAdvanced` was here and is GONE with the button it drove.
    *

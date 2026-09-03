@@ -83,30 +83,34 @@ function enumerationsIn(src) {
   for (const m of clean.matchAll(run)) {
     const has = n => m[0].includes(`'${n}'`) || m[0].includes(`"${n}"`);
     const named = KINDS.filter(has);
-    // The four kinds AND NOT `file`. A run that includes `file` is the OTHER enumeration — see the note
-    // above `RECORD_TYPES_NOT_YET_ONE_TUPLE` below.
-    if (named.length === KINDS.length && !has('file')) hits.push({ text: m[0].replace(/\s+/g, ' '), named });
+    // All four kinds, `file` present or not: BOTH enumerations are one tuple each now, and a run naming the
+    // whole of either is a copy of it. The `file` half landed one change later than the rest — see below.
+    if (named.length === KINDS.length) hits.push({ text: m[0].replace(/\s+/g, ' '), named });
   }
   return hits;
 }
 
 /**
- * THE SECOND ENUMERATION, and why it is not this gate's subject yet.
+ * THE SECOND ENUMERATION — the four kinds PLUS `file` — and what its extraction had to establish first.
  *
- * Sixteen sites write out the four kinds PLUS `file` — the set of every record type that can be embedded,
- * recalled or retained. It lives under five different aliases for one set: `RecallKnowledgeType`,
- * `BrainEmbedRecordType`, `DupeScanType`, `TtlBucket`, and `EMBED_RECORD_TYPES`.
+ * Sixteen sites wrote it out, under five aliases for one set: `RecallKnowledgeType`, `BrainEmbedRecordType`,
+ * `DupeScanType`, `TtlBucket` and `EMBED_RECORD_TYPES`. Only the last of those was already derived.
  *
- * **It is not folded in here because its ORDER is not consistent today**, and deriving it would silently
- * change that. Most sites write `memory, entity, edge, chrono, file`; `record-ttl.ts` writes
- * `entity, memory, ...` and its comment says the order is *"the order the UI shows them"*. Derive one tuple
- * from `KNOWLEDGE_TYPES` and the memory-first sites become entity-first — which reorders the chips in the
- * query tab, reorders an MCP tool schema's published enum, and changes the order recall's default type list
- * is processed in.
+ * **It landed one change after the four-member one, because its ORDER was not consistent and deriving it
+ * changes that.** Most sites wrote `memory` first; the retention buckets wrote `entity` first and their
+ * comment said the order was the one the UI shows. Deriving makes every site entity-first, which touches
+ * three surfaces — so each was checked rather than assumed:
  *
- * Every one of those may well be harmless. None of them is harmless *by inspection*, and a reordering that
- * arrives inside a refactor nobody expected to change behaviour is the shape worth refusing. Filed as its
- * own item so the order question gets checked rather than assumed.
+ *   - **recall's default type list**: does NOT affect results. The fan-out maps over the types and flattens,
+ *     then every consumer sorts by score with `byIdAsc` as a deterministic tiebreak, and the lexical
+ *     introduction caps PER TYPE against a pool a record can only belong to one type of.
+ *   - **the MCP tool schemas**: a JSON-Schema `enum` is a set. The published text changes; nothing a caller
+ *     does with it can.
+ *   - **the Brain query tab's type chips**: genuinely visible, and it now matches the order every other list
+ *     in the product already used. Read on a screenshot rather than argued.
+ *
+ * One of the three turned out not to be a surface at all: `recallKnowledgeTypes` in the query tab was
+ * declared, never read, and not in the template either. Deleted rather than converted.
  */
 
 

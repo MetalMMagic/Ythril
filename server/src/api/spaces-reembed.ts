@@ -10,7 +10,8 @@
  * shape: validate, delegate, report.
  */
 
-import type { Router } from 'express';
+import type { Router } from 'express';
+import { RECORD_TYPES } from '../config/types.js';
 import { z } from 'zod';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAdminMfaScoped } from '../auth/middleware.js';
@@ -26,7 +27,7 @@ import { log } from '../util/log.js';
  * got everything would be told they had narrowed it, which is the failure mode worth a rejection.
  */
 const ReembedBody = z.object({
-  kinds: z.array(z.enum(['memory', 'entity', 'edge', 'chrono', 'file'])).min(1).optional(),
+  kinds: z.array(z.enum(RECORD_TYPES)).min(1).optional(),
   limit: z.number().int().positive().max(REEMBED_MAX_LIMIT).optional(),
 }).strict();
 

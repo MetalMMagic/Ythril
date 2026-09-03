@@ -43,6 +43,7 @@ import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { SPACE_PURPOSE_MAX } from './_shared.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS } from '../config/types.js';
 import type { KnowledgeType } from '../config/types.js';
+import { RECORD_TYPES } from '../config/types.js';
 
 // ── Zod schema for PropertySchema ──────────────────────────────────────────
 /**
@@ -404,7 +405,7 @@ export const RenameSpaceBody = z.object({
 export const DupeActionRuleBody = z.object({
   minScore: z.number().min(0).max(1),
   action: z.enum(['flag', 'automerge', 'notify']),
-  types: z.array(z.enum(['memory', 'entity', 'edge', 'chrono', 'file'])).optional(),
+  types: z.array(z.enum(RECORD_TYPES)).optional(),
   webhookUrl: z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE }).optional(),
 }).strict();
 

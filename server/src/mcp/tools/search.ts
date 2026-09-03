@@ -7,7 +7,8 @@
  * entries, and files alike, so they belong with the read/search surface rather than memory CRUD.
  */
 
-import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { RECORD_TYPES } from '../../config/types.js';
 import { UUID_V4_RE, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS } from './shared.js';
 import { MAX_RECALL_TRAVERSE } from '../../brain/recall-seed-traversal.js';
 import { mapGraphNodes, graphNodeRecord } from '../../brain/recall-graph.js';
@@ -79,7 +80,7 @@ export const recallTool: ToolHandler = {
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only results bearing ALL of these tags are returned (applies to memories, entities, chrono entries, and files).' },
             types: {
               type: 'array',
-              items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
+              items: { type: 'string', enum: [...RECORD_TYPES] },
               description: 'Optional knowledge-type filter — restrict results to one or more types. Omit to search all five. EDGES ARE SEARCHABLE RECORDS and compete for your topK: a topK 20 on a persona space came back with 2 of them, so structural relationships displace knowledge unless you exclude them here.',
             },
             minPerType: {
@@ -410,11 +411,11 @@ export const find_similarTool: ToolHandler = {
           properties: {
             space: s.optionalSpace,
             entryId: uuidSchema('UUID v4 of the source entry — the record everything else is compared AGAINST. It is never itself in the results.'),
-            entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the SOURCE entry, which is how the id is resolved — a wrong type is a not-found rather than a wrong answer. It does not constrain what comes back: use `targetTypes` for that, and note a memory can legitimately be most similar to an entity.' },
+            entryType: { type: 'string', enum: [...RECORD_TYPES], description: 'Knowledge type of the SOURCE entry, which is how the id is resolved — a wrong type is a not-found rather than a wrong answer. It does not constrain what comes back: use `targetTypes` for that, and note a memory can legitimately be most similar to an entity.' },
             includeContent: { type: 'boolean', default: true, description: 'Whether to return each file chunk’s `content` (default true). Same meaning as on `recall`, including the limit: it is FILE CHUNKS ONLY and does nothing on a search returning entities, memories, edges or chrono entries. Use `projection` to trim those.' },
             targetTypes: {
               type: 'array',
-              items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
+              items: { type: 'string', enum: [...RECORD_TYPES] },
               description: 'Which knowledge types to search in. Omit to search all types.',
             },
             includeDiagnostics: {
@@ -475,7 +476,7 @@ export const find_similarTool: ToolHandler = {
     if (!entryId) throw new Error('entryId must not be empty');
     if (!UUID_V4_RE.test(entryId)) throw new Error('entryId must be a valid UUID v4');
     const entryType = String(a['entryType'] ?? '').trim();
-    const validTypes = new Set(['memory', 'entity', 'edge', 'chrono', 'file']);
+    const validTypes = new Set<string>(RECORD_TYPES);
     if (!validTypes.has(entryType)) throw new Error(`entryType must be one of: ${[...validTypes].join(', ')}`);
     const topK = typeof a['topK'] === 'number' ? Math.min(Math.max(a['topK'], 1), 100) : 10;
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;

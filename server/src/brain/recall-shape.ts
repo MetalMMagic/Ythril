@@ -202,6 +202,32 @@ export function mergeRecallResults(
   minScore?: number | null,
   maxPerType?: Partial<Record<RecallKnowledgeType, number>>,
 ): RecallResult[] {
+  /*
+   * THE THRESHOLD IS APPLIED TO THE CANDIDATES, and it used to be applied to the answer.
+   *
+   * `final.filter(…)` ran at the end, on a list already cut to `topK` — so `topK: 10, minScore: 0.7` could
+   * return three while forty records cleared the threshold: the ten-record window was chosen from the
+   * UNFILTERED ranking and then thinned. A caller filtering hard got a short answer with no indication that
+   * asking for more would have helped.
+   *
+   * `topK` is now filled from records that satisfy the threshold, which is the guarantee `filter` already
+   * makes and states in as many words: *"topK is filled from records that SATISFY the filter — it is never
+   * applied to an already-truncated shortlist."* Two parameters that narrow the same answer should not
+   * disagree about when they narrow it.
+   *
+   * It also settles a divergence between two tools: `find_similar` applies its threshold inside its
+   * selection loop, so the same parameter behaved differently there, and the integration guide documented
+   * the `find_similar` behaviour for both.
+   *
+   * Still on `score` and never on `rerankScore` — the two are different scales, and a caller's threshold was
+   * written against vector similarity. Reinterpreting it against a cross-encoder's logit would change which
+   * records a fixed threshold returns without anyone touching the threshold.
+   */
+  const clears = (r: RecallResult): boolean =>
+    minScore == null || minScore <= 0 || (r.score ?? 0) >= minScore;
+  guaranteed = guaranteed.filter(clears);
+  allResults = allResults.filter(clears);
+
   const guaranteedIds = new Set(guaranteed.map(r => r._id));
   const fillSlots = Math.max(0, topK - guaranteed.length);
 
@@ -242,12 +268,8 @@ export function mergeRecallResults(
   // separate branch so a partial rerank — a provider that scored some passages and not others — still
   // orders sensibly instead of collapsing the unscored ones to the bottom.
   final.sort(byRankThenId);
-  // minScore filters on `score`, never on `rerankScore`. The two are different scales, and a caller's
-  // threshold was written against vector similarity; silently reinterpreting it against a cross-encoder's
-  // logit would change which results a fixed threshold returns without anyone touching the threshold.
-  return (minScore != null && minScore > 0)
-    ? final.filter(r => (r.score ?? 0) >= minScore)
-    : final;
+  // The threshold was applied to the candidates at the top, so nothing here can be below it.
+  return final;
 }
 
 /**

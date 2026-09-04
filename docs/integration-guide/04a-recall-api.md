@@ -23,7 +23,7 @@ Available as both:
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `query` | ✅ | — | Natural-language search text (non-empty string) |
-| `topK` | — | `10` | Max returned results (1-100) |
+| `topK` | — | `10` | Max returned results, minimum 1 and **no ceiling** — the same on both doors since 4.0, where REST clamped to 100 silently. What comes back is bounded by the byte budget instead: every record whole, `truncated` on every response, `nextSkip` when it bit |
 | `types` | — | all types | Restrict result knowledge types |
 | `minScore` | — | none | Filter out low-similarity matches |
 | `filter` | — | none | Property equality/comparison filter (see below) |
@@ -815,7 +815,7 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 | `entryId` | ✅ | — | UUID of the entry to use as the query vector |
 | `entryType` | ✅ | — | Knowledge type of the source entry (`memory`, `entity`, `edge`, `chrono`, `file`) |
 | `targetTypes` | — | all types | Which knowledge types to search in |
-| `topK` | — | `10` | Maximum results (1–100) |
+| `topK` | — | `10` | Maximum results, minimum 1, no ceiling (see the note on the recall table above) |
 | `minScore` | — | `0.0` | Minimum cosine similarity threshold |
 | `traverse` | — | `0` | Graph-expansion depth (0–5). With `traverse > 0` each match is expanded along edges and the connected entities come back alongside it — see the response shape below |
 | `includeContent` | — | `true` | Whether file-chunk results carry their passage `content`. `false` returns locations and metadata only, exactly as on `recall` |
@@ -847,8 +847,9 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 
 **With `traverse > 0`** the response carries the same graph-augmented shape `recall` uses: each match gains a `_graph`
 array of `{edge, node, paths}`, nested nodes carry their own `_graph`, and the envelope adds `traverseDepth` and
-`graphNodes`. `count` stays the number of matches. The traversed nodes are capped at `topK × (traverse + 1) × 4` minus
-the matches. It is the same builder behind both endpoints and both doors — see
+`graphNodes`. `count` stays the number of matches. The traversed nodes are capped at
+`min(topK × (traverse + 1) × 4, 5000)` minus the matches — the formula shapes a normal answer, and the
+absolute figure is what keeps an uncapped `topK` from turning a walk into an unbounded query. It is the same builder behind both endpoints and both doors — see
 [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter) for the field-by-field table.
 
 ```json

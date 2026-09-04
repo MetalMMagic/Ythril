@@ -99,8 +99,10 @@ by a cross-encoder — it improves the top of the list, so a *smaller* `topK` be
 
 ### "I want everything that matches a condition"
 
-`query`, with `skip`/`sort`/`dir` and `total`. Not `recall` with a huge `topK`: past 100 it is capped, and the tail
-of a ranked list is noise rather than completeness.
+`query`, with `skip`/`sort`/`dir` and `total`. Not `recall` with a huge `topK` — nothing caps it since 4.0,
+so it will not lie to you, but the tail of a ranked list is noise rather than completeness, and you pay
+meaning-ranking's cost for every one of those rows. `query` filters instead of ranking, which is the
+question you are actually asking.
 
 ### "I want context around an answer"
 

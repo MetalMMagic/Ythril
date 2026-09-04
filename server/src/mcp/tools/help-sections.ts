@@ -100,10 +100,13 @@ this is why you could not find it.
 
 What you CAN control, and where:
 
-- query -> projection. The only field-selection lever there is. Naming the four
-  fields you actually branch on turns a page of full record bodies into
-  something you can read; a bare query over a dozen records with descriptions
-  and properties is the cheapest way to overrun a context budget.
+- projection, on query AND recall AND find_similar. The field-selection lever,
+  and it works on all three: naming the four fields you actually branch on
+  turns a page of full record bodies into something you can read, and on the
+  two search tools it applies through the graph expansion as well. A bare query
+  over a dozen records with descriptions and properties is the cheapest way to
+  overrun a context budget. Reach for this on an entity search rather than
+  includeContent, which only drops file-passage bodies.
 - recall -> includeContent: false. Drops file-passage BODIES and keeps their
   locations, so you can find WHICH document holds something and then read only
   the part you decided you need. Passage bodies are by far the largest thing a
@@ -166,7 +169,7 @@ export function helpSections(
     id: 'spaces',
     title: 'Spaces accessible to this token',
     body: '',
-    preamble: 'Most tools take a "space" parameter; recall and list_chrono search across all your spaces when it is '
+    preamble: 'Most tools take a "space" parameter; recall, find_similar and list_chrono search across all your spaces when it is '
       /*
        * This used to read "Call list_spaces for storage/quota details" while `list_spaces` returned counts and
        * nothing else. A caller who read the authoritative reference and believed it found no storage anywhere

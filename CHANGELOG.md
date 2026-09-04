@@ -253,6 +253,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A hard-filtered search returned fewer records than it could, and a flag for finding what you just
+  wrote did nothing on the usual call** (`Q-3`, the last bundle of the guideline audit). Every place where
+  one door accepted less than the other, or described something neither door does — and one of them turned
+  out to be the search FORM rather than either API.
+
+  **`minScore` was applied after the cut.** Asking for ten records above a threshold could return three
+  while forty cleared it: the ten-record window was chosen from the unfiltered ranking and then thinned.
+  It now narrows the candidates, so the count you ask for is filled from records that qualify — the same
+  guarantee the property filter already made and stated. The two search tools also stopped disagreeing
+  about when the threshold applies.
+
+  **`includeFreshWrites` was inert on the idiomatic agent call.** Its whole purpose is finding a record
+  before the search index has it, and it was forwarded only when a single space was named — while omitting
+  the space is the form the tool promotes and the form both write tools point at afterwards. So the
+  documented remedy for *"I wrote it and cannot find it"* did nothing, with a success response. The
+  existing test could not see it: it drives the REST door, where the space is in the path and that branch
+  cannot be reached.
+
+  **The timeline listing now says which space each entry is in.** It is the one tool built for searching
+  across every space you can reach, its description promised the space on each row, and it returned none —
+  while changing or deleting an entry REQUIRES one. Every row it handed back was a row you could not act
+  on, and the single missing field was the one you needed.
+
+  Also: the structured-query refusal lists every collection it accepts rather than five of six, so a
+  mistyped call is no longer handed a list excluding a legal value; the per-type floor refuses a negative
+  or fractional value on both doors, as the ceiling one line below it always did; and `help()` no longer
+  says field selection exists on one tool when all three take it, or leave a search tool out of the list
+  that can span every space.
+
+  **And `topK` no longer has a ceiling on either door** (owner's ruling, `P-34`). This door clamped it to
+  100 silently while the agent door accepted anything, so asking for 500 returned 100 through one and 500
+  through the other — and a silent clamp is the worst of the options, because you are told nothing and
+  believe you have the top 500.
+
+  His question settled it rather than the options I had priced: the byte budget already returns whole
+  records and reports truncation on every response, so the ANSWER never needed a cap. What a cap was
+  standing in for is WORK, and that bound now sits where the work is — the per-type over-fetch and the
+  graph walk each carry their own absolute limit, so an enormous request costs a bounded amount of effort
+  instead of being refused or quietly rewritten.
+
+  **And there was a THIRD door with the old cap still on it: the search form itself.** Its result-count box
+  carried an upper limit of 100, so the browser silently refused a larger number and nothing reported it —
+  an operator was told the ceiling was 100 while a script beside them asked for 500 and got it. Removed,
+  and gated, because the five-places rule counts the screen as one of the places.
+
+  The operator's Search page said *"1–100"* and the guide's "which search do I want" page still advised
+  against a large request on the grounds that it would be capped. Both now describe the real bound, which
+  is the size of the answer rather than the number of rows.
+
+  **The `club` network type was labelled *"supermajority"* in all three languages.** One yes with no veto
+  carries a club round — the guide and the README both said so, and the label a person reads while choosing
+  a trust boundary was the copy that was wrong. Corrected in English, German and Polish.
+
 - **A large file never replicated, and a file-metadata-only sync cycle never finished** (`Q-2`). Both were
   one root cause wearing different symptoms: 4.0 added a SIXTH replicated record family, and five places
   still counted five.

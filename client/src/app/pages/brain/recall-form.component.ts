@@ -237,7 +237,11 @@ export interface RecallTypeOpt {
       <label>{{ 'brain.query.topK' | transloco }}
         <span class="rf-hint" [attr.title]="'brain.query.topK.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
       </label>
-      <input type="number" [(ngModel)]="form().topK" name="recallTopK" min="1" max="100" />
+      <!-- No max attribute: topK has no ceiling at either API door since 4.0.0 (P-34), and one here
+           would make the FORM the narrowest of the three ways in — an operator told 100 is the limit
+           while a script beside them asks for 500. The answer is bounded by size, not count.
+           No backticks in this comment: an inline template is a template literal. -->
+      <input type="number" [(ngModel)]="form().topK" name="recallTopK" min="1" />
     </div>
     <div class="rf-field">
       <label>{{ 'brain.query.minScore' | transloco }}

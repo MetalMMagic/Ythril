@@ -259,8 +259,17 @@ simply skipped.
 
 Two options sit next to the query box:
 
-- **topK** — how many results to return (1–100).
-- **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the same thing.
+- **topK** — how many results to return. **There is no upper limit**, and asking for more than exists is
+  not an error — you get what there is. What bounds a large request is the SIZE of the answer, described
+  under *When the answer itself does not fit* below: a result is returned whole or not at all, and the
+  answer always tells you when something was left out. Before 4.0.0 this box silently reduced anything
+  over 100 to 100 — silently being the problem, because you were then looking at the top 100 believing
+  it was the top 500.
+- **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even
+  when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the
+  same thing. **The threshold is applied before topK, not after**, so a topK of 10 with a threshold set
+  gives you ten results that clear it rather than however many of the top ten happened to. That is a
+  4.0.0 fix; earlier versions chose the ten first and then thinned them, which could return three.
 
 **Nothing is hidden behind a disclosure.** The form is laid out in five groups — **the question**, **ranking**,
 **the graph**, **the answer** and **Size and paging** — side by side across the width of the page, because a control you cannot see

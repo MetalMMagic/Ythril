@@ -554,7 +554,20 @@ export const list_chronoTool: ToolHandler = {
         type: 'text' as const,
         text: results.length === 0
           ? 'No chrono entries found.'
-          : results.map((e, i) => `[${i + 1}] ${e.type} | ${e.status} | ${e.startsAt} | ${e.title} (ID ${e._id})`).join('\n'),
+          /*
+           * THE SPACE IS ON EVERY ROW, and it was on none.
+           *
+           * This tool's own description promises *"Results carry their space"*, and cross-space triage is
+           * the reason it takes no `space` at all. Meanwhile `update_chrono` and `delete_chrono` both
+           * REQUIRE one — so every row it handed back was a row the caller could not act on, and the single
+           * field they needed was the one omitted. The record has always carried `spaceId`; nothing rendered
+           * it.
+           *
+           * `endsAt` too, which the description also lists: a row showing a start and no end reads as an
+           * instant rather than as an interval whose end was simply not shown.
+           */
+          : results.map((e, i) => `[${i + 1}] ${e.spaceId} | ${e.type} | ${e.status} | ${e.startsAt}`
+            + `${e.endsAt ? ` -> ${e.endsAt}` : ''} | ${e.title} (ID ${e._id})`).join('\n'),
       }],
     };
   },

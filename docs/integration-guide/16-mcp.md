@@ -88,7 +88,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `upsert_link`, `delete_link`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `retry_record_embedding`, `retry_failed_media_embeddings`, `update_file_meta`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`, `list_embed_jobs`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `upsert_link`, `delete_link`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `retry_record_embedding`, `retry_failed_media_embeddings`, `update_file_meta`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`, `list_embed_jobs`, `entity_cascade_preview`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -246,6 +246,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `upsert_entity` | Create or update a named entity (with optional properties) |
 | `update_entity` | Update an existing entity by ID (name, type, description, tags, properties, `suppressEmbeddings`); supports `deleteFields` for field removal |
 | `delete_entity` | Delete an entity by ID. Refused when the space has `strictLinkage` and another record still references it — the same rule the REST route enforces. Face labels are unlabelled rather than blocking |
+| `entity_cascade_preview` | What deleting an entity would remove, and the token that lets you do it. Reads only. `delete_entity` takes that token as `cascadeToken` and refuses it if the list has changed since — so a record created after you looked cannot be deleted by a decision taken before it existed |
 | `merge_entities` | Merge two entities — relink all references and resolve per-property conflicts |
 | `find_entities_by_name` | Find all entities with an exact name match (returns list regardless of type) |
 | `upsert_edge` | Create or update a directed relationship |
@@ -545,6 +546,7 @@ composes what REST exposes as one DELETE per collection.
 | | `update_entity` | `PATCH /api/brain/spaces/:spaceId/entities/:id` | write `knowledge` |
 | | `delete_entity` | `DELETE /api/brain/spaces/:spaceId/entities/:id` | write `knowledge` |
 | | `merge_entities` | `POST /api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId` | write `knowledge` |
+| | `entity_cascade_preview` | `GET /api/brain/spaces/:spaceId/entities/:id/cascade-preview` | read `knowledge` |
 | | `find_entities_by_name` | `GET /api/brain/spaces/:spaceId/entities/by-name` | read `knowledge` |
 | **Brain — edges** | | | |
 | | `upsert_edge` | `POST /api/brain/spaces/:spaceId/edges` | write `knowledge` |

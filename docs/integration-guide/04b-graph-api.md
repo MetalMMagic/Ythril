@@ -151,6 +151,57 @@ The MCP `delete_entity` tool refuses with the **same sentence**, from the same c
 
 ---
 
+### Preview and Cascade a Delete
+
+A `DELETE` on an entity is refused with `409` while anything still references it, in a space with
+`strictLinkage` on. **From 4.0 there is a second way out**, and the refusal now names it: preview exactly
+what a cascade would remove, then repeat the delete quoting the token the preview returns.
+
+```http
+GET /api/brain/spaces/:spaceId/entities/:id/cascade-preview
+```
+
+**Response** `200`:
+
+```json
+{
+  "entityId": "8c41…",
+  "removes": [{ "type": "edge", "_id": "3f2a…" }, { "type": "edge", "_id": "9b7d…" }],
+  "token": "b3d4…"
+}
+```
+
+Then:
+
+```http
+DELETE /api/brain/spaces/:spaceId/entities/:id?cascadeToken=b3d4…
+```
+
+**Response** `204`, or `409` with the CURRENT preview attached if the token does not match.
+
+**The token is bound to the SET, not to the entity.** It is a hash of the space, the entity and the sorted
+list you were shown — so if an edge is added or removed between the two calls, the delete is refused and
+tells you the list moved. **A record created after you looked cannot be deleted by a decision taken before
+it existed**, which is the whole reason this is two calls rather than a `?cascade=true` flag: a flag saying
+*"I checked"* cannot be checked.
+
+It never expires and it is not a secret. A token that still matches means the list has not moved, which is
+exactly when your decision is still good — and anyone who can compute it already knows the list, because
+the `409` prints it.
+
+**What it removes:** the EDGES and the entity. Nothing at the other end of those edges — a cascade takes
+the relationships, not the records they join. A face label is not in the list either: the photo survives
+and is unlabelled, which an ordinary delete already does.
+
+**What it does NOT remove:** a memory, chrono entry or file that names the entity. Those are records of
+their own rather than relationships, and they still block — the refusal names them, and you edit them to
+drop the reference.
+
+**An empty list still needs the token.** Nothing would be removed today, and a delete that skipped the
+token when the list was empty would behave differently depending on a race.
+
+---
+
 ### Merge Two Entities
 
 ```http

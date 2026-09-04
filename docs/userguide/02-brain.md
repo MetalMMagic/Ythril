@@ -149,6 +149,15 @@ When a **label** is selected and the space has a schema defined for that label, 
 
 **Editing / Deleting:** Same as entities — ⊙ view-details drawer or inline ✕ confirm.
 
+> **Deleting an entity that other things point at (4.0).** In a space with the strict reference setting on,
+> deleting an entity is refused while edges still connect it to something — the message lists them. There
+> are two ways forward: delete those edges yourself, or use the API to **preview** exactly what would go and
+> then repeat the delete quoting the token the preview gives back.
+>
+> The token is tied to the exact list you were shown. If anything changes in between, the delete is refused
+> rather than quietly taking something you never saw. There is no button for this in the Edges tab yet — it
+> is an API capability in this release.
+
 ---
 
 ### Links — the other kind of connection

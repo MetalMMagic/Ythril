@@ -42,6 +42,7 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   upsert_entity: 'entity.create',
   update_entity: 'entity.update',
   delete_entity: 'entity.delete',
+  entity_cascade_preview: 'entity.cascade_preview',
   merge_entities: 'entity.merge',
   upsert_edge: 'edge.create',
   update_edge: 'edge.update',

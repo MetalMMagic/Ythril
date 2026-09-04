@@ -150,7 +150,18 @@ const RECLASSIFIED = 1;
  * The number moving up as narrowing becomes explicit is the healthy direction for this invariant, and is why
  * the note above says so.
  */
-const TOTAL = 42;
+/**
+ * 42 -> 44: the cascade preview, on both doors (`F-17`).
+ *
+ * The REST route walks a proxy's members with `memberSpacesForRequest` and the MCP tool with
+ * `memberSpacesWithin` — one rule against the two sources of scope `CLAUDE.md` names.
+ *
+ * **The MCP half was wrong first and this inventory is what said so.** It used `resolveMemberSpaces` to
+ * match `delete_entity`, which is the wrong twin: that one resolves a WRITE TARGET. A preview is a READ
+ * across a proxy's members, so a scoped token would have previewed an entity in a member space it cannot
+ * see. Copying the neighbouring tool is exactly how that happens.
+ */
+const TOTAL = 44;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

@@ -12,6 +12,7 @@ import { unknownFieldWarnings } from './unknown-fields.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities } from '../../brain/entities.js';
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
+import { deleteEntityCascade, previewEntityCascade } from '../../brain/entity-delete-cascade.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { primitivePropertyError } from '../../brain/property-values.js';
@@ -283,15 +284,75 @@ entitiesRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireS
      * faces"; `blocking` is what refused it. Each edge row names the end that matched, which is the field the
      * reporter who found the wrong wording actually needed — it says which query clears it.
      */
+    /*
+     * `F-17`: a CASCADE, when the caller quotes back a token from the preview (owner's ruling `P-29`).
+     *
+     * The token binds to the SET, so a record added between the preview and this call cannot be removed by
+     * a decision taken before it existed. Everything else about it is in `entity-delete-cascade.ts`.
+     */
+    const cascadeToken = req.query['cascadeToken'];
+    if (cascadeToken !== undefined) {
+      const r = await deleteEntityCascade(mid, id, cascadeToken, webhookToken(req));
+      if (r.ok) { res.status(204).end(); return; }
+      res.status(409).json({ error: r.error, preview: r.preview });
+      return;
+    }
+
     const block = await entityDeleteBlockers(mid, id);
     if (block) {
-      res.status(409).json({ error: block.message, backlinks: block.blocking, references: block.backlinks });
+      /*
+       * THE REFUSAL NAMES BOTH WAYS OUT, and that is the third part of the ruling rather than a nicety.
+       *
+       * Owner's words: *"the 409 tells 'either remove edges by hand or use A when you are sure'."* It has
+       * listed the blocking ids since `W-13` and never said a cascade existed at all — which is why the
+       * reporter spent four probes on `?cascade=true`, `?force=true`, `?deleteEdges=true` and
+       * `?withEdges=true` before implementing clear-then-delete by hand.
+       *
+       * The `cascade` object carries the preview route and the parameter, so the next call is discoverable
+       * from the refusal instead of from the guide.
+       */
+      res.status(409).json({
+        error: block.message,
+        backlinks: block.blocking,
+        references: block.backlinks,
+        cascade: {
+          hint: 'Either clear these edges yourself, or call the preview below and repeat this DELETE '
+            + 'with its `cascadeToken`, which removes the EDGES and this entity and nothing at the other '
+            + 'end of them.',
+          preview: `GET /api/brain/spaces/${spaceId}/entities/${id}/cascade-preview`,
+          parameter: 'cascadeToken',
+        },
+      });
       return;
     }
     if (await deleteEntity(mid, id, webhookToken(req))) {
       res.status(204).end();
       return;
     }
+  }
+  res.status(404).json({ error: 'Entity not found' });
+});
+
+
+// GET /api/brain/spaces/:spaceId/entities/:id/cascade-preview — what a cascade delete would remove
+/**
+ * The first half of `F-17`: exactly what would go, and a token that authorises removing that set.
+ *
+ * A GET, because it reads. The token is DERIVED from the set rather than stored, so nothing is minted here
+ * that has to be cleaned up — see `entity-delete-cascade.ts` for why it is neither keyed nor expiring.
+ *
+ * `read` rights, not `write`: it answers the same question the `409` already answers for anyone who tried
+ * the delete, and a preview that needed write rights would be a preview only somebody who could already
+ * delete could see.
+ */
+entitiesRouter.get('/spaces/:spaceId/entities/:id/cascade-preview', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const id = req.params['id'] as string;
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
+    const entity = await getEntityById(mid, id);
+    if (!entity) continue;
+    res.json(await previewEntityCascade(mid, id));
+    return;
   }
   res.status(404).json({ error: 'Entity not found' });
 });

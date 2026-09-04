@@ -4,6 +4,7 @@ import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRES
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEntity, findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
+import { deleteEntityCascade } from '../../brain/entity-delete-cascade.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
 import { type PropertyResolution, type EndpointRuleWarning, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
@@ -516,6 +517,13 @@ export const delete_entityTool: ToolHandler = {
           + 'which is the one delete tool that behaves that way. A tombstone is written, so re-creating the '
           + 'record with the same id does not undo it.',
       },
+      cascadeToken: {
+        type: 'string', minLength: 1,
+        description: 'The `token` from `entity_cascade_preview`, which turns this into a CASCADE: it '
+          + 'removes the edges that block the delete, and then the entity. Refused if the list has changed '
+          + 'since the preview — so a record created after you looked cannot be deleted by a decision taken '
+          + 'before it existed. Nothing at the other end of those edges is touched.',
+      },
       targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
     },
     required: ['space', 'id'],
@@ -532,6 +540,26 @@ export const delete_entityTool: ToolHandler = {
     for (const mid of resolveMemberSpaces(wt.target)) {
       const existing = await getEntityById(mid, id);
       if (!existing) continue;
+      /*
+       * `F-17`: the CASCADE, when the caller quotes back a token from `entity_cascade_preview`.
+       *
+       * Same parameter, same refusals, same commit as the REST door — and the same function under both, so
+       * neither can enforce a rule the other does not. The token binds to the SET, so a record added since
+       * the preview cannot be removed by a decision taken before it existed.
+       */
+      const cascadeToken = a['cascadeToken'];
+      if (cascadeToken !== undefined) {
+        const r = await deleteEntityCascade(mid, id, cascadeToken, ctx.actor);
+        if (r.ok) {
+          return { content: [{ type: 'text' as const,
+            text: `Entity deleted (ID ${id}), with ${r.removed.length} edge(s).` }] };
+        }
+        // Not pretty-printed: indentation is billed to the caller's context and read by nothing —
+        // `mcp-recall-payload.test.js` refuses it, and an agent pays for every space.
+        throw new Error(`${r.error}
+
+What would go now: ${JSON.stringify(r.preview)}`);
+      }
       // The SAME sentence REST answers, from the same function — see `entityDeleteBlockers`. Both doors
       // wording one rule separately is how this one ended up claiming a direction it never checked.
       const block = await entityDeleteBlockers(mid, id);

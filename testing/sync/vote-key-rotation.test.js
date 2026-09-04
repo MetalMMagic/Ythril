@@ -47,8 +47,15 @@ describe('Governance signing-key rotation', () => {
     await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Key Rotation Test Space' });
     await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Key Rotation Test Space' });
 
-    peerTokenForA = (await post(INSTANCES.b, tokenB, '/api/tokens', { name: `kr-a-${Date.now()}` })).body.plaintext;
-    peerTokenForB = (await post(INSTANCES.a, tokenA, '/api/tokens', { name: `kr-b-${Date.now()}` })).body.plaintext;
+    // Each PAT is bound to the peer that PRESENTS it, as `invite.ts` and the join flow do. Bare peer
+    // credentials only worked while the two governance relays were the `/api/sync` endpoints not
+    // applying `isNonPeerSyncWrite`.
+    peerTokenForA = (await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `kr-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    })).body.plaintext;
+    peerTokenForB = (await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `kr-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    })).body.plaintext;
 
     const netR = await post(INSTANCES.a, tokenA, '/api/networks', { label: `Key Rotation ${Date.now()}`, type: 'closed', spaces: [testSpaceId], votingDeadlineHours: 1 });
     assert.equal(netR.status, 201, JSON.stringify(netR.body));

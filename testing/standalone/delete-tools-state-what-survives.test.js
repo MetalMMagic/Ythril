@@ -3,13 +3,20 @@
  *
  * ## The asymmetry a caller cannot guess
  *
- * `delete_entity` consults `findEntityReferences` and, under strict linkage, refuses while anything still
- * points at the record. The other three delete unconditionally — strict linkage does not guard them at all.
- * So a chrono entry's `memoryIds` can be left holding the id of a memory that no longer exists, silently,
- * on a space configured to forbid exactly that shape.
+ * `delete_entity`, `delete_memory` and `delete_chrono` each consult the blockers for their own kind and,
+ * under strict linkage, refuse while anything still points at the record. `delete_edge` deletes
+ * unconditionally, and that is the real asymmetry: an edge IS the link, so there is nothing structural
+ * left dangling when it goes.
  *
- * That is defensible (an edge IS the link; entity references are the structural ones) but it is not
- * inferable, and the four descriptions read identically before this change: *"Delete an X by ID. Creates a
+ * **This paragraph said three of the four delete unconditionally, and that a chrono entry's `memoryIds`
+ * could be left holding a dead id "silently, on a space configured to forbid exactly that shape".** Two of
+ * those three gained the check, and the body of this very file says so in an inline comment — *"The
+ * asymmetry this block was written for is GONE"* — and asserts the refusals. So the header described the
+ * old world while the assertions ten lines down proved the new one, and a reader who stopped at the header
+ * wrote no handling for a refusal they will get.
+ *
+ * The point that survives is why `delete_edge` is different, and that a refusal is not inferable from a
+ * description: the four read identically before this file existed — *"Delete an X by ID. Creates a
  * tombstone for sync propagation."*
  *
  * ## The other three things a delete has to say

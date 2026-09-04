@@ -734,7 +734,18 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         // which a pure extraction genuinely needs. A gate that cannot say "no new test was owed here" teaches
         // its own bypass, and the bypass then gets used for the cases that DID owe one.
         const tests = workingOrderRow(src, 'tests first');
-        if (tests !== undefined) {
+        /*
+         * `!== null`, and it was `!== undefined`, which made this CRASH instead of failing.
+         *
+         * `workingOrderRow` returns `null` for a row that is absent or unticked — never `undefined` — so the
+         * guard never fired and `.match` ran on `null`. It only reaches here when a row is unticked, which
+         * is exactly when the checker has something to say: the `missing` check above had already recorded
+         * the failure, and the crash then killed the process before anything was printed. So an honest
+         * mid-job run reported a stack trace and no findings, while a fully-ticked one looked fine.
+         *
+         * One rule, two spellings of "nothing", and the weaker one in the caller.
+         */
+        if (tests !== null) {
           const exempt = tests.match(/NO NEW BEHAVIOUR:\s*`?([^`\s,]+)`?/);
           if (exempt && !existsSync(join(ROOT, exempt[1]))) {
             fail(`${WORKING}'s tests row claims \`${exempt[1]}\` already covers this, and that file does not `

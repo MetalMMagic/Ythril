@@ -75,9 +75,13 @@ describe('Vote forgery via gossip pull is rejected', () => {
     await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Vote Forgery Test Space' });
     await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Vote Forgery Test Space' });
 
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `vf-peer-a-${Date.now()}` });
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `vf-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
     peerTokenForA = ptForA.body.plaintext;
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `vf-peer-b-${Date.now()}` });
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `vf-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
     peerTokenForB = ptForB.body.plaintext;
 
     const netR = await post(INSTANCES.a, tokenA, '/api/networks', {

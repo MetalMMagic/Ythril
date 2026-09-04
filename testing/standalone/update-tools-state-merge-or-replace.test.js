@@ -10,15 +10,22 @@
  * | `update_entity` | merge | merge | `deleteFields` |
  * | `update_edge` | merge | merge | `deleteFields` |
  * | `update_memory` | **replace** | merge | `deleteFields` |
- * | `update_chrono` | **replace** | merge | **no way at all** |
+ * | `update_chrono` | **replace** | merge | `deleteFields` |
  *
  * The memory/chrono split is deliberate and `brain/memory.ts` says so in as many words — both halves were
  * documented, so both were kept and pinned rather than silently unified. That makes it permanent, which makes
  * it something a caller has to be TOLD: sending `tags: ["b"]` adds a tag on an entity and destroys the other
  * tags on a memory, with no error either way.
  *
- * `update_chrono` having no `deleteFields` is the sharper one. Its `properties` merge, so a key written once
- * cannot be removed through the tool at all — there is no absence that means "delete" and no path that unsets.
+ * **All four take `deleteFields`, and this docblock said `update_chrono` did not** — that *"a key written
+ * once cannot be removed through the tool at all"*. It gained one, on both doors, and the assertions below
+ * have required the description to say so ever since; one of them is titled *"and chrono really has
+ * deleteFields now, on BOTH doors"*. So the header described a limitation its own file proved absent, and a
+ * reader who stopped at the table concluded a chrono property was permanently unremovable.
+ *
+ * Kept as a correction rather than deleted, because the SHAPE is what recurs: this table is the thing a
+ * reader trusts, and it is the thing nobody updates when one row stops being true. The `tags` column still
+ * carries a real asymmetry — that is what the table is for.
  *
  * ## Why the assertions read the STORE
  *

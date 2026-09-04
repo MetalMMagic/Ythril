@@ -57,10 +57,17 @@ export const sync_nowTool: ToolHandler = {
   name: 'sync_now',
   description:
         'Run a sync cycle now instead of waiting for the schedule. Requires instance-admin rights.\n\n'
-        + 'IT DOES NOT WAIT FOR THE DATA. The cycle is started and the reply comes back; records arrive '
-        + 'afterwards, and how long that takes depends on how far behind the peers are. So a successful reply '
-        + 'means "a cycle was started", never "everything is now in step" — read `list_peers` and its '
-        + '`lastSyncAt` / `consecutiveFailures` to see whether it landed.\n\n'
+        + 'IT WAITS FOR THE CYCLE, so the reply is an outcome and not an acknowledgement: the transfers run '
+        + 'inline and the text reports how many networks synced and how many errored. How long it takes '
+        + 'depends on how far behind the peers are, so give it room — a peer with a large backlog is a slow '
+        + 'call, not a hung one.\n\n'
+        + 'THIS PARAGRAPH USED TO SAY THE OPPOSITE — "it does not wait for the data", and that a successful '
+        + 'reply meant only "a cycle was started". If you built a poll loop against that, you were waiting '
+        + 'for something that had already finished.\n\n'
+        + 'WHAT IT STILL DOES NOT TELL YOU is whether every record is now in step. A cycle transfers what the '
+        + 'watermarks say is outstanding and can be bounded per hop, so a clean run is not proof of a '
+        + 'converged space — `list_peers` and its `lastSyncAt` / `consecutiveFailures` are how you see that.'
+        + '\n\n'
         + 'SYNC IS ALREADY AUTOMATIC. Every network has a schedule, so this is for closing a gap you do not '
         + 'want to wait out: after fixing a peer that was unreachable, or before reading a space you have just '
         + 'been told was changed elsewhere. It is not something to call in a loop — a cycle that overlaps the '
@@ -69,9 +76,13 @@ export const sync_nowTool: ToolHandler = {
         + '- `peerId` — an EXACT `instanceId` from `list_peers`. Never a URL and never a label. That one peer '
         + 'is synced across every network it belongs to. Omit it to run a full cycle for every network, which '
         + 'is the usual call.\n\n'
-        + 'RESPONSE: confirmation that the cycle started, and what it covers. A peer that is unreachable does '
-        + 'NOT make this return an error — that surfaces as a climbing `consecutiveFailures` on the peer, so '
-        + 'this call succeeding is not evidence any peer answered.',
+        + 'RESPONSE: what the cycle did — per network when you omit `peerId`, with a total. A peer that is '
+        + 'unreachable is COUNTED as an error and the call comes back with `isError` set, so a clean reply is '
+        + 'real evidence the peers answered. It also raises `consecutiveFailures` on that peer, which is where '
+        + 'you see a peer that has been failing for a while rather than just now.\n\n'
+        + 'THAT IS ALSO A CORRECTION: this said an unreachable peer does NOT make the call return an error, '
+        + 'and that the call succeeding was not evidence any peer answered. Both were wrong — `isError` is '
+        + 'set from the error count.',
   mutating: true,
   admin: true,
   inputSchema: (s: ToolSchemas) => ({

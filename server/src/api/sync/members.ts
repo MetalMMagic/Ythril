@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, loadConfig, saveConfig } from '../../config/loader.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
+import { peerRelayCaller, PEER_RELAY_REFUSAL } from '../../auth/peer-relay.js';
 import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { isPeerUrlAllowed } from '../../sync/peer-fetch.js';
@@ -61,6 +62,26 @@ syncMembersRouter.get('/networks/:networkId/members', syncRateLimit, requireAuth
  */
 syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
+    /*
+     * Gossip poisoning protection: only accept a record for the member the caller represents.
+     *
+     * The rule has two halves and only one of them used to be enforced. A peer token may update its own
+     * member record and no other — that half was below. The other half was a COMMENT: "tokens without
+     * peerInstanceId (admin/local) may update any record", sitting where a check should have been, in front
+     * of a route guarded by `requireAuth` and `denyReadOnly`. So any write-capable token could rewrite any
+     * member's url, label or children.
+     *
+     * `peerRelayCaller` answers both halves once, and `votes.ts` asks it the same question.
+     *
+     * WHO before WHAT: this ran after the network lookup, so an unauthorised caller learned whether a
+     * network existed and got a 404 rather than a 403 for the ids that did not.
+     */
+    const caller = peerRelayCaller(req.authToken as Parameters<typeof peerRelayCaller>[0]);
+    if (caller.kind === 'refused') {
+      res.status(403).json({ error: PEER_RELAY_REFUSAL });
+      return;
+    }
+
     const cfg = getConfig();
     const net = cfg.networks.find(n => n.id === req.params['networkId']);
     if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
@@ -71,10 +92,7 @@ syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAut
       return;
     }
 
-    // Gossip poisoning protection: only accept record for the member the caller represents.
-    // A token with peerInstanceId may only update its own member record; tokens without
-    // peerInstanceId (admin/local) may update any record.
-    const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
+    const callerPeerId = caller.kind === 'peer' ? caller.peerInstanceId : undefined;
     if (callerPeerId && callerPeerId !== incoming.instanceId) {
       res.status(403).json({ error: 'Token is not authorized to update this member record' });
       return;

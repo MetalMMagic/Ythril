@@ -294,6 +294,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the file download does not get the transfer budget it is passed, the batch ingest accepts six families
   and reports five, and `minScore` is applied after the cut to `topK` rather than before.
 
+- **A third gate was decorative on the machine it runs on before pushing.** The check that every promise
+  of a whole record also states its price found the paragraph around that promise by searching for a blank
+  line as `
+
+`. This repository checks out CRLF on Windows, where a blank line is `
+
+` — so the
+  search missed, the window silently widened to the WHOLE FILE, and a price written anywhere in the
+  document satisfied a promise anywhere else. Exactly what the check's own note says it must not allow.
+
+  So it was real in CI and inert locally, and it caught a defect introduced in this same change: a rewritten
+  paragraph promising whole records with no mention that the graph is what fills the budget. Both fixed, and
+  the window is mutation-tested — removing the price now fails locally, which it could not before.
+
+- **Two gate assertions could not fail, and two more required a description that was false**
+  (`Q-1.2`–`Q-1.4`). Found by the guideline audit, and this is the class that matters most, because a
+  check that cannot fail is worse than no check: it is counted as protection.
+
+  **The two that could not fail** guarded the `recall` tool's response documentation. One demanded a
+  response field called `complete`. There is no such field — the record cap became a byte budget releases
+  ago, and the spill is `remainder`, written only when the caller asks. The assertion passed anyway, on
+  the word appearing in *"its complete `_graph`"*. The other asked, in its own failure message, for *"a
+  size cliff rather than a gentle limit"* — and was satisfied by the schema saying **"it is a slope now
+  rather than a cliff"**, the opposite claim, because that sentence contains the word `cliff`.
+
+  The field names are now **derived by calling the function that builds the envelope**, so a field added
+  or renamed there arrives in the gate without anyone remembering. A hand-written list is what rotted.
+
+  **Widening that gate to `find_similar` found a live wrong promise.** It was scoped to `recall` alone,
+  which is how the tool that returns the SAME envelope came to document a `complete` field holding a
+  download for the full set. A caller waited for something nothing sends, never set `remainderDump`, and
+  never learned `nextSkip` exists — three ways to reach the rest of a truncated answer, and the
+  documented one was the one that does not work.
+
+- **`sync_now` said it does not wait, and that an unreachable peer is not an error. Both were wrong.**
+  The tool awaits the whole cycle, reports how many networks synced and how many failed, and sets its
+  error flag from that count. So an agent was told to ignore an outcome it was being handed, and to poll
+  `list_peers` for a result it already had — and told not to expect a failure it does get.
+
+  **A gate required both false sentences**, which is the second time this has happened in that file. Its
+  own comment records the first, eighty lines above: *"A gate written from a description rather than from
+  the code does not catch a wrong description; it CEMENTS it, and turns rewriting it into a test failure
+  that looks like a regression."* Both claims are now asserted from both sides — the handler must await
+  and must derive its error flag from the count, AND the description must say so. Whichever one moves,
+  the gate fails naming the other.
+
+  The description keeps what was genuinely useful and was being conflated with it: a clean cycle is
+  still not proof that a space has converged, because a cycle transfers what the watermarks say is
+  outstanding and can be bounded per hop.
+
+- **Two gate docblocks described their own fixed defects as current**, each contradicted by assertions in
+  the same file. One said `update_chrono` offered *"no way at all"* to remove a property, ten lines above
+  a test titled *"and chrono really has deleteFields now, on BOTH doors"*. The other opened by saying
+  three of the four deletes never refuse, while its body comment says *"The asymmetry this block was
+  written for is GONE"* and asserts the refusals.
+
+  A reader who stops at a header — which is what a header is for — planned around a limitation that was
+  not there, and wrote no handling for a refusal they will get. Both corrected, and both keep the part
+  that is still true: `tags` really do replace on a memory and merge on an entity, and `delete_edge`
+  really is the one that cannot be blocked, because an edge IS the link.
+
+- **SECURITY: the two peer governance relays authenticate the caller and now also AUTHORISE them**
+  (`Q-1.1`, found by the guideline audit). `POST /api/sync/networks/:id/members` and
+  `POST /api/sync/networks/:id/votes/:roundId` are the calls a peer makes to report its own member record
+  or to pass along a vote. Both carried authentication and a read-only refusal and nothing else — no space
+  scope, no network membership — so **every token that could write anything could drive both**.
+
+  On the members relay that reached any member's address, label and children. On the votes relay it
+  reached a cast attributed to **any instance, on any round**, and the rounds include member removal,
+  space deletion and space wipe — which pass on a single yes with no veto on two of the network types.
+
+  **The signature requirement did not stop it, because the caller's identity DEFAULTED.** The relay
+  resolved the reporting instance as *the peer id on the token, or else the instance named in the body*.
+  A caller with no peer identity therefore became the cast's own author: reporter and voter matched by
+  construction, the own-cast path was taken, and a network configured to require signed votes accepted an
+  unsigned one.
+
+  **Each route stated the rule it did not enforce**, which is why this read as safe. The members route
+  said in as many words that *"tokens without peerInstanceId (admin/local) may update any record"* — a
+  description of who was expected to hold such a token, sitting where a check should have been. One rule,
+  written twice, and the copy in front of the route was the weaker one.
+
+  The question is answered once now, and both relays take the verdict: **a peer token speaking for its own
+  instance, or an instance administrator relaying on a peer's behalf.** Anything else is a `403` naming
+  both ways in, because a relay is wired up once and then debugged from its response.
+
+  **The check also moved ahead of the lookups.** It used to run after the network and round were fetched,
+  so a caller who may not vote was told whether the round existed — an existence oracle over another
+  network's governance, and a `404` where the answer should have been `403`.
+
+  Nothing legitimate changes: a peer syncs as before, and an instance administrator still relays. That
+  half is asserted too — the opposite failure, a guard so narrow it locks out the local administrator,
+  would be found by an operator rather than by a test.
+
 - **The rules this codebase states about itself were checked against the code, and thirteen of them were
   false** (`Q-1`, first slice — the audit covers nine surfaces and this is one of them).
 

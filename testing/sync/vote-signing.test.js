@@ -106,8 +106,15 @@ describe('Signed governance votes and safe relay', () => {
     await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Vote Signing Test Space' });
     await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Vote Signing Test Space' });
 
-    peerTokenForA = (await post(INSTANCES.b, tokenB, '/api/tokens', { name: `vs-a-${Date.now()}` })).body.plaintext;
-    peerTokenForB = (await post(INSTANCES.a, tokenA, '/api/tokens', { name: `vs-b-${Date.now()}` })).body.plaintext;
+    // Each PAT is bound to the peer that PRESENTS it, as `invite.ts` and the join flow do. Bare peer
+    // credentials only worked while the two governance relays were the `/api/sync` endpoints not
+    // applying `isNonPeerSyncWrite`.
+    peerTokenForA = (await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `vs-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    })).body.plaintext;
+    peerTokenForB = (await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `vs-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    })).body.plaintext;
 
     const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
       label: `Vote Signing ${Date.now()}`, type: 'closed', spaces: [testSpaceId], votingDeadlineHours: 1,

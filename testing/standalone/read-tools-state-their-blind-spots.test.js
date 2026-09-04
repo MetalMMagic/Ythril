@@ -148,14 +148,37 @@ describe('the sync tools say what their answers do not cover', () => {
       'a spread here would leak every field the member record ever gains, credentials included');
   });
 
-  it('sync_now: returns when the cycle STARTS', () => {
-    assert.match(SYNCNOW, /DOES NOT WAIT FOR THE DATA/,
-      'a success here is not evidence anything is in step');
+  /*
+   * THESE TWO PINNED THE OPPOSITE OF THE CODE, which is the second time in this file — see the `overdue`
+   * case above, which records the same lesson and is what these should have copied.
+   *
+   * The gate required the description to say "DOES NOT WAIT FOR THE DATA" and that an unreachable peer does
+   * not make the call fail. The handler awaits `runSyncForPeer`, reports "N network(s) synced, M error(s)"
+   * from the result, and sets `isError` from that count. So a caller was told to ignore an outcome they were
+   * actually being given, and to expect no error where they get one — and correcting either sentence turned
+   * this file red, which reads as a regression rather than as the fix it is.
+   *
+   * Both are asserted from BOTH SIDES now: the handler must await and must derive `isError` from the error
+   * count, AND the description must say so. A single-sided check is what let one drift; two copies compared
+   * cannot drift silently, because whichever one moves, this fails naming the other.
+   */
+  it('sync_now: the handler AWAITS the cycle, and the description says so', () => {
+    const handler = src('server/src/mcp/tools/sync.ts');
+    assert.match(handler, /await runSyncForPeer\(/, 'the handler no longer awaits — re-read the description');
+    assert.match(SYNCNOW, /IT WAITS FOR THE CYCLE/,
+      'the reply is an outcome, not an acknowledgement, and a caller polling for it waits for nothing');
+    assert.doesNotMatch(SYNCNOW, /IT DOES NOT WAIT FOR THE DATA/,
+      'the old claim must not come back — it was false and this gate used to require it');
   });
 
-  it('sync_now: an unreachable peer does not make it fail', () => {
+  it('sync_now: an unreachable peer IS an error, on both surfaces', () => {
+    const handler = src('server/src/mcp/tools/sync.ts');
+    assert.match(handler, /isError: result\.errors > 0/, 'the peer path no longer reports errors');
+    assert.match(handler, /isError: totalErrors > 0/, 'the all-networks path no longer reports errors');
+    assert.match(SYNCNOW, /COUNTED as an error/,
+      'a caller told an unreachable peer is invisible here will not check isError');
     assert.match(SYNCNOW, /consecutiveFailures/,
-      'name where the failure actually surfaces, or a caller concludes the peers are fine');
+      'and name where a peer failing over TIME surfaces, which is the part a single call cannot show');
   });
 });
 

@@ -4,6 +4,9 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
+import { usesLinkRecords } from '../../brain/link-adjacency.js';
+import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { unknownFieldWarnings } from './unknown-fields.js';
@@ -55,6 +58,11 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   // Proxy space: resolve target space for write
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+  // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
+  // proxy itself holds nothing and its own marker would answer for a space it never writes to.
+  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const targetSpace = wt.target;
   const { fact, tags = [], entityIds = [], description, properties, type: memoryType } = req.body ?? {};
   if (!fact || typeof fact !== 'string') {
@@ -234,8 +242,27 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
 memoriesRouter.delete('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const deleted = await findFirstAcrossMembers(spaceId, mid => deleteMemory(mid, id, webhookToken(req)));
-  if (deleted) { res.status(204).end(); return; }
+  /*
+   * `M-2`: what points at this record can be SEEN now, so under strict linkage it can also block.
+   *
+   * Until the three unread link fields gained readers, deleting a memory that another record named was
+   * never refused — the reference existed, was stored and replicated, and nothing could see it. The naming
+   * record was then left pointing at something that does not exist, which is the outcome `strictLinkage` is
+   * bought to prevent.
+   *
+   * ONE guard for both doors, and the same one entities use: the sentence and the rows come from
+   * `entityDeleteBlockers`, and each door decides only how to report them.
+   *
+   * `409` and not `404`: the record IS there, and the caller needs to know which references to clear.
+   */
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
+    const block = await entityDeleteBlockers(mid, id, 'memory');
+    if (block) {
+      res.status(409).json({ error: block.message, backlinks: block.blocking, references: block.backlinks });
+      return;
+    }
+    if (await deleteMemory(mid, id, webhookToken(req))) { res.status(204).end(); return; }
+  }
   res.status(404).json({ error: 'Memory not found' });
 });
 
@@ -263,6 +290,11 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+  // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
+  // proxy itself holds nothing and its own marker would answer for a space it never writes to.
+  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const ifMatch = ifMatchFromRequest(req);
   if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
   const { fact, tags, entityIds, description, properties, deleteFields, type: memoryType } = req.body ?? {};

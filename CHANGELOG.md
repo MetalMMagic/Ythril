@@ -110,6 +110,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Deleting a memory or a timeline entry can now be REFUSED, and this is the change most likely to reach
+  a running script.** In a space with `strictLinkage` on, a timeline entry listing a memory — or a file
+  listing either — blocks the delete with a `409` that names what is referring to it.
+
+  **It always succeeded before, and that was not a policy.** Three of the six link fields had no reader
+  anywhere in the server, so the reference was stored, replicated and invisible: the referring record was
+  quietly left pointing at something that no longer existed, which is the exact outcome `strictLinkage`
+  is bought to prevent. With it off, the delete still always succeeds.
+
+  `delete_edge` is unchanged and now says why rather than citing the old asymmetry: links run FROM a
+  memory, timeline entry or file TO what it is about, so **nothing can point at an edge**.
+
+- **A converted space refuses an array write, and points at the link door instead.** Once
+  `npm run links:convert` has finished a space, sending `entityIds`, `memoryIds` or `chronoIds` to any of
+  the seven write doors answers `400` naming `POST .../links`. Left open, the arrays are a second write
+  surface for the same fact, and on a converted space the two can then disagree — which is the defect the
+  whole migration exists to remove, reintroduced by its own compatibility.
+
+  **The fields are still READ, still stored and still replicated.** Nothing you have is lost, and a space
+  you have not converted is untouched.
+
+  **Three things it deliberately never does**, each of which would break something that works:
+
+  - it is not hung off `validationMode: strict` — that governs schema rules and is already on live spaces,
+    so every one of them would start refusing the moment it upgraded, before anybody ran anything.
+  - it never applies to a record arriving from a peer. Sync ingest is validated, counted and let in, and a
+    refusal there would hold the watermark: the channel stops and the space silently falls behind.
+  - it never applies to a write that does not MENTION an array. Editing a memory's text on a record that
+    still carries a legacy array succeeds, or every unconverted record would become uneditable.
+
 - **Three link fields that have never been read now work — `chrono.memoryIds`, `file.memoryIds` and
   `file.chronoIds`.** They have been accepted, checked for resolvability, stored, replicated and documented
   since 3.x. Nothing walked them. A traverse from a memory did not reach the timeline entry that named it;

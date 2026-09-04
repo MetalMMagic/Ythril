@@ -4,6 +4,8 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { usesLinkRecords } from '../../brain/link-adjacency.js';
+import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { unknownFieldWarnings } from './unknown-fields.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
@@ -13,6 +15,7 @@ import { parseLimit, parseSkip, unsupportedPageParam } from '../../util/paginati
 import { pageAcrossMembers } from '../../spaces/page-across-members.js';
 import { countBrain, compareBySort, PROXY_PAGE_CEILING } from '../../brain/query.js';
 import { memberSpacesForRequest } from '../../spaces/proxy-scoped.js';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
@@ -58,6 +61,11 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+  // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
+  // proxy itself holds nothing and its own marker would answer for a space it never writes to.
+  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
 
   const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   // `recurrence` was previously persisted straight from the request body with NO shape
@@ -207,6 +215,11 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+  // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
+  // proxy itself holds nothing and its own marker would answer for a space it never writes to.
+  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const ifMatch = ifMatchFromRequest(req);
   if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }
 
@@ -430,8 +443,24 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
 chronoRouter.delete('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const deleted = await findFirstAcrossMembers(spaceId, mid => deleteChrono(mid, id, webhookToken(req)));
-  if (deleted) { res.status(204).end(); return; }
+  /*
+   * `M-2`: what points at this chrono entry can be SEEN now, so under strict linkage it can also block.
+   *
+   * Until the three unread link fields gained readers, deleting a record another one named was never refused
+   * — the reference existed, was stored and replicated, and nothing could see it. The naming record was then
+   * left pointing at something that does not exist, which is the outcome `strictLinkage` is bought to
+   * prevent. Here the naming record is a FILE, through `file.chronoIds`.
+   *
+   * ONE guard for both doors, and the same one entities use. `409` and not `404`: the record IS there.
+   */
+  for (const mid of memberSpacesForRequest(req, spaceId)) {
+    const block = await entityDeleteBlockers(mid, id, 'chrono');
+    if (block) {
+      res.status(409).json({ error: block.message, backlinks: block.blocking, references: block.backlinks });
+      return;
+    }
+    if (await deleteChrono(mid, id, webhookToken(req))) { res.status(204).end(); return; }
+  }
   res.status(404).json({ error: 'Chrono entry not found' });
 });
 

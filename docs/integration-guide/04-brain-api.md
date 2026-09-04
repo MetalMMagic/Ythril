@@ -343,7 +343,14 @@ exceeding the bound is a `400` naming the ceiling.
 DELETE /api/brain/spaces/:spaceId/memories/:id
 ```
 
-**Response** `204` (no body).
+**Response** `204`, or `409` when something still points at it and the space has
+`strictLinkage` on. The body carries `error`, `blocking` (what refused it) and
+`references` (everything pointing at it). A chrono entry listing this memory in `memoryIds`, or a file listing it, blocks the delete.
+
+> **This changed in 4.0 and a running script can hit it.** The same delete always succeeded before, because
+> those link fields had no reader anywhere in the server — the reference was stored and replicated and
+> nothing could see it, so the referring record was quietly left pointing at a memory that no longer
+> existed. With `strictLinkage` off it still always succeeds.
 
 ---
 

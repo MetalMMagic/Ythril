@@ -1,4 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { usesLinkRecords } from '../../brain/link-adjacency.js';
+import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
@@ -6,6 +8,7 @@ import { SchemaViolationError, type UpdateValidation } from '../../brain/write-v
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { memberSpacesWithin } from '../../spaces/proxy-scoped.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
@@ -109,6 +112,11 @@ export const create_chronoTool: ToolHandler = {
 
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+    // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
+    // for a space it never writes to.
+    const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), a);
+    if (linkArrErr) throw new Error(linkArrErr);
 
     // Schema validation (single pass)
     // Validate type against the space-specific allowlist (custom or default built-ins).
@@ -359,6 +367,11 @@ export const update_chronoTool: ToolHandler = {
     if (!id) throw new Error('id must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+    // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
+    // for a space it never writes to.
+    const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), a);
+    if (linkArrErr) throw new Error(linkArrErr);
 
     const updates: Record<string, unknown> = {};
     const sup = parseRecordSuppression(a);
@@ -547,7 +560,10 @@ export const delete_chronoTool: ToolHandler = {
     + '`suppressEmbeddings` — it stays listable by `list_chrono` and reachable by traversal.\n\n'
     + 'THE ENTITIES AND MEMORIES IT LINKS ARE NOT TOUCHED. `entityIds` and `memoryIds` are references; '
     + 'deleting the entry drops the references and leaves every referenced record in place.\n\n'
-    + 'IT IS NEVER REFUSED FOR BEING REFERENCED. Strict linkage guards ENTITY deletion only.\n\n'
+    + 'IT IS REFUSED IF SOMETHING STILL POINTS AT IT, in a space with strict linkage on — a file listing '
+    + 'this entry in `chronoIds` blocks the delete, and the error names it.\n\n'
+    + 'THIS CHANGED IN 4.0 AND A RUNNING SCRIPT CAN HIT IT. Until then the delete always succeeded, because '
+    + '`file.chronoIds` had no reader anywhere in the server. With strict linkage OFF it still does.\n\n'
     + 'A RECURRENCE RULE DOES NOT SPREAD THE DELETE, because it never created anything to delete. '
     + '`recurrence` describes one entry as repeating; it does not generate further entries, so there is no '
     + 'series here and no "this and all future occurrences" to choose between.\n\n'
@@ -585,6 +601,15 @@ export const delete_chronoTool: ToolHandler = {
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
 
+    /*
+     * `M-2`: what points at this record can be SEEN now, so under strict linkage it can also block.
+     *
+     * The SAME guard the REST door uses, which is the point: this tool and that route each used to word
+     * their own refusal for entities and said different things. The sentence and the rows come from
+     * `entityDeleteBlockers`; a door decides only how to report them.
+     */
+    const block = await findFirstAcrossMembers(wt.target, mid => entityDeleteBlockers(mid, id, 'chrono'));
+    if (block) throw new Error(block.message);
     const deleted = await findFirstAcrossMembers(wt.target, mid => deleteChrono(mid, id, ctx.actor));
     if (!deleted) throw new Error(`Chrono entry '${id}' not found`);
     return { content: [{ type: 'text' as const, text: `Chrono entry deleted (ID ${id}).` }] };

@@ -6,6 +6,8 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { usesLinkRecords } from '../../brain/link-adjacency.js';
+import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { findEntitiesByIds } from '../../brain/entities.js';
 import { assertRefsResolve, UUID_V4_PATTERN } from '../../brain/entity-refs.js';
@@ -16,6 +18,7 @@ import { applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
+import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { resolveMetaRefs } from '../../spaces/schema-validation.js';
 import { type UpdateValidation } from '../../brain/write-validation.js';
 import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
@@ -88,6 +91,11 @@ export const rememberTool: ToolHandler = {
 
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+    // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
+    // for a space it never writes to.
+    const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), a);
+    if (linkArrErr) throw new Error(linkArrErr);
     const ts = wt.target;
 
     // Schema validation (single pass — reuse for both strict gate and warn output)
@@ -258,6 +266,11 @@ export const update_memoryTool: ToolHandler = {
 
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
+    // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
+    // for a space it never writes to.
+    const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), a);
+    if (linkArrErr) throw new Error(linkArrErr);
 
     // Validate deleteFields
     const dfResult = validateDeleteFields(a['deleteFields']);
@@ -326,10 +339,13 @@ export const delete_memoryTool: ToolHandler = {
     + 'IF YOU WANT IT OUT OF SEARCH RATHER THAN GONE, this is the wrong tool. Set '
     + '`suppressEmbeddings` with `update_memory` instead: the record stays readable, listable and '
     + 'traversable, and only stops being ranked by meaning. Deleting is for records that should not exist.\n\n'
-    + 'IT IS NEVER REFUSED FOR BEING REFERENCED, and that differs from `delete_entity`. A chrono entry '
-    + 'listing this memory in `memoryIds` keeps the id after the memory is gone, and nothing reports it — '
-    + 'strict linkage guards ENTITY deletion only. Check `query` for referrers first if a dangling id would '
-    + 'matter to you.\n\n'
+    + 'IT IS REFUSED IF SOMETHING STILL POINTS AT IT, in a space with strict linkage on. A chrono entry '
+    + 'listing this memory in `memoryIds`, or a file listing it, blocks the delete and the error names what '
+    + 'is referring to it. Clear those first.\n\n'
+    + 'THIS CHANGED IN 4.0 AND A RUNNING SCRIPT CAN HIT IT. Until then the same delete always succeeded, '
+    + 'because those two link fields had no reader anywhere in the server — the reference was stored and '
+    + 'replicated and nothing could see it, so the referring record was quietly left pointing at a memory '
+    + 'that no longer existed. With strict linkage OFF the delete still always succeeds.\n\n'
     + 'A TOMBSTONE IS WRITTEN, so the deletion propagates to peer instances on the next sync and the record '
     + 'is not quietly resurrected from a peer that still has it. That is also why this cannot be undone by '
     + 'writing the record back with the same id — the tombstone outranks it.\n\n'
@@ -365,6 +381,15 @@ export const delete_memoryTool: ToolHandler = {
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
 
+    /*
+     * `M-2`: what points at this record can be SEEN now, so under strict linkage it can also block.
+     *
+     * The SAME guard the REST door uses, which is the point: this tool and that route each used to word
+     * their own refusal for entities and said different things. The sentence and the rows come from
+     * `entityDeleteBlockers`; a door decides only how to report them.
+     */
+    const block = await findFirstAcrossMembers(wt.target, mid => entityDeleteBlockers(mid, id, 'memory'));
+    if (block) throw new Error(block.message);
     const deleted = await findFirstAcrossMembers(wt.target, mid => deleteMemory(mid, id, ctx.actor));
     if (!deleted) throw new Error(`Memory '${id}' not found`);
     return {

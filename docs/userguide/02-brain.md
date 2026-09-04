@@ -175,6 +175,20 @@ row per connection, showing which record it hangs off and which record it names.
 `upsert_link` tool, needing the same **write knowledge** right as an edge. There is no button for it,
 because the ordinary way to make a link is to attach the record, which the tabs already do.
 
+### Two things change when a space is converted
+
+Converting a space (an administrator runs it once) turns the connection lists into records for good, and two
+things follow. **Nothing changes on a space nobody has converted.**
+
+**1. Deleting a record that something still points at is refused** — but only in a space with the strict
+reference setting on. Delete a memory that a timeline entry refers to and you get a message naming what refers
+to it, instead of the delete going through. This is a **change**: it always went through before, and the
+timeline entry was quietly left pointing at a memory that was no longer there.
+
+**2. Writing the old connection lists through the API is refused**, with the error naming the link endpoint to
+use instead. Nothing you have stored is lost — the lists are still read, still saved and still copied between
+instances. The tabs are unaffected: attaching a record still works exactly as it did.
+
 ---
 
 ### Chrono

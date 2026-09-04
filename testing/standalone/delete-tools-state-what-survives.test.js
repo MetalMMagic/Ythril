@@ -67,55 +67,61 @@ describe('every delete says it cannot be undone, and what to use instead', () =>
   }
 });
 
-describe('the refusal asymmetry is stated on all four', () => {
+describe('which deletes can be refused, and each one says so where the caller is', () => {
   it('delete_entity says it CAN be refused, and that a refusal is usually correct', () => {
     assert.match(TOOLS.delete_entity, /REFUSAL HERE IS USUALLY CORRECT/,
       'a caller who reads a refusal as an obstacle will work around it');
     assert.match(TOOLS.delete_entity, /strictLinkage/, 'and say what turns the guard on');
   });
 
-  for (const name of ['delete_edge', 'delete_memory', 'delete_chrono']) {
-    it(`${name} says it is NEVER refused for being referenced`, () => {
-      // Pinned because it is the surprising direction: on a space with strict linkage a caller reasonably
-      // expects the same protection the entity delete gives, and does not get it.
-      assert.match(TOOLS[name], /NEVER REFUSED FOR BEING REFERENCED/,
-        'the asymmetry with delete_entity has to be stated where the caller is');
-      assert.match(TOOLS[name], /ENTITY deletion only/, 'and say where the guard does apply');
+  /*
+   * **The asymmetry this block was written for is GONE, and that is the change rather than the gate
+   * relaxing.** It read: three of the four are NEVER refused, because strict linkage guards entity deletion
+   * only. That was true, and it was true for a bad reason — three of the six link fields had no reader
+   * anywhere in the server, so a chrono entry naming a memory was a reference nothing could see. The
+   * referring record was quietly left pointing at something that no longer existed, which is the outcome
+   * `strictLinkage` is bought to prevent.
+   *
+   * `M-2` gave those fields readers. Two of the three now behave like the entity delete, and their
+   * descriptions have to say so — a caller who read the old paragraph built on it.
+   */
+  for (const name of ['delete_memory', 'delete_chrono']) {
+    it(`${name} says it CAN be refused now, and that this CHANGED`, () => {
+      assert.match(TOOLS[name], /REFUSED IF SOMETHING STILL POINTS AT IT/,
+        'the guard applies to this delete and the description still says it never does');
+      assert.match(TOOLS[name], /CHANGED IN 4\.0/,
+        'a caller with a working script needs to know this is new, not that it is the rule — the sentence that only states the rule leaves them reading it as something they had missed');
+      assert.match(TOOLS[name], /strict linkage OFF/i,
+        'and where it does not apply, because that is the way out for a caller who does not want it');
     });
   }
 
-  it('and that claim is true — only the entity delete consults references', () => {
-    // Read from source, so the day a reference guard is added to another delete this fails instead of
-    // misinforming. The check moved into `entityDeleteBlockers`, which is what the tools now call — so
-    // this looks for that, and still refuses the older spellings in case one is re-implemented.
-    const entity = stripComments(readFileSync('server/src/mcp/tools/entity.ts', 'utf8'));
-    assert.match(entity, /entityDeleteBlockers\(/, 'delete_entity really does check');
-    for (const f of ['server/src/mcp/tools/edge.ts', 'server/src/mcp/tools/memory.ts',
+  it('delete_edge is still never refused, and now says WHY rather than citing the old asymmetry', () => {
+    /*
+     * The one that did not change, and it did not change for a structural reason rather than a policy one:
+     * links run FROM a memory, chrono entry or file TO what it is about, and no link class has an edge at
+     * its `to` end. Nothing can point at an edge, so there is nothing to block on.
+     *
+     * Its old paragraph explained itself with 'strict linkage guards ENTITY deletion only', which is no
+     * longer true of the product — a correct conclusion resting on a stale premise, which is the shape that
+     * survives review because the visible half still reads right.
+     */
+    assert.match(TOOLS.delete_edge, /NEVER REFUSED FOR BEING REFERENCED/,
+      'still true of an edge, and worth stating beside three tools where it is not');
+    assert.doesNotMatch(TOOLS.delete_edge, /ENTITY deletion only/,
+      'delete_edge still explains itself with an asymmetry that no longer exists');
+    assert.match(TOOLS.delete_edge, /point AT an edge|never the target/i,
+      'and must give the reason it is exempt, which is that nothing links to an edge');
+  });
+
+  it('and the claims are true — source, not prose', () => {
+    // Read from source, so a description and its behaviour cannot drift apart in either direction.
+    const has = (f) => /entityDeleteBlockers\(/.test(stripComments(readFileSync(f, 'utf8')));
+    for (const f of ['server/src/mcp/tools/entity.ts', 'server/src/mcp/tools/memory.ts',
       'server/src/mcp/tools/chrono.ts']) {
-      assert.doesNotMatch(stripComments(readFileSync(f, 'utf8')), /entityDeleteBlockers|findEntityReferences|Backlinks\(/,
-        `${f} gained a reference guard — the "never refused" paragraph is now wrong`);
+      assert.ok(has(f), `${f} promises a reference guard and does not consult one`);
     }
-  });
-});
-
-describe('what survives a delete is named', () => {
-  it('delete_edge says both endpoints stay', () => {
-    assert.match(TOOLS.delete_edge, /ENTITIES AT EITHER END ARE NOT TOUCHED/,
-      '"delete the relationship" and "delete the things" are one keystroke apart');
-  });
-
-  it('and that it is how an edge gets repointed, since update_edge cannot', () => {
-    assert.match(TOOLS.delete_edge, /upsert_edge/, 'name the second half of the sequence');
-  });
-
-  it('delete_chrono says its links are references, not contents', () => {
-    assert.match(TOOLS.delete_chrono, /NOT TOUCHED/, 'entityIds and memoryIds are references');
-  });
-
-  it('delete_chrono says a recurrence rule does not spread the delete', () => {
-    // Pre-empts the calendar assumption: there is no series, so there is no "this and all future
-    // occurrences" question to answer.
-    assert.match(TOOLS.delete_chrono, /DOES NOT SPREAD THE DELETE/,
-      'a caller from any calendar API will assume a series exists');
+    assert.ok(!has('server/src/mcp/tools/edge.ts'),
+      'delete_edge gained a reference guard — nothing can point at an edge, so it would block on nothing, and its description says it is never refused');
   });
 });

@@ -51,13 +51,35 @@ export function resolvedHeadings(src) {
  * Decisions that are on the parked page AND recorded as decided in the reference.
  *
  * **This is the check that actually bites**, and the reason it exists as well as the heading scan: a coverage rule
- * can only see that something is mentioned, while drift needs the second copy compared. Every decided item is a
- * row in `_REFERENCE.md`'s table keyed by its `P-` number, so a number in both files is decided-but-still-filed —
- * precisely the state the owner found, and it needs no judgement about wording to detect.
+ * can only see that something is mentioned, while drift needs the second copy compared. A number in both files is
+ * decided-but-still-filed, and that needs no judgement about wording to detect.
+ *
+ * ## It read ONE of the two shapes a decision is recorded in, and the owner paid for that
+ *
+ * This matched only a TABLE ROW in `_REFERENCE.md`. Decisions are also recorded there as SECTIONS, with the id in
+ * the heading and often in backticks. Those were invisible, so a question recorded as a section could sit on the
+ * parked page for ever, reading as open.
+ *
+ * **It did, and the cost was the owner answering the same question a FOURTH time.** `P-14` was ruled from his own
+ * description, asked again, and asked again as `P-30` — which the reference records as *"withdrawn"*, in a
+ * HEADING. The parked page's own header said nothing was waiting and named `P-30` as withdrawn, and the entire
+ * `### P-30` section sat underneath it. Every rule on this page passed.
+ *
+ * One rule, two shapes, and the weaker match standing in front of the page. Both shapes count now — and
+ * "withdrawn" counts as decided, because a question taken off the table is not open whatever word retired it.
  */
 export function decidedButStillFiled(parkedSrc, referenceSrc) {
-  const decided = new Set([...referenceSrc.matchAll(/^\|[ \t]*(P-\d+)[ \t]*\|/gim)].map(m => m[1]));
-  const filed = new Set([...parkedSrc.matchAll(/^#{2,3}[ \t]+(P-\d+)\b/gim)].map(m => m[1]));
+  const decided = new Set([
+    // A table row: `| P-30 | … |`.
+    ...[...referenceSrc.matchAll(/^\|[ \t]*`?(P-\d+)`?[ \t]*\|/gim)].map(m => m[1]),
+    /*
+     * A SECTION: `## P-30 …`, or with the id in backticks as the newer entries write it. This half was
+     * missing, and it is the half that mattered — see the note above. Optional backticks because both
+     * spellings are in use, and a rule reading one of two spellings is the same defect one level down.
+     */
+    ...[...referenceSrc.matchAll(/^#{2,4}[ \t]+`?(P-\d+)`?\b/gim)].map(m => m[1]),
+  ]);
+  const filed = new Set([...parkedSrc.matchAll(/^#{2,3}[ \t]+`?(P-\d+)`?\b/gim)].map(m => m[1]));
   return [...filed].filter(id => decided.has(id)).sort();
 }
 

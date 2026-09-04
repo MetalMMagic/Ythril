@@ -102,7 +102,12 @@ before(async () => {
 
   // Measure the full answer once, and take 80% of it as the budget every assertion below uses.
   if (ids.length === COUNT) {
-    const full = await recall({ query: QUERY, types: ['entity'], topK: COUNT });
+    // Both ceilings raised, like the two reference calls below: this measures how big the WHOLE answer is,
+    // and a default ceiling clipping it would leave `tightBytes` at 0 — which makes the whole file skip
+    // rather than fail, so the failure would arrive as silence.
+    const full = await recall({
+      query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000, maxChars: 5_000_000,
+    });
     if (full.status === 200 && full.body.truncated === false) {
       tightBytes = Math.max(1_000, Math.floor(full.body.bytesReturned * 0.8));
     }
@@ -145,7 +150,12 @@ const recall = (body) => post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/
  * satisfy any equality, so `ready()` requires a total worth truncating.
  */
 const fullCount = async () => {
-  const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000 });
+  // BOTH ceilings, not just the byte one. `maxChars` has its own default (50000 on this door) and would
+  // otherwise be the binding constraint, so a reference call meant to be unbudgeted could truncate and
+  // answer 0 — which reads as "writes unavailable" and skips the whole file.
+  const r = await recall({
+    query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000, maxChars: 5_000_000,
+  });
   return r.status === 200 && r.body.truncated === false ? r.body.count : 0;
 };
 
@@ -356,7 +366,12 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
      * ranking does.
      */
     const orderOf = async () => {
-      const r = await recall({ query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000 });
+      // Both ceilings raised, for the reason `fullCount` gives: a null here skips the identity assertions
+      // AND the union-size check below, so this call truncating would quietly remove the strongest part
+      // of this test rather than fail it.
+      const r = await recall({
+        query: QUERY, types: ['entity'], topK: COUNT, maxBytes: 5_000_000, maxChars: 5_000_000,
+      });
       return r.status === 200 && r.body.truncated === false ? r.body.results.map(x => x._id).join(',') : null;
     };
     const before = await orderOf();
@@ -378,10 +393,6 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
       skip = r.body.nextSkip;
     }
     assert.ok(pages > 1, `the budget must actually bite or this proves nothing — ${pages} page(s)`);
-    // Independent of the ranking: paging must visit exactly as many slots as there are matches. An off-by-one
-    // in `nextSkip` changes this count whether or not the order moved.
-    assert.equal(seen.length, COUNT,
-      `paging must visit all ${COUNT} ranked positions, got ${seen.length} across ${pages} pages`);
 
     const after = await orderOf();
     if (before === null || after === null || before !== after) {
@@ -389,8 +400,42 @@ describe('REST: a tight budget returns a prefix and a way to reach the rest', ()
         + 'below do not apply, and the feature does not promise a snapshot. The arithmetic above still passed.');
       return;
     }
+
+    /*
+     * THE UNION SIZE IS CHECKED HERE, NOT ABOVE, AND AGAINST THE MEASURED LENGTH — NOT AGAINST `COUNT`.
+     *
+     * It used to sit above the stability check, with a comment claiming it was *"independent of the ranking:
+     * paging must visit exactly as many slots as there are matches"*. That is not independent, and CI proved
+     * it: 27 slots across 2 pages where `COUNT` is 28. Every other assertion agreed at 27 — `count` matched
+     * `total`, which is measured rather than assumed — so the only number that disagreed was the seeded
+     * constant.
+     *
+     * THE CAUSE IS ALREADY DIAGNOSED IN THIS FILE — see the docblock on `totalNow`, whose first line is
+     * *"never the `COUNT` constant"*. Nothing waits for the vector index here, so a record is reachable
+     * through the fresh-write channel only until `DUPE_FRESH_WINDOW_MS` expires, and the OLDEST one can
+     * age out between the seed and an assertion: in neither channel, and the answer is short by exactly
+     * the records that lapsed. That is why `totalNow` exists and why it accepts `COUNT - 3`.
+     *
+     * So this was a MISSED INSTANCE of a fix already made, not a new defect. Three comparisons against
+     * `COUNT` survived that change; two of them failed together on CI. Asserting against the seeded
+     * constant makes the test fail for the corpus lapsing, which is what the stability check below was
+     * added to separate out — the assertion was simply on the wrong side of it.
+     *
+     * It keeps its purpose: with the ranking held still, an off-by-one in `nextSkip` still changes this
+     * count, and `before` is the ranked length measured the same way the loop measures it.
+     */
+    const rankedPositions = before.split(',').length;
+    assert.equal(seen.length, rankedPositions,
+      `paging must visit all ${rankedPositions} ranked positions, got ${seen.length} across ${pages} pages`);
     assert.equal(new Set(seen).size, seen.length, 'a record was served twice — the pages overlap');
-    for (const id of ids) {
+    /*
+     * Over the ids the RANKING held, not over the ids the test created — the same correction as the size
+     * assertion above. `before === after` says the ranking held still; it does not say the ranking contained
+     * every record written, and `totalNow` already concedes that point by accepting a total of `COUNT - 3`.
+     * Iterating the created set would fail for a record the index had not finished with, which is a fact
+     * about the environment rather than a gap between two pages.
+     */
+    for (const id of before.split(',')) {
       assert.ok(seen.includes(id), `paging never returned ${id} — a gap between two pages`);
     }
     assert.equal(seen.join(','), before,
@@ -418,6 +463,36 @@ describe('MCP: the same answer through the other door', () => {
       const text = res?.content?.[0]?.text ?? '';
       const out = JSON.parse(text);
 
+      /*
+       * HOW MANY RANKED POSITIONS THERE ARE, which is NOT the same number as `count`.
+       *
+       * `count` is how many records MATCH, supplied to the envelope separately; `results` is the ranked
+       * list. Both can fall below the 28 seeded, for the reason `totalNow`'s docblock records: the oldest
+       * record ages out of `DUPE_FRESH_WINDOW_MS` while nothing waits for the vector index, so it is in
+       * neither channel. That docblock's rule is *"never the `COUNT` constant"*, and these three
+       * comparisons were the ones that change missed.
+       *
+       * Three assertions in this file compared against the hardcoded `COUNT` instead, and CI failed two of
+       * them together: `remainder.matches` was 6 where `count - returned` was 7. Measured once here, through
+       * an unbudgeted call, and used by all three.
+       */
+      /*
+       * BOTH ceilings are raised, and `truncated` is checked — because on THIS door `maxChars` defaults to
+       * 25000 against REST's 50000, which is the one place the two doors deliberately differ. Raising
+       * `maxBytes` alone would leave the character ceiling binding, so the "unbudgeted" call could come back
+       * truncated and `results.length` would be a prefix masquerading as the full ranked list — a comparand
+       * quietly smaller than the thing it is used to measure.
+       */
+      const unbudgeted = JSON.parse((await session.callTool('recall', {
+        space: SPACE, query: QUERY, types: ['entity'], topK: COUNT,
+        includeFreshWrites: true, maxBytes: 5_000_000, maxChars: 5_000_000,
+      }))?.content?.[0]?.text ?? '{}');
+      assert.equal(unbudgeted.truncated, false,
+        'the reference call must not itself truncate, or the ranked length it supplies is a prefix');
+      const rankedLen = unbudgeted.results.length;
+      assert.ok(rankedLen >= COUNT - 3 && rankedLen <= COUNT,
+        `the unbudgeted ranked list is ${rankedLen}, outside ${COUNT - 3}..${COUNT} — too far off to page against`);
+
       for (const f of ['returned', 'count', 'truncated', 'budgetChars', 'budgetBytes', 'charsReturned', 'bytesReturned']) {
         assert.notEqual(out[f], undefined, `${f} must be on every response too: ${text.slice(0, 200)}`);
       }
@@ -437,7 +512,8 @@ describe('MCP: the same answer through the other door', () => {
         includeFreshWrites: true, maxBytes: tightBytes, remainderDump: true,
       }))?.content?.[0]?.text ?? '{}');
       assert.notEqual(dumped.remainder, undefined, 'asked for and not delivered on the MCP door');
-      assert.equal(dumped.remainder.matches, dumped.count - dumped.returned, 'holding only what did not fit');
+      assert.equal(dumped.remainder.matches, rankedLen - dumped.returned,
+        'holding only what did not fit — measured against the RANKED length, not `count`, which is the corpus');
 
       // And `skip` continues here too, or the opt-in would strand an MCP caller specifically.
       const next = JSON.parse((await session.callTool('recall', {
@@ -451,8 +527,8 @@ describe('MCP: the same answer through the other door', () => {
       // id comparison here would be asserting a promise the feature does not make. What must hold on any
       // ranking is that skipping N leaves exactly the rest: see the REST paging test for the identity check
       // and the precondition it guards it with.
-      assert.equal(next.results.length, COUNT - out.nextSkip,
-        `skipping ${out.nextSkip} of ${COUNT} must leave ${COUNT - out.nextSkip} matches to serve`);
+      assert.equal(next.results.length, rankedLen - out.nextSkip,
+        `skipping ${out.nextSkip} of ${rankedLen} ranked positions must leave ${rankedLen - out.nextSkip} to serve`);
       assert.equal(next.truncated, false,
         'and the remaining matches fit, so the last page must not still claim more');
 

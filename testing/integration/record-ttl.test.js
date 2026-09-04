@@ -65,7 +65,9 @@ describe('record TTL (F10)', () => {
 
   it('entity create with ttlDays > 0 stamps _expireAt', async () => {
     const w = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/entities', {
-      name: `ttl-ent-${RUN}`, ttlDays: 10,
+      // `type` is required on this door too since `W-19`. It defaulted to `''`, which is what made a
+      // typeless entity — one `validateEntity` can never check, because `type` selects the schema.
+      name: `ttl-ent-${RUN}`, type: 'service', ttlDays: 10,
     });
     assert.equal(w.status, 201, JSON.stringify(w.body));
     assertAboutDaysFromNow(w.body._expireAt, 10);

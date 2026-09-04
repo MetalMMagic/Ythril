@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { shapeError } from '../../brain/write-shape.js';
 import { escapeRegex } from '../../util/redos.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
@@ -56,6 +57,18 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   }
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  /*
+   * `W-19` IS PARKED, and the default stays for now — see `_PARKED-DECISIONS.md`.
+   *
+   * Three doors of four require `type` and this one defaults it to `''`, which is a real disagreement:
+   * `type` selects the per-type schema, so a typeless entity is one `validateEntity` can never check.
+   * Requiring it here is the obvious resolution and it BREAKS THE CREATE ENTITY BUTTON in any space that
+   * declares no entity types — the form seeds the field from the space's declared types and omits it when
+   * blank. Which way that resolves is the owner's, not a unification's to take in passing.
+   *
+   * An explicitly-sent `type: ''` IS refused now, by the shared shape table, which is the half that needs
+   * no decision: it matches what both MCP doors have always done.
+   */
   const { id, name, type = '', tags = [], properties = {}, description } = req.body ?? {};
   if (id !== undefined) {
     if (typeof id !== 'string' || !UUID_V4_RE.test(id)) {
@@ -63,7 +76,13 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
       return;
     }
   }
-  if (!name || typeof name !== 'string') {
+  /*
+   * `W-18`: TRIMMED BEFORE the test, not after.
+   *
+   * `'   '` is truthy, so it passed this guard and then `.trim()` further down produced the empty name the
+   * other three doors exist to prevent. `bulk` already trims then tests; this is the same order.
+   */
+  if (typeof name !== 'string' || !name.trim()) {
     res.status(400).json({ error: '`name` string required' });
     return;
   }
@@ -94,6 +113,12 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   let check: UpdateValidation | undefined;
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('entity', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
   try {
     // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue moments
@@ -298,6 +323,12 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('entity', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};

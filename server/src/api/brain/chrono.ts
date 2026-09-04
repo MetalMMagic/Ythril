@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { shapeError } from '../../brain/write-shape.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
@@ -20,6 +21,7 @@ import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-s
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
+import { CHRONO_STATUSES } from '../../config/types.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
@@ -36,7 +38,9 @@ export const chronoRouter = Router();
 
 // ── Chrono CRUD ───────────────────────────────────────────────────────────────
 
-const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
+// DERIVED. These five were written out here, in `brain/bulk.ts`, and in the shared write-shape table —
+// three copies of one product fact, and the third had two of them wrong.
+const CHRONO_STATUS_SET = new Set<ChronoStatus>(CHRONO_STATUSES);
 
 // POST /api/brain/spaces/:spaceId/chrono — create a chrono entry
 /**
@@ -88,7 +92,7 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   if (endsAt !== undefined && typeof endsAt !== 'string') {
     res.status(400).json({ error: '`endsAt` must be an ISO8601 string' }); return;
   }
-  if (status !== undefined && !CHRONO_STATUSES.has(status)) {
+  if (status !== undefined && !CHRONO_STATUS_SET.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
@@ -150,6 +154,12 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('chrono', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
 
   // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
@@ -230,7 +240,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const recCheck = parseRecurrence(recurrence);
   if (!recCheck.ok) { res.status(400).json({ error: recCheck.error }); return; }
   const safeRecurrence = recCheck.value;
-  if (status !== undefined && !CHRONO_STATUSES.has(status)) {
+  if (status !== undefined && !CHRONO_STATUS_SET.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
   if (type !== undefined) {
@@ -260,6 +270,12 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('chrono', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. Chrono is the FOURTH type, and it was missed when the other three were swept:

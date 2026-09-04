@@ -1,4 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { shapeError } from '../../brain/write-shape.js';
+import { CHRONO_STATUSES } from '../../config/types.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, recurrenceSchema, unitScoreSchema, uuidSchema } from './shared.js';
@@ -50,7 +52,7 @@ export const create_chronoTool: ToolHandler = {
                 + '`overdue` immediately.',
             },
             status: {
-              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming',
+              type: 'string', enum: [...CHRONO_STATUSES], default: 'upcoming',
               description: 'Stored status (default `upcoming`). You do not need `overdue` — it is derived on '
                 + 'read from the due moment, so an entry left `upcoming` becomes overdue on its own and is '
                 + 'returned as such. Storing it is accepted and findable, but it is a value that never '
@@ -112,6 +114,11 @@ export const create_chronoTool: ToolHandler = {
 
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('chrono', a);
+    if (shapeErr) throw new Error(shapeErr);
     // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
     // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
     // for a space it never writes to.
@@ -305,7 +312,7 @@ export const update_chronoTool: ToolHandler = {
                 + 'makes the entry read as `overdue` at once. Clearing it needs `deleteFields: ["endsAt"]`.',
             },
             status: {
-              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+              type: 'string', enum: [...CHRONO_STATUSES],
               description: 'The new STORED status. You never need to set `overdue`: it is DERIVED on read '
                 + 'from the due moment, so an entry left `upcoming` past its date already reads back as '
                 + '`overdue` everywhere except `query` and sync, which see the stored value. Setting '
@@ -367,6 +374,11 @@ export const update_chronoTool: ToolHandler = {
     if (!id) throw new Error('id must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('chrono', a);
+    if (shapeErr) throw new Error(shapeErr);
     // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
     // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
     // for a space it never writes to.
@@ -494,7 +506,7 @@ export const list_chronoTool: ToolHandler = {
           properties: {
             space: s.optionalSpace,
             status: {
-              type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+              type: 'string', enum: [...CHRONO_STATUSES],
               description: 'Filter by status, CLOCK-AWARE for the first three. `overdue` returns BOTH kinds — '
                 + 'entries stored `upcoming`/`active` whose due moment has passed, AND entries somebody '
                 + 'stored as `overdue` — while `upcoming` and `active` EXCLUDE the ones that are now late. '

@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { shapeError } from '../../brain/write-shape.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEntity, findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
@@ -71,6 +72,11 @@ export const upsert_entityTool: ToolHandler = {
     if (rawId !== undefined && !UUID_V4_RE.test(rawId)) throw new Error('id must be a valid UUID v4');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('entity', a);
+    if (shapeErr) throw new Error(shapeErr);
 
     // Schema validation of the record this upsert will PRODUCE, not of the payload. With an `id` that
     // matches, `upsertEntity` merges into the stored record, so validating the payload alone refused
@@ -228,6 +234,11 @@ export const update_entityTool: ToolHandler = {
     if (!id) throw new Error('id must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('entity', a);
+    if (shapeErr) throw new Error(shapeErr);
     // Validate deleteFields
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);

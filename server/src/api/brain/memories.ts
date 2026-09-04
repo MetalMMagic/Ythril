@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { shapeError } from '../../brain/write-shape.js';
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
@@ -124,6 +125,12 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   // into three bugs: values-only property embedding, no `matchedText`, and no dupe-rule firing.
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('memory', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
   // A caller-supplied id becomes the sync identity of a record that replicates across networks, so it is held
   // to the same shape the rest of the API uses. (The entity route accepts any string here — pre-existing, and
@@ -303,6 +310,12 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('memory', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { fact?: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};
@@ -324,9 +337,22 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   }
   if (entityIds !== undefined) {
     if (!Array.isArray(entityIds) || entityIds.some((t: unknown) => typeof t !== 'string')) { res.status(400).json({ error: '`entityIds` must be an array of strings' }); return; }
+    /*
+     * `W-16`: EXISTENCE, not just shape — the same `assertRefsResolve` the create route, `remember` and
+     * `update_memory` all call. This door alone ran `UUID_V4_RE.test` and stopped, so a syntactically
+     * perfect id pointing at nothing was stored.
+     *
+     * The create route's own comment is the argument: *"a syntactically perfect id pointing at nothing
+     * stores exactly as silently as a name did, and the dangling link only shows up later as a traversal
+     * that comes back empty."* That was written about this route's sibling, three hundred lines up.
+     */
     if (isStrictLinkage(wt.target)) {
-      const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
-      if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
+      try {
+        await assertRefsResolve(wt.target, 'entityIds', 'entity', entityIds as string[]);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
     }
     updates.entityIds = entityIds;
   }

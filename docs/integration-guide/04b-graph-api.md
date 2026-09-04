@@ -118,7 +118,9 @@ DELETE /api/brain/spaces/:spaceId/entities/:id
 
 **Response** `204` when nothing references the entity (or the space has opted out with `strictLinkage: false`).
 
-**Response** `409 Conflict` while anything still references it (the default; a space that opted out with `strictLinkage: false` deletes regardless). Delete or relink those items first. **There is no cascade** — no query parameter deletes an entity together with its references, and an unrecognised one is ignored rather than refused, so probing for a spelling that works will not find one.
+**Response** `409 Conflict` while anything still references it (the default; a space that opted out with `strictLinkage: false` deletes regardless). Delete or relink those items first — **or cascade**, which is `?cascadeToken=` and is documented under [Preview and Cascade a Delete](#preview-and-cascade-a-delete) below. The refusal body carries the preview route and the parameter name, so the next call is discoverable from the error itself.
+
+> This paragraph used to read *"**There is no cascade** — no query parameter deletes an entity together with its references … so probing for a spelling that works will not find one"*, thirty lines above the section that documents exactly that. It was true until 4.0, and it is the reason the integrator who asked for the capability tried `?cascade=true`, `?force=true`, `?deleteEdges=true` and `?withEdges=true` before writing clear-then-delete by hand.
 
 **BOTH ENDS OF AN EDGE COUNT, and the refusal used to say "inbound".** An edge pointing FROM this entity blocks the delete exactly as one pointing at it does, because either would be left dangling. The old message named a direction the check has never had, so a caller filtered on `to`, found nothing, and could not clear the block. It no longer names one, and each edge row carries the end that matched instead — `from`, `to`, or `both` for a self-loop.
 
@@ -143,7 +145,12 @@ Response body:
     { "type": "chrono", "_id": "c9d0e1f2-..." },
     { "type": "file", "_id": "f3a4b5c6-..." },
     { "type": "face", "_id": "photo.jpg#face-chunk0" }
-  ]
+  ],
+  "cascade": {
+    "hint": "Either clear these edges yourself, or call the preview below and repeat this DELETE with its `cascadeToken`, which removes the EDGES and this entity and nothing at the other end of them.",
+    "preview": "GET /api/brain/spaces/{spaceId}/entities/{id}/cascade-preview",
+    "parameter": "cascadeToken"
+  }
 }
 ```
 
@@ -616,7 +623,7 @@ POST /api/brain/spaces/:spaceId/traverse
 | `direction` | — | `"outbound"` | `"outbound"` follows edges from the node, `"inbound"` follows edges to it, `"both"` follows in either direction. **Stored edges only** — it does not narrow links; see below |
 | `edgeLabels` | — | all labels | Filter traversal to specific edge labels only |
 | `maxDepth` | — | `3` | Maximum hops from `startId`; hard-capped at `10` |
-| `limit` | — | `100` | Maximum total nodes returned |
+| `limit` | — | `100` | Maximum total nodes returned, **clamped to 1–1000 on both doors** — `limit: 5000` silently becomes 1000. The neighbouring `maxDepth` row states its ceiling and this one did not |
 | `includeChrono` | — | `true` | Also reach chrono entries whose `entityIds` reference a traversed node. Set `false` for entity-only results. A non-boolean is a `400`, never coerced |
 | `includeMemories` | — | `false` | Also reach memories whose `entityIds` reference a traversed node, marked `kind: "memory"`. **Opt-in, unlike `includeChrono`** — see the note below. A non-boolean is a `400` |
 | `includeFiles` | — | `false` | Also reach files whose `entityIds` reference a traversed node, marked `kind: "file"` and carrying **file meta only**. Opt-in. A non-boolean is a `400` |

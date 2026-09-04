@@ -192,7 +192,9 @@ have always had.
 - **It never blocks the write.** The record is stored either way and the warning rides on the `201`. An agent
   correcting an outdated fact must be able to contradict the record it supersedes — the point is that it is
   told, not that it is stopped.
-- **The flags are opt-in here, and default ON over MCP.** That asymmetry is deliberate: the check implies
+- **`checkDuplicates` is opt-in here and defaults ON over MCP; `checkContradictions` defaults OFF on
+  BOTH doors.** This said *"the flags"*, plural, of a difference that applies to one of them. The
+  asymmetry that does exist is deliberate: the check implies
   `waitForEmbedding`, because it needs the vector before the insert so the new record cannot match itself. On
   REST — which is also how a fleet imports thousands of records — defaulting it on would make every existing
   integration pay the embedding model synchronously without asking. A REST write that sends none of these

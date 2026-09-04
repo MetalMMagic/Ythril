@@ -550,4 +550,6 @@ PATCH /api/brain/spaces/:spaceId/files?path=…
 
 > **⚠️ Warning:** Fields deleted via `deleteFields` are **permanently removed**. Recovery requires audit logs or a backup. The explicit path list design is intentional — accidental data loss requires consciously naming each field to remove.
 
-**MCP tools:** `update_memory`, `update_entity`, and `update_edge` also accept a `deleteFields` array parameter with the same semantics.
+**MCP tools:** all five — `update_memory`, `update_entity`, `update_edge`, `update_chrono` and
+`update_file_meta` — accept a `deleteFields` array with the same semantics. This named three, which read
+as a deliberate parity gap against the five REST endpoints listed below. There is none.

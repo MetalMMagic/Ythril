@@ -247,7 +247,15 @@ export class BrainApi {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/entities/${id}`);
   }
 
-  createEntity(spaceId: string, body: { name: string; type?: string; tags?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Entity> {
+  /**
+   * `type` is REQUIRED — owner's ruling `P-29`, 2026-09-04.
+   *
+   * Optional here mirrored a REST create that defaulted it to the empty string while the other three
+   * entity doors demanded it. It is what selects the per-type property schema, so a typeless entity is one
+   * nothing can validate. Required in the TYPE as well as on the form, so a second caller cannot omit it
+   * and find out from a 400.
+   */
+  createEntity(spaceId: string, body: { name: string; type: string; tags?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Entity> {
     return this.http.post<Entity>(`/api/brain/spaces/${spaceId}/entities`, body);
   }
 

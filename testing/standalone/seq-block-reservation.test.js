@@ -70,8 +70,10 @@ describe('Bulk delete — seq allocation', () => {
   it('concurrent bulk deletes across types do not hand out overlapping seqs', async () => {
     // Entities and edges wipe independently but share ONE per-space counter. Reserving blocks
     // concurrently is precisely where a read-then-write allocator would double-issue.
-    const e1 = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/entities`, { name: 'A' });
-    const e2 = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/entities`, { name: 'B' });
+    // `type` is required on this door since `P-29` — it used to default to the empty string, which made
+    // entities the per-type schema could never validate.
+    const e1 = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/entities`, { name: 'A', type: 'thing' });
+    const e2 = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/entities`, { name: 'B', type: 'thing' });
     assert.equal(e1.status, 201);
     assert.equal(e2.status, 201);
     const ed = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/edges`, {

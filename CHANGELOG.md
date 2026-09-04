@@ -183,6 +183,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The schema for a space's per-type schemas builds its own shape from the one list of record kinds.**
+  It wrote `entity`, `memory`, `edge` and `chrono` out as object keys — and being `.strict()` made it the
+  only thing in the product that can REFUSE one of those names. So the authority on which kinds hold a
+  type schema was a hand-written copy of the answer, and a fifth kind would have been rejected there while
+  every other site accepted it, with the refusal naming a request that was correct everywhere else.
+
+  The gate that holds this list to one definition could not see it: it matches the four names as quoted
+  strings, and here they were property names. It reads object keys too now, and its own self-test
+  reproduces the exact shape that hid.
+
+  **A `Record<…>` map is deliberately exempt**, which is the rule and not a hole in it: the four names
+  being present there is the compiler forcing them, so a fifth kind stops those objects building, by name.
+  What the check is for is the case where nothing requires the list to stay complete.
+
 - **An update now refuses what its create refuses.** Eight measured defects, all the same shape: the same
   field, two doors, two rules, and whichever one you happened to use decided what got stored.
 

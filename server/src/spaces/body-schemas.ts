@@ -42,6 +42,7 @@ import { getSchemaLibrary } from '../config/loader.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { SPACE_PURPOSE_MAX } from './_shared.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS } from '../config/types.js';
+import { KNOWLEDGE_TYPES } from '../config/types-knowledge.js';
 import type { KnowledgeType } from '../config/types.js';
 import { RECORD_TYPES } from '../config/types.js';
 
@@ -209,12 +210,26 @@ function atPath(obj: unknown, path: string): unknown {
  * `TypeSchemaZ` validates one type object and cannot know whether it arrived under `entity` or `edge`, while the
  * resolver knows the collection but runs long after the write was accepted.
  */
-export const TypeSchemasZ = z.object({
-  entity: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  memory: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  edge:   z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-  chrono: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
-}).strict().superRefine((maps, ctx) => {
+/**
+ * One per-type map per knowledge type, DERIVED from the tuple rather than written out.
+ *
+ * **This schema is `.strict()`, which makes it the only thing in the product that can REFUSE a key here** —
+ * a fifth knowledge type would be rejected by this door while every other site accepted it, and the refusal
+ * would name a body that is correct everywhere else. So it is the real authority on which kinds hold a type
+ * schema, and it was a hand-written copy of the answer.
+ *
+ * `one-definition-of-the-knowledge-types.test.js` could not see it: that gate matches the four names as
+ * QUOTED literals, and here they were property names.
+ *
+ * The cast is what `z.object` needs to keep its per-key inference after `fromEntries`, which widens the key
+ * type to `string`. The SHAPE is still built from the tuple, so a fifth type joins this door on the commit
+ * that declares it.
+ */
+const perTypeMap = () => z.record(z.string().min(1).max(200), TypeSchemaZ).optional();
+
+export const TypeSchemasZ = z.object(
+  Object.fromEntries(KNOWLEDGE_TYPES.map(k => [k, perTypeMap()])) as Record<KnowledgeType, ReturnType<typeof perTypeMap>>,
+).strict().superRefine((maps, ctx) => {
   for (const [collection, types] of Object.entries(maps)) {
     if (!types) continue;
     for (const [typeName, schema] of Object.entries(types as Record<string, unknown>)) {

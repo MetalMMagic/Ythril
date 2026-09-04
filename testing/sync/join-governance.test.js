@@ -193,11 +193,15 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'S9 Join Space' });
     assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `s9-peer-a-${Date.now()}` });
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `s9-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
     assert.equal(ptForA.status, 201);
     peerTokenForA = ptForA.body.plaintext;
 
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s9-peer-b-${Date.now()}` });
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `s9-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
     assert.equal(ptForB.status, 201);
     peerTokenForB = ptForB.body.plaintext;
   });

@@ -29,6 +29,21 @@
  * another peer's record — and only for admin peers, which is a rule that holds for some callers and not
  * others. That is worse than either answer applied consistently.
  *
+ * ## THIS IS THE RULE THE DATA-WRITE ENDPOINTS ALREADY ENFORCE
+ *
+ * `isNonPeerSyncWrite` in `api/sync/_shared.ts` is the same predicate — not admin and no peer identity
+ * means refuse — and it guards every `/api/sync` document write. Its message states the contract in as
+ * many words: *"Sync writes require a peer token (peerInstanceId) or an admin token."*
+ *
+ * **So the two governance relays were the two endpoints that did not apply an existing rule**, and the
+ * test suite shows it from the outside: every sync test that pushes DATA mints its peer token WITH
+ * `peerInstanceId`, because it has to. Only the governance tests used a bare token — they could, because
+ * these two routes were the gap. That is the evidence that this guard restores a rule rather than
+ * inventing one.
+ *
+ * It is not the same FUNCTION because that one answers a boolean for a write, and a relay needs to know
+ * WHICH caller it has: a peer may speak only for itself. The primitives are shared instead.
+ *
  * ## Absence is refusal
  *
  * No token, or a token that is neither, is `refused`. The same rule that took `migrateToken({})` off two
@@ -37,6 +52,20 @@
  */
 import { isInstanceAdmin } from './instance-admin.js';
 import type { TokenRights } from '../config/rights-shape.js';
+
+/**
+ * The peer identity on a token, or `undefined`.
+ *
+ * A LOCAL COPY OF ONE LINE, and the reason is an import cycle rather than a preference: the sync router's
+ * `callerPeerId` lives in `api/sync/_shared.ts`, which imports from `auth/` — so reaching for it from here
+ * closes the loop that `no-runtime-import-cycles` exists to refuse. The two are held identical by
+ * `a-governance-relay-authorises-not-only-authenticates.test.js`, which asserts this file and that one
+ * extract the field the same way, so a change to either is reported rather than silently divergent.
+ */
+function peerIdOn(record: { peerInstanceId?: string }): string | undefined {
+  const v = record.peerInstanceId;
+  return typeof v === 'string' && v ? v : undefined;
+}
 
 /** What the token presenting itself at a governance relay may do. */
 export type PeerRelayCaller =
@@ -58,9 +87,7 @@ export function peerRelayCaller(
 ): PeerRelayCaller {
   if (!record) return { kind: 'refused' };
 
-  const peerInstanceId = typeof record.peerInstanceId === 'string' && record.peerInstanceId
-    ? record.peerInstanceId
-    : undefined;
+  const peerInstanceId = peerIdOn(record);
   if (peerInstanceId) return { kind: 'peer', peerInstanceId };
 
   return isInstanceAdmin(record) ? { kind: 'admin' } : { kind: 'refused' };

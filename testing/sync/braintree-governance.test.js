@@ -82,11 +82,15 @@ describe('Braintree governance — ancestor-path voting', () => {
     assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
     // Create peer PATs for cross-instance calls
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `bt-gov-peer-a-${Date.now()}` });
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `bt-gov-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
     assert.equal(ptForA.status, 201);
     peerTokenForA = ptForA.body.plaintext;
 
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `bt-gov-peer-b-${Date.now()}` });
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `bt-gov-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
     assert.equal(ptForB.status, 201);
     peerTokenForB = ptForB.body.plaintext;
   });
@@ -166,16 +170,19 @@ describe('Braintree governance — ancestor-path voting', () => {
     let grandchildPAT; // PAT that B will present when adding C
 
     before(async () => {
-      // Create a PAT for the grandchild (C) — issued on B's instance since C may not
-      // have a token we can authenticate with. The token is only used for the member record.
+      // Dummy grandchild instanceId — independent of a real container for this test. Assigned BEFORE the
+      // PAT below, because the PAT is bound to it.
+      grandchildToken = `bt-grandchild-${Date.now()}`;
+
+      // Create a PAT for the grandchild (C) — issued on B's instance since C may not have a token we can
+      // authenticate with. Nothing presents it (C is not a real container), so `peerInstanceId` is not
+      // load-bearing here — it is set anyway, because a bare peer credential in a test is a shape the
+      // invite flow cannot produce, and the next person to copy this block would inherit it.
       const cPat = await post(INSTANCES.b, tokenB, '/api/tokens', {
-        name: `bt-gov-grandchild-${Date.now()}`,
+        name: `bt-gov-grandchild-${Date.now()}`, peerInstanceId: grandchildToken,
       });
       assert.ok(cPat.status === 201, `${cPat.status}`);
       grandchildPAT = cPat.body.plaintext;
-
-      // Dummy grandchild instanceId — independent of a real container for this test
-      grandchildToken = `bt-grandchild-${Date.now()}`;
 
       // A: create braintree network (A is root, no myParentInstanceId)
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {

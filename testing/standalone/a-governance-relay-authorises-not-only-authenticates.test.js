@@ -89,6 +89,32 @@ describe('the predicate answers which caller this is, not merely whether there i
   });
 });
 
+describe('the peer identity is read the same way the sync router reads it', () => {
+  /*
+   * `peer-relay.ts` carries a one-line copy of `callerPeerId`, because importing the sync router's version
+   * from `auth/` closes an import cycle. A copy is only acceptable while something compares the two, so
+   * these do — and this is the codebase's most-produced defect, so the copy is the thing to watch rather
+   * than the rule.
+   */
+  const RELAY = 'server/src/auth/peer-relay.ts';
+  const SYNC_SHARED = 'server/src/api/sync/_shared.ts';
+
+  it('both treat an empty string as no peer, not as a peer named ""', () => {
+    // The half a re-implementation drops. `typeof v === 'string'` alone admits '', and an empty peer id
+    // would make `callerPeerId !== incoming.instanceId` true for every record — refusing a real peer.
+    const v = peerRelayCaller({ peerInstanceId: '', rights: { instanceAdmin: false } });
+    assert.equal(v.kind, 'refused', 'an empty peer id must not read as a peer identity');
+  });
+
+  it('and the two extractions are spelled the same, so a change to either is visible here', () => {
+    const shape = /typeof v === 'string' && v \? v : undefined/;
+    assert.match(code(RELAY), shape, `${RELAY} no longer extracts the peer id the shared way`);
+    assert.match(code(SYNC_SHARED), shape,
+      `${SYNC_SHARED} no longer extracts the peer id the shared way — the copy in ${RELAY} is now the `
+      + 'odd one out, which is how one rule becomes two');
+  });
+});
+
 describe('both relays take the verdict', () => {
   for (const [name, f] of [['members', MEMBERS], ['votes', VOTES]]) {
     it(`the ${name} relay refuses a caller that is neither peer nor admin`, () => {

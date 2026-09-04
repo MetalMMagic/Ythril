@@ -108,25 +108,56 @@ export function truncationWarn(
  * **Every transfer that ran under this watermark must be passed.** An omitted one places no limit, which makes
  * it precisely the transfer whose records get skipped.
  */
-export function resolveWatermark(opts: {
+export function resolveWatermark<T extends TransferOutcome>(opts: {
   /** `'receive'` or `'push'` — appears in the log so the two directions are distinguishable. */
   direction: 'receive' | 'push';
   peerLabel: string;
   spaceId: string;
   from: number;
-  candidate: number;
   /**
-   * Every transfer that ran, KEYED BY ITS NAME.
+   * Every SEQ-BEARING transfer that ran, KEYED BY ITS NAME.
    *
-   * A record rather than a labelled array so a call site names all five on one line. That is not brevity for
-   * its own sake: the call sites are in a file this change had to shrink, and a five-line spread of
-   * `{ ...x, label: 'x' }` is five chances to mistype a label that only ever appears in a log.
+   * A record rather than a labelled array so a call site names them all on one line. That is not brevity for
+   * its own sake: a spread of `{ ...x, label: 'x' }` per family is one chance per family to mistype a label
+   * that only ever appears in a log.
    */
-  transfers: Readonly<Record<string, TransferOutcome>>;
+  transfers: Readonly<Record<string, T>>;
+  /**
+   * Transfers that bound the advance but must NOT raise it — tombstones, on the pull side.
+   *
+   * Its own parameter rather than a name on an exclusion list, because the asymmetry is real: a tombstone
+   * seq is not a position in the data stream, so it cannot raise the data watermark, while a tombstone
+   * transfer that stopped early absolutely has to hold it. An exclusion list is the shape this signature
+   * exists to remove.
+   */
+  alsoCheck?: Readonly<Record<string, TransferOutcome>>;
+  /**
+   * Which seq to read off a transfer. Pull reports `highSeq` and push reports `maxSeq`, and that difference
+   * is real rather than incidental — so the caller names the field instead of computing the max itself.
+   */
+  seqOf: (t: T) => number;
   warn: (msg: string) => void;
 }): number {
-  const labelled = Object.entries(opts.transfers).map(([label, t]) => ({ ...t, label }));
-  const at = safeWatermark(opts.from, opts.candidate, labelled);
+  /*
+   * THE CANDIDATE IS DERIVED HERE, and it used to be a parameter.
+   *
+   * Both call sites already built the `transfers` record naming every family, and then computed `candidate`
+   * as a SECOND hand-written list beside it. Pull's had six entries; push's had five, missing file metadata —
+   * so a cycle whose only change was file metadata could be HELD BACK by that transfer and never advanced by
+   * it, and re-pushed the same page for ever.
+   *
+   * The comment above the push call site read *"Same rule as the pull, same function — see
+   * `sync/watermark.ts` for why it is not two implementations."* The function was shared. The list was not,
+   * and that sentence is what stopped anyone looking. One list now, and a seventh family cannot reproduce it.
+   */
+  const seqBearing = Object.entries(opts.transfers).map(([label, t]) => ({ ...t, label }));
+  const candidate = seqBearing.reduce((hi, t) => Math.max(hi, opts.seqOf(t as unknown as T)), 0);
+
+  const labelled = [
+    ...seqBearing,
+    ...Object.entries(opts.alsoCheck ?? {}).map(([label, t]) => ({ ...t, label })),
+  ];
+  const at = safeWatermark(opts.from, candidate, labelled);
   const heldBack = truncatedTransfers(labelled);
   if (heldBack.length > 0) {
     opts.warn(

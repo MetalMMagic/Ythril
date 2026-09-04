@@ -32,33 +32,30 @@ let tokenA;
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Directly seed a ConflictDoc into the `general` space conflicts collection
- * via a synthetic sync-engine scenario: write two files A and B write the
- * same path with different content, then trigger sync so the engine detects
- * the hash mismatch and creates a ConflictDoc.
+ * Seed a real conflict by making two instances disagree about one file, then syncing.
  *
- * Because the sync engine lives in-process on the server we cannot call it
- * via HTTP directly, so we seed via the internal sync endpoint: we write
- * two files on two different instances that share a network, then trigger
- * sync so the engine runs and creates the conflict document.
+ * A and B both write the same path with different content; the engine compares manifests, finds the hash
+ * mismatch, and writes a `ConflictDoc` on B. The tests below then exercise the CRUD surface against a
+ * record the product actually produced.
  *
- * Alternatively (faster / no flakiness): some tests seed the conflict record
- * directly through whatever mechanism is available. For now we create a
- * closed network with both A and B, write competing file versions, and wait
- * for the conflict to appear.
+ * ## This docblock used to set out FIVE different ways of doing that
  *
- * For tests that just need CRUD coverage, we use a simpler approach: call
- * POST /api/sync/batch-upsert on instance A to plant a memory that causes a
- * fork, which is a documented conflict class, then verify the API behaves.
+ * In sequence, none resolved: seed through the internal sync endpoint; *"Alternatively (faster / no
+ * flakiness)"*, seed the record directly; *"For tests that just need CRUD coverage, we use a simpler
+ * approach"*, plant a memory that forks; *"The cleanest way … Since no such endpoint exists"*; and
+ * finally *"For the CRUD-only tests below"*, the file-conflict path. At most one can be true, and a
+ * reader cannot tell which — it read as a design conversation left in the file.
  *
- * The cleanest way to test conflict creation without coupling to sync timing
- * is to POST directly to the internal collection through a test endpoint.
- * Since no such endpoint exists we use the file-conflict path via the engine.
+ * It cost three readings to answer a simple question about this suite (whether it needs cross-instance
+ * sync at all: it does, and the assertion below says so). Corrected as part of the guideline audit —
+ * `Q-2`.
  *
- * For the CRUD-only tests below we use a network-level file conflict seeded
- * via cross-instance file sync (write same file path with different content
- * on A and B, trigger sync Aâ†’B, engine detects hash mismatch on B, writes
- * conflict record).
+ * ## What the file DOES rely on, and it is deliberate
+ *
+ * Cross-instance FILE sync, which goes through the ordinary `/api/files/:spaceId` route. That is why a
+ * bare member token works here while a document push would be refused: file bytes carry no `seq` or
+ * author for a caller to forge, so the stricter peer-or-admin rule that guards document writes does not
+ * apply to them. Both regimes are correct; neither should be changed to match the other.
  */
 
 // Unique prefix prevents conflicts between parallel test runs.

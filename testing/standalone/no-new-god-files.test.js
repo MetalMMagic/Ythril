@@ -115,12 +115,22 @@ const FROZEN = {
   // `applyFileMetaPage` lives in `api/sync/_shared.ts` beside the push path's `ingestFileMeta`, so the two
   // directions share one implementation instead of this file holding a second.
   //
-  // **DECOMPOSE: the six families are written out TWICE in this file** — once as `pullType` calls with
-  // their result plumbing, once as `pushCollection` calls — and a
-  // seventh would be six edits. A table of `{ collection, payloadKey, extraFilter }` iterated by both
-  // halves is the shape, and it is a real refactor of the cycle rather than a tidy-up, which is why it is
-  // recorded here rather than smuggled into a change about file metadata.
-  'server/src/sync/engine.ts': 975,
+  // **DECOMPOSE: A-12 — the six families are written out TWICE in this file**, once as `pullType` calls
+  // with their result plumbing and once as `pushCollection` calls, so a seventh is six edits. A table of
+  // `{ collection, payloadKey, extraFilter }` iterated by both halves is the shape, and it is a real
+  // refactor of the cycle rather than a tidy-up.
+  //
+  // RAISED 975 -> 979 for `Q-2`, and the four lines ARE the fix. Each direction now builds its transfer
+  // set once, as a named object, because the alternative was what was there: the set inline in one
+  // argument and a SECOND hand-written list of the same families in the next one. Pull's had six entries
+  // and push's five, so file metadata could hold that watermark back and never advance it, and a cycle
+  // whose only change was file metadata re-sent the same page for ever. A third list — the local seq bump
+  // — omitted it too.
+  //
+  // Reclaimed seven of the eleven by formatting and by moving the whole-file transfer budget into
+  // `peer-fetch.ts`, where the file that owns each budget's meaning can hold the rule. `A-12` is what
+  // pays the rest back: it deletes both enumerations rather than shortening them.
+  'server/src/sync/engine.ts': 979,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
   // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
   // is 274 lines this file could regrow into without the gate saying a word.

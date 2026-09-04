@@ -211,7 +211,7 @@ Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,forkDepthR
 
 **Four of those counters were undocumented, and one of them is the sender's only report of a PERMANENT loss.** `skipped` means the peer was already current, which is benign. `forkDepthRefused` means a record was DROPPED and will not be retried — the push path reads exactly that field to report a refusal, so a receiver that does not emit it makes the loss silent at both ends. `schemaViolations` counts documents stored despite failing the RECEIVER's schema (validated, counted and let in — see the ingest rule below); `duplicateTriplets` counts edges the unique index rejected; `unknownType` counts the case below.
 
-**`filemeta` is accepted and applied, and is NOT in the response.** Six arrays go in and five sets of counters come back, so a sender has no way to tell whether its file metadata landed. The receiver does count it internally and only logs it. Tracked as `Q-1a`.
+**`filemeta` reports its counters like every other family.** Six arrays in, six sets of counters out. Until 4.0 the response carried five: file metadata was accepted, applied, counted internally and only logged, so a sender had no way to tell whether it landed.
 
 **A link has no fork counter, and that is a property of the record rather than an omission.** A fork exists
 because two peers can write different CONTENT under one id at one `seq`. A link record is two endpoints and
@@ -321,7 +321,7 @@ After document sync, the engine performs a manifest-based file sync. It is bidir
 
 Manifest requests use the 10 s timeout and batch-style transfers the 60 s one. A whole file body gets the ten-minute transfer budget, because a 10 s ceiling on a multi-megabyte upload aborts it on any ordinary link.
 
-**A file DOWNLOAD does not get that budget today, and it is a defect rather than a policy.** The call passes the transfer budget alongside a request that already carries the 10 s signal, and the signal wins — so any file whose body takes longer than ten seconds to arrive aborts, logs, and is retried identically on every cycle, for ever. Tracked as `Q-1a`.
+**A download gets it too, and until 4.0 it did not.** The call passed the transfer budget alongside a request that already carried the 10 s control-plane signal, and `init.signal ?? …` means the signal won — so any file whose body took longer than ten seconds aborted, logged, and was retried identically on every cycle, for ever. Large files simply never replicated. The control-plane signal is stripped before the transfer call now, so one budget reaches the fetch.
 
 ---
 

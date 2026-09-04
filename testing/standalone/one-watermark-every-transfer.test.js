@@ -154,15 +154,33 @@ describe('every transfer under a shared watermark is passed to the rule', () => 
      * The transfer KEY is `filemeta` where the collection is `files`, one word apart on purpose: the route
      * serves metadata and `/api/files` serves bytes.
      */
-    const expected = [...BRAIN_COLLECTIONS.map(c => (c === 'files' ? 'filemeta' : c)), 'tombstones'];
+    /*
+     * ## The SET moved, and this gate had to move with it — which is the point rather than a chore
+     *
+     * Each call site used to inline `transfers: { … }` and then compute `candidate` as a SECOND
+     * hand-written list beside it. Pull's named six families, push's five, and `filemeta` was the one
+     * missing — so it could hold that watermark back and never advance it. `Q-2` removed the second list
+     * by deriving the candidate from the transfers, and the set is now a named object each side builds
+     * once and passes to both consumers.
+     *
+     * So this reads the object rather than the argument. Tombstones are asserted separately, because they
+     * are now `alsoCheck` — bounding the advance without raising it, which is what they always did and
+     * what an exclusion list said less clearly.
+     */
+    const expected = BRAIN_COLLECTIONS.map(c => (c === 'files' ? 'filemeta' : c));
     assert.ok(expected.length >= 5, `only ${expected.length} expected transfers — BRAIN_COLLECTIONS did not load`);
-    const lists = [...src.matchAll(/transfers: \{([^}]*)\}/g)].map(m => m[1]);
-    assert.equal(lists.length, 2, `expected two transfer sets, found ${lists.length}`);
-    for (const list of lists) {
+    const sets = [...src.matchAll(/const (?:pulled|pushed) = \{([^}]*)\}/g)].map(m => m[1]);
+    assert.equal(sets.length, 2, `expected a transfer set per direction, found ${sets.length}`);
+    for (const list of sets) {
       const keys = list.split(',').map(x => x.split(':')[0].trim()).filter(Boolean);
       assert.deepEqual([...keys].sort(), [...expected].sort(),
-        `a cycle's transfer set is not every collection plus tombstones: ${list.trim()}`);
+        `a cycle's transfer set is not every replicated collection: ${list.trim()}`);
     }
+    assert.equal([...src.matchAll(/alsoCheck: \{ tombstones \}/g)].length, 2,
+      'tombstones must bound BOTH directions — an omitted transfer places no ceiling, which makes it the '
+      + 'one that gets skipped');
+    assert.doesNotMatch(src, /candidate: Math\.max\(/,
+      'a second hand-written list of the families is back beside the set it duplicates');
   });
 
   it('the pull records its position only AFTER the page is applied', () => {

@@ -253,6 +253,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A large file never replicated, and a file-metadata-only sync cycle never finished** (`Q-2`). Both were
+  one root cause wearing different symptoms: 4.0 added a SIXTH replicated record family, and five places
+  still counted five.
+
+  **Any file whose body took longer than ten seconds to arrive aborted, logged, and was retried identically
+  on the next cycle — for ever.** The download asked for a ten-MINUTE transfer budget and also passed the
+  request carrying the ordinary ten-second one, and the second of those wins. The comment beside it
+  explained why a whole file needs the longer budget, which is how this survived: the intent was written
+  down and the code did the opposite. Small files synced; large ones silently did not.
+
+  **And a cycle whose only change was file metadata re-sent the same page every time.** The watermark
+  recording how far a push got was computed from a hand-written list of families that omitted file
+  metadata — while the same call passed that transfer in the list used to detect a truncation. So it could
+  hold the watermark back and never advance it.
+
+  That list is gone: the watermark is derived from the transfers it is given, so a seventh family cannot
+  reproduce this. **There were THREE such lists rather than two.** The third keeps locally-written records
+  sorting above received ones, and it omitted file metadata too — so a record arriving with a high sequence
+  number left the local counter beneath it, and the next local write could take a number below a record
+  already stored.
+
+  Two more the same number was hiding. **A push of file metadata now reports what happened to it** — six
+  arrays went in and five sets of counters came back, so a sender was told nothing about the one family it
+  cannot otherwise check. And **a proposed space wipe now reaches the other members**: it cast its own yes
+  vote unsigned, where every other vote in the product is signed, so on a network configured to require
+  signatures the proposal carried locally and every peer refused it — silently, because refusing an
+  unsigned vote is correct behaviour. The comment describing what an unrestricted wipe destroys said five
+  collections; it destroys six.
+
 - **The guide pages now say what the code does — about forty corrections across eleven pages** (`Q-4`,
   the documentation bundle of the guideline audit). No route, parameter or default changed; every
   correction was checked against the source rather than against another page.

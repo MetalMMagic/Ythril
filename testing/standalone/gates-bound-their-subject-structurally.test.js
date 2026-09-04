@@ -75,6 +75,31 @@ const MAGIC_WINDOW = /\.slice\(\s*([^,()]{1,80}?(?:\([^()]{0,60}\))?)\s*,\s*\1\s
  */
 const MAGIC_WINDOW_BACK = /\.slice\(\s*Math\.max\(\s*0\s*,\s*[A-Za-z_$][\w$.]*\s*-\s*\d+\s*\)[^)]*\)(?!\s*\.join\()/g;
 
+/**
+ * THE THIRD SHAPE, and it is worse than both: a window found by SEARCHING FOR A BLANK LINE.
+ *
+ * `text.indexOf('\n\n', at)` looks structural. It is not, on this repository: the tree checks out CRLF on
+ * Windows, where a blank line is `\r\n\r\n`. Both searches return -1, the fallbacks take over, and the
+ * "paragraph" becomes the WHOLE FILE.
+ *
+ * That is not a narrower window than intended — it is no window at all, while the gate goes on reporting
+ * protection. `expansion-costs-matches-and-says-so` was in exactly that state: real in CI, inert on the
+ * machine it runs on before every push, and it took a red run on 2026-09-04 to find out. It was also
+ * catching a genuine defect at the time, which is the only reason anyone looked.
+ *
+ * **This gate could not see it, and that is the finding.** It refuses a window that decides in advance how
+ * much of its subject a check can see, and a blank-line search is that decision made in a way that can
+ * silently mean "all of it". Matching only the `.slice(at, at + N)` spelling is the rule-versus-one-spelling
+ * mistake this file exists to name.
+ *
+ * The fix at a call site is to normalise the newlines first — and then the search IS structural, which is why
+ * this matches the raw literal rather than the function that uses it.
+ */
+const BLANK_LINE_SEARCH = new RegExp(
+  '(?:indexOf|lastIndexOf|split|search)\\(\\s*[\'"`]' + '\\\\n\\\\n',
+  'g',
+);
+
 /*
  * NOT BANNED HERE, and the reason is the whole discipline of this file: `[\s\S]{0,N}` inside a pattern.
  *
@@ -295,6 +320,27 @@ const GRANDFATHERED_GAP = new Map([
    */
 ]);
 
+/**
+ * Blank-line searches that are NOT windows over a checked-out file, each with its reason.
+ *
+ * The one entry parses an SSE payload, where `\n\n` is the frame separator defined by the protocol and
+ * arrives over the wire rather than off disk — so the CRLF hazard does not apply and normalising would be
+ * wrong, not merely unnecessary. It is listed rather than pattern-exempted because "is this text a file or a
+ * network payload?" is a judgement about the call site, and a pattern that guessed it would be the next
+ * thing to be wrong.
+ */
+const NOT_A_FILE_PARAGRAPH = new Map([
+  /*
+   * EMPTY, and the exemption that matters is DERIVED instead — see the scan below.
+   *
+   * The first version of this list named `testing/sync/mcp-session.js`, which parses an SSE frame
+   * separator off the network rather than a paragraph off disk. That reason is sound and the entry was
+   * still wrong: the scan walks test sources, and that file is not one, so the allowance was for a
+   * count that could never be produced. An exemption for something unmeasured is the exemption-rot
+   * shape one step earlier.
+   */
+]);
+
 const GRANDFATHERED_BACK = new Map([
   /*
    * EMPTY. All nine are converted, and the list stays here rather than being deleted because an empty ratchet is the
@@ -331,6 +377,7 @@ const CAPPED_GAP = /\{0,\d+\}/g;
 
 const found = new Map();
 const foundBack = new Map();
+const foundBlank = new Map();
 const foundGap = new Map();
 for (const root of ROOTS) {
   for (const file of sources(root)) {
@@ -343,6 +390,17 @@ for (const root of ROOTS) {
     if (n > 0) found.set(key, n);
     const back = [...code.matchAll(MAGIC_WINDOW_BACK)].length;
     if (back > 0) foundBack.set(key, back);
+    /*
+     * A blank-line search is only a WINDOW HAZARD on text that may carry CRLF. A file that normalises
+     * first has already removed it, so its searches are structural — and that is checkable rather than a
+     * judgement, which is why it is derived here instead of listed above.
+     *
+     * My own first attempt claimed the pattern would not see a normalising file at all. It does: the
+     * literal is still in the source. The exemption has to be the normalisation, not the absence.
+     */
+    const normalises = new RegExp('replace\\(\\s*/' + '\\\\r\\\\n' + '/g\\s*,').test(code);
+    const blank = normalises ? 0 : [...code.matchAll(BLANK_LINE_SEARCH)].length;
+    if (blank > 0) foundBlank.set(key, blank);
     /*
      * Counted on the RAW source, not the comment-stripped copy. Every other count here is on `code`, and for this
      * one that would be wrong in the expensive direction: a `{0,N}` written inside a comment — which is how this
@@ -420,6 +478,32 @@ describe('no NEW magic window', () => {
       'a gate bounds its subject with a character count. Use `_structural-window.mjs` — `bodyOf`, `between`, or\n'
       + '`bodyOfEndingWith` — which bound by the next top-level declaration or by the closing marker. A window that\n'
       + 'can fall short of its subject is a gate that can pass while checking less than it means to.\n'
+      + problems.join('\n'));
+  });
+
+  it('and no window found by searching for a blank line, which is not one on CRLF', () => {
+    /*
+     * The third shape, added after it cost a red run. `text.indexOf('\n\n', at)` reads as structural and
+     * is not: this tree checks out CRLF on Windows, where a blank line is `\r\n\r\n`, so the search misses
+     * and the window silently becomes the WHOLE FILE. Worse than a wrong number, because the gate goes on
+     * reporting protection while measuring nothing.
+     *
+     * A call site that normalises its newlines first is fine and this does not see it — the literal is what
+     * is matched, and a normalised copy has real `\n` in it.
+     */
+    const problems = [];
+    for (const [file, n] of foundBlank) {
+      const allowed = NOT_A_FILE_PARAGRAPH.get(file) ?? 0;
+      if (n > allowed) problems.push(`${file}: ${n} blank-line search(es), allowed ${allowed}`);
+    }
+    for (const [file, allowed] of NOT_A_FILE_PARAGRAPH) {
+      const actual = foundBlank.get(file) ?? 0;
+      if (actual < allowed) problems.push(`${file}: allowed ${allowed}, now has ${actual} — lower it`);
+    }
+    assert.deepEqual(problems, [],
+      'a gate finds its window by searching for a blank line. On a CRLF checkout that search MISSES and the\n'
+      + 'window becomes the whole file — no window at all, while the gate still reports protection. Normalise\n'
+      + 'the newlines first, and recompute the match offset through the same transform.\n'
       + problems.join('\n'));
   });
 

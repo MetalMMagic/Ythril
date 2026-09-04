@@ -814,7 +814,19 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       + `links ${JSON.stringify(linkStats)} seq ${range(links)} `
       + `filemeta ${JSON.stringify(fileMetaStats)} seq ${range(fileMeta)}`);
 
-    res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats, links: linkStats });
+    /*
+     * ALL SIX FAMILIES, and `filemeta` was the one missing.
+     *
+     * Six arrays go in and five sets of counters came out, so a sender had no way to tell whether its file
+     * metadata landed — the receiver counted it and only logged it. `push-refusals.ts` reads these
+     * counters off the response, so a family absent here is a family whose refusals are silent at both
+     * ends.
+     */
+    res.status(200).json({
+      status: 'ok',
+      memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats, links: linkStats,
+      filemeta: fileMetaStats,
+    });
 
     // Bump the local seq counter so future local writes always get a seq higher
     // than any document received via push.  Fire-and-forget after the response.

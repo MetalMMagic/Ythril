@@ -25,11 +25,27 @@
  * Not prose quality — the specific facts a caller cannot recover by experiment without being misled. Each of
  * these was either absent or, in the `types` case, absent in a way that made a real result look like a bug.
  *
- * Run: node --test testing/standalone/recall-schema-documents-its-response.test.js
+ * Run: node --test testing/standalone/search-tool-schemas-document-their-response.test.js
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+
+const { budgetFields } = await import('../../server/dist/brain/result-budget.js');
+
+/**
+ * Every accounting field a budgeted answer carries, taken from the function that emits them.
+ *
+ * Called rather than parsed. A regex over the return object would be a second reading of the same thing,
+ * and `truncated: true` here is what makes `nextSkip` appear — a hand-written list would have had to know
+ * that, and this does not.
+ */
+const BUDGET_FIELDS = Object.keys(budgetFields(
+  { returned: [], truncated: true, charsReturned: 0, bytesReturned: 0, remainder: [] },
+  0,
+  { chars: 1, bytes: null },
+  0,
+));
 
 const SRC = readFileSync('server/src/mcp/tools/search.ts', 'utf8');
 /** The `recall` tool object: from its name to the next tool's, so a later tool cannot satisfy these. */
@@ -42,11 +58,40 @@ const RECALL = (() => {
 
 describe('the response is documented, not just the request', () => {
   it('warns that the inline answer is capped and names the flag to read', () => {
-    // The silent failure: asking for 80 and getting a handful, with no error. A caller has to know to look.
-    assert.match(RECALL, /truncated/, '`truncated` must be named');
-    assert.match(RECALL, /complete/, '`complete` must be named');
-    assert.match(RECALL, /cliff|capped by SIZE|not by count/i,
-      'say it is a size cliff rather than a gentle limit — 25 answers in full, 30 can return three');
+    /*
+     * The silent failure: asking for 80 and getting a handful, with no error. A caller has to know to look.
+     *
+     * ## Both assertions here used to pass no matter what the schema said
+     *
+     * `assert.match(RECALL, /complete/)` demanded a response field called `complete`. There is no such field
+     * — the envelope has never had one since the record cap became a byte budget, and the spill is
+     * `remainder`, written only when the caller opts in. The assertion passed anyway, on the word `complete`
+     * appearing in `its complete _graph` and in `graphComplete`. It was checking English, not a contract.
+     *
+     * `assert.match(RECALL, /cliff|capped by SIZE|not by count/i)` asked, in its own message, for *"a size
+     * cliff rather than a gentle limit"*. The schema now says **"it is a slope now rather than a cliff"** —
+     * the opposite claim, and it contains the word `cliff`, so the assertion was satisfied by the text
+     * contradicting it.
+     *
+     * A gate nobody has watched fail is a gate whose subject you have not confirmed, and these two had
+     * stopped having a subject at all.
+     *
+     * ## So the field names are DERIVED, by calling the function that emits them
+     *
+     * Not a hand-written list. A list is what rotted: this file was written when `complete` was real, and
+     * nothing told it when that stopped. `budgetFields` builds the envelope, so its own return value is the
+     * authoritative set, and a field added or renamed there arrives here without anyone remembering to.
+     */
+    for (const field of BUDGET_FIELDS) {
+      assert.ok(RECALL.includes(field), `\`${field}\` is in every recall response and the schema never `
+        + `names it — derived from budgetFields(), so this list cannot go stale the way the last one did`);
+    }
+    // Conditional, and set outside `budgetFields`, so it cannot come from the same derivation.
+    assert.ok(RECALL.includes('remainder'),
+      'the opt-in spill file is `remainder`; a caller who does not know its name cannot ask for it');
+    assert.match(RECALL, /slope/i,
+      'the budget is a byte slope with a stated continuation, not the record cliff it replaced — and the '
+      + 'assertion that used to be here accepted the word `cliff` from a sentence denying it');
   });
 
   it('says `count` excludes traversed nodes', () => {
@@ -115,7 +160,41 @@ const FIND_SIMILAR = (() => {
   return next === -1 ? SRC.slice(at) : SRC.slice(at, next);
 })();
 
-describe('find_similar names the two silent empties', () => {
+describe('find_similar documents the SAME envelope, because it returns the same one', () => {
+  /*
+   * This scanner was scoped to `recall` alone, and that is how `find_similar` came to promise a `complete`
+   * field years after the field stopped existing: the gate for "the schema documents its response" only ever
+   * looked at one of the two tools that share the response.
+   *
+   * A caller reading `find_similar` was told to wait for `complete` holding {path, download, expiresAt} for
+   * the full set. Nothing emits that. They never set `remainderDump`, so no spill was written either, and
+   * they never learned `nextSkip` exists — three ways to reach the rest of the answer, and the documented
+   * one was the one that does not work.
+   */
+  it('names every accounting field it actually returns', () => {
+    for (const field of BUDGET_FIELDS) {
+      assert.ok(FIND_SIMILAR.includes(field),
+        `\`${field}\` is in every find_similar response and the schema never names it`);
+    }
+  });
+
+  it('and does NOT promise a `complete` field, because there is no such field', () => {
+    /*
+     * The CLAIM is what is forbidden, not the word — and the difference is the whole reason the old
+     * assertion here was vacuous. `/complete/` matched `graphComplete` and `its complete _graph`, so it
+     * passed on prose while the actual promise sat two clauses away.
+     *
+     * The corrected paragraph deliberately still says `complete` ONCE, to tell a caller who built against
+     * the old text that the field is gone — the same service `maxBytes`'s "CHANGED MEANING IN 3.7" note
+     * performs. An assertion banning the word would forbid that, so it bans the two shapes the promise took.
+     */
+    assert.doesNotMatch(FIND_SIMILAR, /`truncated` \+ `complete`/,
+      'the schema still pairs `truncated` with a `complete` field; the pair is `truncated` and `nextSkip`');
+    assert.doesNotMatch(FIND_SIMILAR, /`complete` holding/,
+      'the schema still says `complete` HOLDS the full set. Nothing emits it — the spill is `remainder`, '
+      + 'and only when the caller asks with `remainderDump: true`');
+  });
+
   it('a source entry with no vector cannot be similar to anything', () => {
     // The failure that looks like a fact: an empty answer reads as "nothing resembles this", when the real
     // cause is that the SOURCE was retired from ranking and has no embedding to compare from.

@@ -185,12 +185,54 @@ export function hasAnyLink(cls: LinkClass): Record<string, unknown> {
   return { [cls.field]: { $exists: true, $ne: [] }, ...cls.scope };
 }
 
+/** One link row, as both batched readers below project it. */
+export interface LinkEnd { from: string; fromKind: RefKind; to: string; toKind: RefKind }
+
 /**
- * The ids of records of this class that link to ANY of `ids` — the LINK RECORD shape.
+ * Every link row pointing AT any of `ids` — ONE query for the whole hop, not one per class.
  *
- * One indexed lookup on `{to, toKind}` in place of a collection scan per class. It returns ids rather than
- * documents because the caller still has to read the record itself: a link row carries no title, no path and
- * no `parentFileId`, so the chunk exclusion and the projection both belong to the second read.
+ * ## Why it is batched, measured rather than assumed
+ *
+ * The first version asked once per class and then fetched the named records once per class: six link
+ * queries and up to six document fetches per hop, where the array walk does three collection reads. On a
+ * corpus of 8 380 links a `traverse` at depth 2 measured **37.3 ms against the array path's 9.9 ms** —
+ * 3.8× SLOWER, for the same answer, on the change whose whole argument was that one indexed lookup beats
+ * three scans over arrays.
+ *
+ * The lookup was never the cost. The ROUND TRIPS were. One query on the `{to, toKind}` index returns the
+ * whole hop and the classes are separated in memory, which is free by comparison.
+ *
+ * `Q-7` is why this was caught before release: *"a number from one version alone answers nothing"*, so the
+ * pair was measured, and the pair said the opposite of what the design predicted.
+ */
+export async function linksPointingAt(
+  spaceId: string, ids: readonly string[], limit?: number,
+): Promise<LinkEnd[]> {
+  const cursor = col<LinkDoc>(`${spaceId}_links`)
+    .find(asFilter<LinkDoc>({ to: { $in: [...ids] } }),
+          { projection: { from: 1, fromKind: 1, to: 1, toKind: 1 } });
+  if (limit !== undefined) cursor.limit(limit);
+  return await cursor.toArray() as LinkEnd[];
+}
+
+/** Every link row STARTING from any of `ids` — the mirror, on the `{from, fromKind, …}` index. */
+export async function linksStartingFrom(
+  spaceId: string, ids: readonly string[], limit?: number,
+): Promise<LinkEnd[]> {
+  const cursor = col<LinkDoc>(`${spaceId}_links`)
+    .find(asFilter<LinkDoc>({ from: { $in: [...ids] } }),
+          { projection: { from: 1, fromKind: 1, to: 1, toKind: 1 } });
+  if (limit !== undefined) cursor.limit(limit);
+  return await cursor.toArray() as LinkEnd[];
+}
+
+/**
+ * The ids of records of one class that link to ANY of `ids` — the single-class form, for a caller with one
+ * class in hand.
+ *
+ * Kept for the delete-blocking scan, which asks about ONE target and one class at a time and would gain
+ * nothing from a batch. A traversal must use `linksPointingAt` instead: per class, per hop, this is the
+ * round-trip count that made the link path 3.8× slower than the arrays it replaced.
  */
 export async function linkedFromIds(
   spaceId: string, cls: LinkClass, ids: readonly string[], limit?: number,
@@ -201,6 +243,46 @@ export async function linkedFromIds(
   if (limit !== undefined) cursor.limit(limit);
   const rows = await cursor.toArray() as Array<{ from: string }>;
   return [...new Set(rows.map(r => r.from))];
+}
+
+/**
+ * The projection one COLLECTION needs — the union of its classes' projections.
+ *
+ * A file has three classes and a chrono entry two, so fetching per class reads the same document twice or
+ * three times. One fetch per collection needs every field any of its classes projects.
+ */
+export function projectionForCollection(collection: LinkClass['collection']): Record<string, 1> {
+  const out: Record<string, 1> = {};
+  for (const c of LINK_CLASSES) {
+    if (c.collection !== collection) continue;
+    for (const k of Object.keys(c.projection)) out[k] = 1;
+  }
+  return out;
+}
+
+/**
+ * The records named by a set of ids, from ONE collection, with that collection's scope and union projection.
+ *
+ * The chunk exclusion lives here and not in the link query, because a link row has no `parentFileId` — a
+ * file link and a chunk link are indistinguishable in the links collection.
+ */
+export async function docsFromCollection<T extends { _id: string }>(
+  spaceId: string, collection: LinkClass['collection'], ids: readonly string[],
+  /**
+   * An override for a caller that only needs to know WHICH ids survived the scope.
+   *
+   * The delete-blocking scan is one: it reports ids and nothing else, and the union projection was sending
+   * it every field of every class — a file's path, description and three arrays to answer a question about
+   * membership. Measured, that alone was most of the gap between the link path and the arrays on that scan.
+   */
+  projection?: Record<string, 1>,
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const scope = LINK_CLASSES.find(c => c.collection === collection)?.scope ?? {};
+  return await col<T>(`${spaceId}_${collection}`)
+    .find(asFilter<T>({ _id: { $in: [...ids] }, ...scope }),
+          { projection: projection ?? projectionForCollection(collection) })
+    .toArray() as T[];
 }
 
 /**

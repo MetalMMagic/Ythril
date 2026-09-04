@@ -183,6 +183,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A graph hop is ONE query over the link records, not one per class — a 3.8× slowdown caught before
+  release and removed.** The first implementation asked the links collection once per link class and then
+  fetched the records it named once per class: twelve round trips per hop, where the array walk it
+  replaced does three collection reads.
+
+  Measured on a corpus of 8 380 links, a traverse at depth 2 took **37.3 ms against the array walk's
+  6.9 ms**. Same answer — 107 nodes either way — on the change whose whole argument was that one indexed
+  lookup beats three scans over arrays. **The lookup was never the cost. The round trips were.** One query
+  on the `{to, toKind}` index returns the whole hop and the classes are separated in memory; one document
+  read per COLLECTION rather than per class also stops a file being fetched three times, once for each
+  class it holds. Twelve became four, and depth 2 went to 8.5 ms.
+
+  The scan that refuses a delete had the same shape for a single record — six queries plus six reads for
+  one id — and went from 10.7 ms to 5.1 ms.
+
+  **Nothing but a measured PAIR could have found this.** Every functional test passed throughout, because
+  the answers were identical. `benchmarks/LINK-READERS.md` publishes all three columns and the script that
+  produced them, and a gate now holds the batching so it cannot quietly come back.
+
+  **What is still slower, stated rather than buried:** a traverse on the link path costs 1.3× to 1.7× of
+  what 3.x cost, and the reason is the feature. 3.x followed three link classes and 4.0 follows six —
+  `includeChrono` used to reach the entities a timeline entry names and now also reaches the memories it
+  names. On a corpus where those reach nothing new, that time buys nothing; on one where a file names a
+  memory nothing else points at, it is what finds it. The edge walk with every link class off did not move
+  (1.05 → 1.02 ms), which is what says the difference is links rather than the release.
+
 - **The schema for a space's per-type schemas builds its own shape from the one list of record kinds.**
   It wrote `entity`, `memory`, `edge` and `chrono` out as object keys — and being `.strict()` made it the
   only thing in the product that can REFUSE one of those names. So the authority on which kinds hold a

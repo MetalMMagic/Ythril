@@ -40,13 +40,36 @@ import { bodyOf } from './_structural-window.mjs';
 const src = (p) => stripComments(readFileSync(p, 'utf8'));
 
 describe('every link scan is bounded', () => {
-  for (const fn of ['linkedRecordsAtFrontier', 'entitiesLinkedFromRecords']) {
+  /*
+   * THE READING FUNCTIONS, which is no longer the same list as the two exported scans.
+   *
+   * `linkedRecordsAtFrontier` does not read any more: it computes the bound and hands it to one of two
+   * helpers, one per storage shape, because a hop over link records is ONE query and a hop over arrays is one
+   * per class. That split took a measured 3.8× regression off the link path — `benchmarks/LINK-READERS.md`.
+   *
+   * So the bound is asserted where the read happens. Checking only the exported name would go green on a
+   * helper that reads unbounded, which is the whole point of the check.
+   */
+  /*
+   * Named with the FILE that issues the read, because the batched path's bound moved modules.
+   *
+   * `linkedRecordsFromRows` is handed rows that were already fetched — the `.limit()` for the whole hop is in
+   * `linksPointingAt`, in the adjacency module. Asserting it here would fail on code that is bounded, which
+   * is worse than not asserting it: the way to quieten that is to put a bound where one already exists.
+   */
+  const READERS = [
+    ['server/src/brain/link-adjacency.ts', 'linksPointingAt'],
+    ['server/src/brain/link-adjacency.ts', 'linksStartingFrom'],
+    ['server/src/brain/link-frontier.ts', 'linkedRecordsFromArrays'],
+    ['server/src/brain/link-frontier.ts', 'entitiesLinkedFromRecords'],
+  ];
+  for (const [file, fn] of READERS) {
     it(`${fn} passes a limit to Mongo`, () => {
       /*
        * `.limit()` on the CURSOR, not a slice afterwards. Reading everything and discarding the tail costs the
        * same scan and the same network transfer — the point is that the database stops early.
        */
-      const body = bodyOf(src('server/src/brain/link-frontier.ts'), fn);
+      const body = bodyOf(src(file), fn);
       assert.match(body, /\.limit\(/,
         `${fn} reads without a bound, so one hub entity returns its whole mention set per class per space per hop`);
       // Structural, not a guessed gap: the bound must appear BEFORE the cursor is drained, which is what

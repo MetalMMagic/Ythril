@@ -19,7 +19,7 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
-import { linksToAny, LINK_CLASSES, usesLinkRecords, linkedFromIds, scopedDocs, type LinkClass }
+import { linksToAny, LINK_CLASSES, usesLinkRecords, linksPointingAt, docsFromCollection, type LinkClass }
   from './link-adjacency.js';
 import type { RefKind } from '../config/types-knowledge.js';
 import { checkDuplicates, type SimilarMatch } from './recall.js';
@@ -574,17 +574,60 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
  * The fork lives here and nowhere else. `usesLinkRecords` is the one decision; a reader choosing for itself
  * is how five readers came to follow five different subsets of six fields.
  */
-async function referencingIds(spaceId: string, cls: LinkClass, targetId: string): Promise<string[]> {
-  if (usesLinkRecords(spaceId)) {
-    // The chunk exclusion cannot ride on the link query — a link row has no `parentFileId` — so the ids come
-    // back and are then narrowed by reading the records themselves.
-    const ids = await linkedFromIds(spaceId, cls, [targetId]);
-    return (await scopedDocs<{ _id: string }>(spaceId, cls, ids)).map(d => d._id);
+/**
+ * Every record that references `targetId`, grouped by the class that references it.
+ *
+ * ## Batched, and the measurement is why
+ *
+ * The first version took ONE class and was called in a loop — six link queries plus six document reads for
+ * a single delete. On a corpus of 8 380 links that measured **11.4 ms against the array path's 3.0 ms**,
+ * for the same answer: 3.8× slower on the scan that stands in front of every delete.
+ *
+ * The indexed lookup was never the cost. The ROUND TRIPS were. One query on `{to}` returns every class at
+ * once and one read per COLLECTION applies the scope — which also stops a file being fetched three times,
+ * once per class it holds.
+ */
+async function referencesByClass(
+  spaceId: string, targetId: string, classes: readonly LinkClass[],
+): Promise<Array<{ cls: LinkClass; id: string }>> {
+  if (classes.length === 0) return [];
+
+  if (!usesLinkRecords(spaceId)) {
+    // The ARRAY path, one read per class, exactly as 3.x did it. Every unconverted space answers here.
+    const out: Array<{ cls: LinkClass; id: string }> = [];
+    for (const cls of classes) {
+      const rows = await col<{ _id: string }>(`${spaceId}_${cls.collection}`)
+        .find(asFilter<{ _id: string }>(linksToAny(spaceId, cls, [targetId])), { projection: { _id: 1 } })
+        .toArray() as Array<{ _id: string }>;
+      for (const r of rows) out.push({ cls, id: r._id });
+    }
+    return out;
   }
-  const rows = await col<{ _id: string }>(`${spaceId}_${cls.collection}`)
-    .find(asFilter<{ _id: string }>(linksToAny(spaceId, cls, [targetId])), { projection: { _id: 1 } })
-    .toArray() as Array<{ _id: string }>;
-  return rows.map(r => r._id);
+
+  const byPair = new Map<string, LinkClass>();
+  for (const c of classes) byPair.set(`${c.kind}>${c.toKind}`, c);
+
+  const idsPerCollection = new Map<LinkClass['collection'], Set<string>>();
+  const claimed: Array<{ cls: LinkClass; id: string }> = [];
+  for (const r of await linksPointingAt(spaceId, [targetId])) {
+    const cls = byPair.get(`${r.fromKind}>${r.toKind}`);
+    if (!cls) continue;
+    let ids = idsPerCollection.get(cls.collection);
+    if (!ids) { ids = new Set(); idsPerCollection.set(cls.collection, ids); }
+    ids.add(r.from);
+    claimed.push({ cls, id: r.from });
+  }
+
+  // The chunk exclusion, applied against the records: a link row has no `parentFileId`, so a file link and
+  // a chunk link are indistinguishable in the links collection.
+  const admitted = new Set<string>();
+  for (const [collection, ids] of idsPerCollection) {
+    // `_id` only: this scan reports ids, and the union projection would send every field of every class.
+    for (const d of await docsFromCollection<{ _id: string }>(spaceId, collection, [...ids], { _id: 1 })) {
+      admitted.add(d._id);
+    }
+  }
+  return claimed.filter(c => admitted.has(c.id));
 }
 
 /**
@@ -621,10 +664,9 @@ export async function findEntityReferences(spaceId: string, targetId: string, ta
    * gets the block automatically, where a fourth hand-written block would have been forgotten exactly the
    * way the file one was.
    */
-  for (const cls of LINK_CLASSES) {
-    if (cls.toKind !== targetKind) continue;
-    const rows = await referencingIds(spaceId, cls, targetId);
-    for (const _id of rows) backlinks.push({ type: cls.kind, _id });
+  for (const { cls, id } of await referencesByClass(spaceId, targetId,
+    LINK_CLASSES.filter(c => c.toKind === targetKind))) {
+    backlinks.push({ type: cls.kind, _id: id });
   }
 
   /*

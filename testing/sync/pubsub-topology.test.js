@@ -108,9 +108,7 @@ describe('Pub/Sub topology (A -> B subscriber)', () => {
     assert.equal(regB.status, 201, `Register pubsub network on B: ${JSON.stringify(regB.body)}`);
 
     // Create a peer token on A for B to use when pulling
-    const aPeer = await postRetry429(INSTANCES.a, tokenA, '/api/tokens', {
-      name: 'pubsub-peer-b', peerInstanceId: 'instance-a',
-    });
+    const aPeer = await postRetry429(INSTANCES.a, tokenA, '/api/tokens', { name: 'pubsub-peer-b' });
     assert.equal(aPeer.status, 201, `Create peer token on A: ${JSON.stringify(aPeer.body)}`);
 
     // Add A as the publisher member on B's side (direction=pull: B pulls from A)

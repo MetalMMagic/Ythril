@@ -41,7 +41,7 @@ const src = stripComments(raw);
  * Read from the RAW source: the banners are comments, so a stripped copy has no boundaries left.
  */
 const rule = () => between(raw, 'the queue must be touched between commits',
-  'the exemption list must not rot', 'the staleness rule');
+  'the exemption REASON is checked', 'the staleness rule');
 
 describe('the ordered queue must be newer than the newest commit', () => {
   it('the rule exists and compares mtime against the commit time', () => {

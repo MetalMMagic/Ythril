@@ -535,7 +535,8 @@ export const IncomingChronoDoc = z.object({
    *
    * The retention STAMP that drives them (`_contentExpireAt`) deliberately does not travel: like `_expireAt`,
    * it is computed from each instance's own policy, and shipping it would let one peer dictate when another
-   * deletes its data. That it is nonetheless hashed is `W-10`.
+   * deletes its data. It was nonetheless hashed, which is what `W-10` was; both stamps are now in
+   * `DERIVED_FIELDS` and excluded, so a local retention schedule no longer moves the space's hash.
    */
   contentRedacted: z.boolean().optional(),
   contentRedactedAt: z.string().optional(),

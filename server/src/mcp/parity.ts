@@ -50,8 +50,9 @@ export interface RestOnlyCapability {
  * validation extracted into a shared function first, because `createSpace()` and `updateSpace()` both already
  * existed — which is what made a "just add a tool" fix dangerous rather than easy.
  *
- * **One row left: `reindex`.** Its re-embedding loop is written inline in the route handler, so there is genuinely no
- * function for a tool to call; that extraction is its own work, behind its own characterization tests.
+ * **And then the fifth, `reindex`.** This said *"one row left"* and that the extraction was its own future work — it
+ * has since been done: the re-embedding loop moved out of the route handler into `brain/reindex.ts` and
+ * `reindexTool` calls it. Nothing is left, which is what the empty array below says.
  *
  * `mcp-rest-parity.test.js` asserts both halves of every surviving row — the REST route exists, and no MCP tool by
  * that name does — so a row cannot rot in either direction.

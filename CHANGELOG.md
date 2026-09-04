@@ -300,6 +300,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is still true: `tags` really do replace on a memory and merge on an entity, and `delete_edge`
   really is the one that cannot be blocked, because an edge IS the link.
 
+- **SECURITY: the two peer governance relays authenticate the caller and now also AUTHORISE them**
+  (`Q-1.1`, found by the guideline audit). `POST /api/sync/networks/:id/members` and
+  `POST /api/sync/networks/:id/votes/:roundId` are the calls a peer makes to report its own member record
+  or to pass along a vote. Both carried authentication and a read-only refusal and nothing else — no space
+  scope, no network membership — so **every token that could write anything could drive both**.
+
+  On the members relay that reached any member's address, label and children. On the votes relay it
+  reached a cast attributed to **any instance, on any round**, and the rounds include member removal,
+  space deletion and space wipe — which pass on a single yes with no veto on two of the network types.
+
+  **The signature requirement did not stop it, because the caller's identity DEFAULTED.** The relay
+  resolved the reporting instance as *the peer id on the token, or else the instance named in the body*.
+  A caller with no peer identity therefore became the cast's own author: reporter and voter matched by
+  construction, the own-cast path was taken, and a network configured to require signed votes accepted an
+  unsigned one.
+
+  **Each route stated the rule it did not enforce**, which is why this read as safe. The members route
+  said in as many words that *"tokens without peerInstanceId (admin/local) may update any record"* — a
+  description of who was expected to hold such a token, sitting where a check should have been. One rule,
+  written twice, and the copy in front of the route was the weaker one.
+
+  The question is answered once now, and both relays take the verdict: **a peer token speaking for its own
+  instance, or an instance administrator relaying on a peer's behalf.** Anything else is a `403` naming
+  both ways in, because a relay is wired up once and then debugged from its response.
+
+  **The check also moved ahead of the lookups.** It used to run after the network and round were fetched,
+  so a caller who may not vote was told whether the round existed — an existence oracle over another
+  network's governance, and a `404` where the answer should have been `403`.
+
+  Nothing legitimate changes: a peer syncs as before, and an instance administrator still relays. That
+  half is asserted too — the opposite failure, a guard so narrow it locks out the local administrator,
+  would be found by an operator rather than by a test.
+
+- **The rules this codebase states about itself were checked against the code, and thirteen of them were
+  false** (`Q-1`, first slice — the audit covers nine surfaces and this is one of them).
+
+  Two would have cost a reader something real. The page said a route with no token-rights row is *"either
+  unreachable or ungoverned, and both fail silently"* — it is neither: the request is served with its reach
+  enforced and its area not, and it logs a warning naming itself on every call, which is how an operator
+  found one. It also gave one instruction where there are two answers, and following it for a route that is
+  not a view of a space's data area-scopes a route the design says must not be.
+
+  And the instruction for adding a replicated field to a FILE was wrong in the direction that hides. Five of
+  the six collections exclude fields from the space hash by naming them; files INCLUDE the fields they hash,
+  because a file record has thirty-odd fields and most are local machinery. So *"add the field, do not
+  exclude it"* leaves a file field outside the hash — two instances holding different data and agreeing they
+  match, for ever, with nothing to contradict it.
+
+  **Four of the thirteen rotted in the last few days, which is the argument for the audit rather than a
+  footnote to it.** The page named four replicated documents and there are six; claimed one ingest function
+  where there are now two; said the hash exclusion lives in two places and it is three; and described every
+  arriving document as validated by a schema that STRIPS unknown keys, when file metadata refuses them
+  instead. Each was true when written and none announced that it had stopped being.
+
+  Counts are now written as the rule that produces them — *"every `Incoming*` schema in that file"* rather
+  than *"four"* — because the gate protecting exactly this had the identical bug: a hand-written list of
+  four documents that missed the fifth when it arrived, and reported clean about a document nobody had
+  checked.
+
+- **Two source comments described their own fixed defects as open.** The MCP parity list said *"one row
+  left: `reindex`"* directly above an array that is empty and says so, and the sync ingest schema said a
+  retention stamp *"is nonetheless hashed"* after the release that stopped hashing it. Both are the failure
+  mode the audit exists for: a reader is taught to work around something that is not there, and to plan work
+  that is done.
+
+### Changed
+
+- **A tracker exemption is now checked by its REASON, not only by the filename it names.** The local
+  pre-push check verified that each exempted page still exists — the half that cannot hurt anyone, since an
+  exemption pointing at a deleted file excuses nothing. It said so itself, in a yellow *"harmless, but tidy
+  it"*.
+
+  The half that had already caused damage was never read. A page was exempted as *"indexed by outcome rather
+  than queued"*, the outcomes moved elsewhere, and the exemption stayed — so that page collected settled
+  work filed as open for weeks while every checked page reported clean. The file existed the whole time.
+
+  *"Is this sentence still true?"* has no check. **A number in it does.** When a reason says how many steps
+  a checklist has, that is a claim about the file and the file can be counted — and the one entry subject to
+  the new rule was wrong, saying six where there are seven. A second stale count turned up beside it, in the
+  message that tells you how to rebuild the checklist if it is missing: it listed six rows, and the one it
+  left out was the documentation row. A row that is absent is not checked, so following that instruction
+  produced a checklist with one of its four real checks switched off.
+
 - **A request with no authenticated token can no longer be read as an unrestricted legacy one.** Two
   places in the tokens API check what the caller holds before deciding what a new token may be granted,
   and both fell back to an EMPTY legacy record when there was no token at all.

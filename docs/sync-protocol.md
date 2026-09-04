@@ -340,7 +340,11 @@ On the pulling side, records returned by `GET /members` that share our own `inst
 
 ## API reference
 
-All endpoints are under `/api/sync` and require a `Bearer` token. In normal operation that is a **peer token** — a PAT carrying `peerInstanceId`, issued to the peer during join. Read endpoints and the governance relays additionally accept admin and appropriately space-scoped user PATs (token space-scope **and** network membership are enforced before any read or write; admin tokens additionally act as trusted local relays for tombstones). The seven **data-write endpoints accept only peer or admin tokens** — see [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints). Rate-limited per IP.
+All endpoints are under `/api/sync` and require a `Bearer` token. In normal operation that is a **peer token** — a PAT carrying `peerInstanceId`, issued to the peer during join. Read endpoints additionally accept admin and appropriately space-scoped user PATs, and admin tokens act as trusted local relays for tombstones.
+
+The two **governance relays** — `POST /networks/:networkId/members` and `POST /networks/:networkId/votes/:roundId` — accept **a peer token speaking for its own instance, or an instance administrator relaying on a peer's behalf**, and refuse anything else with `403`. The authorisation runs before the network and round are looked up, so an unauthorised caller cannot learn which rounds are open from the status code.
+
+> This paragraph used to say token space-scope and network membership were *"enforced before any read or write"*. That was not true of the two governance relays, which carried authentication only: any write-capable token could rewrite a member record, or cast a vote attributed to any instance on any round — including a `space_wipe`. Fixed 2026-09-04. The seven **data-write endpoints accept only peer or admin tokens** — see [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints). Rate-limited per IP.
 
 ### Read endpoints (called during pull)
 

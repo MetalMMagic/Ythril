@@ -179,6 +179,32 @@ async function rsaHandshakeJoin(baseUrl, adminToken, networkId, joinerInstanceId
 
 // ── outer setup ─────────────────────────────────────────────────────────────
 
+/**
+ * Mint a fresh pair of peer PATs, PER DESCRIBE BLOCK rather than once for the file.
+ *
+ * A token carrying `peerInstanceId` is enrolled in lifecycle revocation:
+ * `revokePeerCredentialsIfOrphaned` deletes every token bound to an instance the moment that instance
+ * stops being a member of any network — on vote conclusion, removal, departure, or NETWORK DELETION. The
+ * blocks below create and delete a network each, so one pair minted for the whole file is revoked by the
+ * first teardown and every later block runs on a dead credential. The symptom is `waitFor timed out`,
+ * never a legible 401.
+ *
+ * These were bare until 2026-09-04, which is why the pattern worked: a token with no peer identity is not
+ * enrolled in that revocation at all.
+ */
+async function mintPeerTokens() {
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `s9-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
+    assert.equal(ptForA.status, 201);
+    peerTokenForA = ptForA.body.plaintext;
+
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `s9-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
+    assert.equal(ptForB.status, 201);
+    peerTokenForB = ptForB.body.plaintext;
+}
 describe('Join-path governance (S9) — invite key and RSA handshake respect voting', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
@@ -193,13 +219,7 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'S9 Join Space' });
     assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `s9-peer-a-${Date.now()}` });
-    assert.equal(ptForA.status, 201);
-    peerTokenForA = ptForA.body.plaintext;
-
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s9-peer-b-${Date.now()}` });
-    assert.equal(ptForB.status, 201);
-    peerTokenForB = ptForB.body.plaintext;
+    await mintPeerTokens();
   });
 
   after(async () => {
@@ -215,6 +235,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     let networkId;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `S9 BT Root ${Date.now()}`,
         type: 'braintree',
@@ -261,6 +283,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     const leafId = `s9-leaf-${Date.now()}`;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       networkId = await setupBraintreeAB('S9 BT Child Join');
       const inv = await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/invite`, {});
       assert.ok(inv.body.inviteKey, 'invite key expected');
@@ -352,6 +376,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     const leafId = `s9-veto-leaf-${Date.now()}`;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       networkId = await setupBraintreeAB('S9 BT Veto Join');
       const inv = await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/invite`, {});
       inviteKey = inv.body.inviteKey;
@@ -414,6 +440,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     let networkId;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `S9 Club ${Date.now()}`,
         type: 'club',
@@ -454,6 +482,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     let networkId;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `S9 RSA BT Root ${Date.now()}`,
         type: 'braintree',
@@ -492,6 +522,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     const joinerId = crypto.randomUUID();
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       networkId = await setupBraintreeAB('S9 RSA BT Child');
     });
 
@@ -549,6 +581,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     let networkId;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `S9 RSA Closed ${Date.now()}`,
         type: 'closed',
@@ -603,6 +637,8 @@ describe('Join-path governance (S9) — invite key and RSA handshake respect vot
     let networkId;
 
     before(async () => {
+      // Fresh credentials — the previous block deleted its network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `S9 RSA Democratic ${Date.now()}`,
         type: 'democratic',

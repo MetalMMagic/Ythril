@@ -53,7 +53,7 @@ const src = stripComments(raw);
  * Read from the RAW source: the banners are comments, so a stripped copy has no boundaries left.
  */
 const rule = () => between(raw, 'the working order must be checked off for THIS branch',
-  'the exemption list must not rot', 'the working-order rule');
+  'the exemption REASON is checked', 'the working-order rule');
 
 describe('the working order is gated, not merely written down', () => {
   it('the rule reads the checklist and the branch it claims', () => {

@@ -125,6 +125,55 @@ describe('a decision recorded as decided must not still be filed as open', () =>
     assert.deepEqual(decidedButStillFiled(parked, REFERENCE), []);
   });
 
+  /*
+   * ── the shape this rule could not see, and what it cost ────────────────────────────────────────────
+   *
+   * It matched only a table ROW in the reference. Decisions are also written there as SECTIONS, with the
+   * id in the heading and often in backticks — and a question recorded that way could sit on the parked
+   * page for ever reading as open. It did: `P-14` was ruled from the owner's own description, asked
+   * again, and asked again as `P-30`, which the reference retires in a HEADING as "withdrawn". The parked
+   * page's header even said so, with the whole section underneath it, and every rule here passed.
+   *
+   * The owner answered that question a FOURTH time. These cases are why it cannot happen a fifth.
+   */
+  const REF_AS_SECTIONS = lines(
+    '## Decisions already made',
+    '',
+    '## P-30 was P-14 asked a third time (withdrawn 2026-09-03)',
+    '',
+    'The ruling is traversable as normal, from his own words.',
+    '',
+    '### `P-32` — a file\'s metadata replicates. Owner: **A**, 2026-09-04',
+  );
+
+  it('a decision recorded as a SECTION counts, not only as a table row', () => {
+    const parked = lines('## P-30 — when links become records, do three kinds become followable?', '', 'x');
+    assert.deepEqual(decidedButStillFiled(parked, REF_AS_SECTIONS), ['P-30'],
+      'a question retired in a heading is still retired — reading only the table is how it was asked again');
+  });
+
+  it('and WITHDRAWN counts as decided, whatever word retired it', () => {
+    // The reference says "withdrawn", not "decided". A question taken off the table is not open either way,
+    // and a rule keyed to one outcome word would have to grow a word every time somebody picks a new one.
+    const parked = lines('## P-30 — the same question a fourth time', '', 'x');
+    assert.equal(decidedButStillFiled(parked, REF_AS_SECTIONS).length, 1);
+  });
+
+  it('the id in BACKTICKS is the same id, on either page', () => {
+    // Both spellings are in use. A rule that reads one of two spellings is this defect one level down.
+    const parked = lines('### `P-32` — does a file\'s metadata replicate?', '', 'x');
+    assert.deepEqual(decidedButStillFiled(parked, REF_AS_SECTIONS), ['P-32']);
+  });
+
+  it('and a section heading that merely MENTIONS a P-number does not retire it', () => {
+    // The id has to be what the heading is ABOUT — first token, optionally quoted. Otherwise a reference
+    // section discussing P-7 in passing would silently retire a live question.
+    const ref = lines('## Decisions already made', '', '## Why the P-7 approach was rejected for P-4');
+    const parked = lines('## P-7 — how does an operator pin a field at NOTHING?', '', 'x');
+    assert.deepEqual(decidedButStillFiled(parked, ref), [],
+      'P-7 is discussed there, not ruled there');
+  });
+
   it('reads the reference TABLE, not any mention of the number', () => {
     /*
      * The point of comparing two copies rather than checking a mention: `_REFERENCE.md` discusses decisions in

@@ -95,12 +95,24 @@ describe('Gossip: member list exchange', () => {
     assert.equal(netR.status, 201, `Create network: ${JSON.stringify(netR.body)}`);
     networkId = netR.body.id;
 
-    // Peer tokens: A issues one for B, B issues one for A
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `gossip-test-peer-a-${Date.now()}` });
+    /*
+     * Peer tokens: A issues one for B, B issues one for A — each carrying `peerInstanceId` for the peer
+     * that PRESENTS it, which is what `invite.ts` and the join flow both do when a real peer joins.
+     *
+     * These were minted bare, and that was only possible because the two governance relays were the two
+     * `/api/sync` endpoints not applying `isNonPeerSyncWrite`. Every sync test that pushes DATA already
+     * sets this field, because those endpoints require it; the governance tests could skip it, so they
+     * did. A test exercising a credential shape the invite flow cannot produce is testing the gap.
+     */
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `gossip-test-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
     assert.equal(ptForA.status, 201);
     peerTokenForA = ptForA.body.plaintext;
 
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `gossip-test-peer-b-${Date.now()}` });
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `gossip-test-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
     assert.equal(ptForB.status, 201);
     peerTokenForB = ptForB.body.plaintext;
 

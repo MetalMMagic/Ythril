@@ -167,9 +167,21 @@ describe('GET /metrics — Prometheus endpoint', () => {
   });
 
   it('and still exposes ythril_mcp_tool_calls_total, which is the signal that survives', async () => {
-    // The inverse: the assertion above must not be satisfiable by dropping MCP metrics altogether.
+    /*
+     * The inverse: the assertion above must not be satisfiable by dropping MCP metrics altogether.
+     *
+     * Checked as REGISTRATION rather than as a sample line, because `mcp_tool_calls_total` is a Counter with
+     * `tool` and `space` labels and prom-client emits no sample for a labelled metric until some label
+     * combination has been observed. `hasMetric` only matches lines that START with the name, so this
+     * passed exactly when an earlier suite had happened to call a tool against this instance and failed
+     * when the offline subset ran on its own — an order dependency, not a signal.
+     *
+     * `ythril_sync_cycles_total` below already makes this distinction for the same reason and says so.
+     */
     const { text } = await getMetrics();
-    assert.ok(hasMetric(text, 'ythril_mcp_tool_calls_total'), 'ythril_mcp_tool_calls_total not found');
+    const registered = text.split('\n').some(l => l.includes('ythril_mcp_tool_calls_total'));
+    assert.ok(registered, 'ythril_mcp_tool_calls_total is not registered — the absence assertion above must '
+      + 'not be satisfiable by dropping MCP metrics altogether');
   });
 
   it('includes ythril_sync_cycles_total counter', async () => {

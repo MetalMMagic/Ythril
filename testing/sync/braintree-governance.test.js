@@ -66,6 +66,34 @@ function readContainerConfig(container) {
 
 // ── outer setup ─────────────────────────────────────────────────────────────
 
+/**
+ * Mint a fresh pair of peer PATs, and do it PER DESCRIBE BLOCK rather than once for the file.
+ *
+ * A token carrying `peerInstanceId` is enrolled in lifecycle revocation:
+ * `revokePeerCredentialsIfOrphaned` deletes every token bound to an instance the moment that instance
+ * stops being a member of any network — on vote conclusion, removal, departure, or NETWORK DELETION.
+ *
+ * Each block below creates its own network and deletes it in `after`. So one pair minted for the whole
+ * file is revoked by the first teardown, and every later block runs with a dead credential. The symptom is
+ * not a 401 anywhere legible: it is `waitFor timed out`, because gossip simply stops arriving.
+ *
+ * These PATs were bare until 2026-09-04, which is why the pattern worked — a token with no peer identity
+ * is not enrolled in that revocation and is effectively immortal. Binding them is correct (the two
+ * governance relays now require it, as every other `/api/sync` write already did), and this is the cost.
+ */
+async function mintPeerTokens() {
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `bt-gov-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
+    assert.equal(ptForA.status, 201);
+    peerTokenForA = ptForA.body.plaintext;
+
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `bt-gov-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
+    assert.equal(ptForB.status, 201);
+    peerTokenForB = ptForB.body.plaintext;
+}
 describe('Braintree governance — ancestor-path voting', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
@@ -81,14 +109,7 @@ describe('Braintree governance — ancestor-path voting', () => {
     const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'BT-Gov Test Space' });
     assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
-    // Create peer PATs for cross-instance calls
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `bt-gov-peer-a-${Date.now()}` });
-    assert.equal(ptForA.status, 201);
-    peerTokenForA = ptForA.body.plaintext;
-
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `bt-gov-peer-b-${Date.now()}` });
-    assert.equal(ptForB.status, 201);
-    peerTokenForB = ptForB.body.plaintext;
+    await mintPeerTokens();
   });
 
   after(async () => {
@@ -105,6 +126,9 @@ describe('Braintree governance — ancestor-path voting', () => {
     let networkId;
 
     before(async () => {
+      // Fresh credentials: the previous block deleted its network, which revokes any PAT
+      // bound to a peer that thereby left every network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Root ${Date.now()}`,
         type: 'braintree',
@@ -166,16 +190,22 @@ describe('Braintree governance — ancestor-path voting', () => {
     let grandchildPAT; // PAT that B will present when adding C
 
     before(async () => {
-      // Create a PAT for the grandchild (C) — issued on B's instance since C may not
-      // have a token we can authenticate with. The token is only used for the member record.
+      // Fresh credentials: the previous block deleted its network, which revokes any PAT
+      // bound to a peer that thereby left every network. See `mintPeerTokens`.
+      await mintPeerTokens();
+      // Dummy grandchild instanceId — independent of a real container for this test. Assigned BEFORE the
+      // PAT below, because the PAT is bound to it.
+      grandchildToken = `bt-grandchild-${Date.now()}`;
+
+      // Create a PAT for the grandchild (C) — issued on B's instance since C may not have a token we can
+      // authenticate with. Nothing presents it (C is not a real container), so `peerInstanceId` is not
+      // load-bearing here — it is set anyway, because a bare peer credential in a test is a shape the
+      // invite flow cannot produce, and the next person to copy this block would inherit it.
       const cPat = await post(INSTANCES.b, tokenB, '/api/tokens', {
         name: `bt-gov-grandchild-${Date.now()}`,
       });
       assert.ok(cPat.status === 201, `${cPat.status}`);
       grandchildPAT = cPat.body.plaintext;
-
-      // Dummy grandchild instanceId — independent of a real container for this test
-      grandchildToken = `bt-grandchild-${Date.now()}`;
 
       // A: create braintree network (A is root, no myParentInstanceId)
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
@@ -307,6 +337,9 @@ describe('Braintree governance — ancestor-path voting', () => {
     let grandchildInstanceId;
 
     before(async () => {
+      // Fresh credentials: the previous block deleted its network, which revokes any PAT
+      // bound to a peer that thereby left every network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Veto ${Date.now()}`,
         type: 'braintree',
@@ -342,7 +375,9 @@ describe('Braintree governance — ancestor-path voting', () => {
 
       // B opens a grandchild join round
       grandchildInstanceId = `veto-gc-${Date.now()}`;
-      const gcPat = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `bt-veto-gc-${Date.now()}` });
+      const gcPat = await post(INSTANCES.b, tokenB, '/api/tokens', {
+        name: `bt-veto-gc-${Date.now()}`,
+      });
       const addR = await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/members`, {
         instanceId: grandchildInstanceId,
         label: 'Veto Grandchild',
@@ -409,6 +444,9 @@ describe('Braintree governance — ancestor-path voting', () => {
     let removalRoundId;
 
     before(async () => {
+      // Fresh credentials: the previous block deleted its network, which revokes any PAT
+      // bound to a peer that thereby left every network. See `mintPeerTokens`.
+      await mintPeerTokens();
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Removal ${Date.now()}`,
         type: 'braintree',

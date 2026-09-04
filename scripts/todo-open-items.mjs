@@ -200,3 +200,34 @@ export function openItems(src) {
     return { id: s.id, title, body: lines.slice(s.i, end).join('\n'), line: s.i + 1, style: s.style };
   });
 }
+
+const NUMBER_WORDS = new Map([
+  ['one', 1], ['two', 2], ['three', 3], ['four', 4], ['five', 5], ['six', 6],
+  ['seven', 7], ['eight', 8], ['nine', 9], ['ten', 10], ['eleven', 11], ['twelve', 12],
+]);
+
+/**
+ * The count a sentence claims a checklist page has, or `null` where it claims none.
+ *
+ * An exemption's reason is prose and *"is this still true?"* has no `grep -c`. A COUNT inside it does: when a
+ * reason says how many steps or boxes a page has, that is a statement about the page, and the page can be
+ * counted. Narrow on purpose — the number must sit immediately before the structural noun, so `see rule 5`
+ * and `2 of the 3 dissolved` are not counts of anything.
+ */
+export function statedStructureCount(reason) {
+  const m = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:steps?|boxes|rows?)\b/i
+    .exec(reason);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  return NUMBER_WORDS.get(word) ?? Number(word);
+}
+
+/**
+ * How many numbered checklist boxes a page actually has.
+ *
+ * Numbered specifically. `_REFERENCE.md` is thousands of lines of `- ` bullets, and counting those would give
+ * every exempt page a box count and manufacture a contradiction on all of them.
+ */
+export function checklistBoxCount(text) {
+  return (text.match(/^- \[[x ]\] \*\*\d/gm) ?? []).length;
+}

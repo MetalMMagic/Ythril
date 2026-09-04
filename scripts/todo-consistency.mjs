@@ -31,7 +31,10 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
-import { openItems, orderedHomeRows, itemIdIn, isNamedIn, workingOrderRow } from './todo-open-items.mjs';
+import {
+  openItems, orderedHomeRows, itemIdIn, isNamedIn, workingOrderRow,
+  statedStructureCount, checklistBoxCount,
+} from './todo-open-items.mjs';
 import { verifyLineOf, parseVerifyLine, evaluateClause } from './verify-line.mjs';
 import { resolvedHeadings, decidedButStillFiled, rulingsLeftOnThePage } from './parked-decisions-rules.mjs';
 
@@ -74,7 +77,7 @@ const NOT_A_QUEUE = new Map([
   // Its boxes are the steps of the CURRENT job, not work in the queue. Reading them as items would demand a
   // verify line on "implement" and an index entry for "full suite" — and would make the ordered queue grow a
   // row every time a job started. Its own rule holds it instead: the branch must match and every box ticked.
-  ['_WORKING-ORDER.md', 'the current job\'s six steps, not a queue — see the working-order rule'],
+  ['_WORKING-ORDER.md', 'the current job\'s seven steps, not a queue — see the working-order rule'],
   ['_NEXT-PR-PLAN.md', 'the working plan for the PR in flight; cleared on push'],
 ]);
 
@@ -663,10 +666,19 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   if (branch && branch !== 'main' && branch !== 'HEAD') {
     const path = join(TODO, WORKING);
     if (!existsSync(path)) {
+      /*
+       * The rows are ENUMERATED and there is no count, because this message had one and it was wrong: it
+       * said "the six rows" and listed six, of which the missing one was `the guides`. Four of the rows are
+       * checked against something outside the file, and a row that is ABSENT is not checked at all — so
+       * rebuilding the file from that list produced a checklist with the guides check silently switched
+       * off, which is the one row the loop calls out as failing quietly.
+       */
       fail(`${WORKING} is missing, so nothing records that this change followed the working order.\n\n`
-        + `      Copy the template from docs/ or write the six rows: plan, tests first, implement, those `
-        + `tests pass,\n`
-        + `      full suite, documentation. Name the branch at the top.`);
+        + `      Copy the template from docs/, or write the rows: plan, tests first, implement, those tests `
+        + `pass,\n`
+        + `      full suite, CHANGELOG, the guides. Name the branch at the top.\n\n`
+        + `      Write all of them. \`CHANGELOG\` and \`the guides\` are checked against the diff, and a row `
+        + `that is\n      absent is not checked — a short checklist reads as compliant.`);
     } else {
       const src = readFileSync(path, 'utf8');
       const claimed = src.match(/^\s*(?:\*\*)?BRANCH:?(?:\*\*)?\s*`?([^`\s]+)`?\s*$/m)?.[1];
@@ -784,11 +796,45 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
   }
 }
 
-// ── the exemption list must not rot
+/*
+ * ── the exemption REASON is checked, not only the file it names
+ *
+ * Two structural windows in `testing/` close on this heading, so it is a BOUNDARY as well as a title —
+ * renaming it breaks them, which is what happened when it stopped being "the exemption list must not rot".
+ *
+ * This checked one thing and it was the harmless one. An exemption naming a page that is gone points at
+ * nothing and excuses nothing, and it said so itself — a yellow `harmless, but tidy it`.
+ *
+ * The damaging half was never looked at. `_PARKED-DECISIONS.md` was exempted because it was "indexed by
+ * outcome rather than queued"; the outcomes moved to `_REFERENCE.md` and the exemption stayed, so that page
+ * accumulated resolved history for weeks while every checked page reported clean — until the owner opened it
+ * and found seven settled items filed as open. The file existed the whole time.
+ *
+ * "Is this reason still true?" has no `grep -c`. A COUNT in it does, and the list had one that was wrong:
+ * `_WORKING-ORDER.md` was exempted as "the current job's SIX steps" while it has seven boxes and
+ * `_THE_LOOP.md` says seven. One entry is subject to this rule today, and it was the one that was wrong.
+ *
+ * And the absent-file case now fails rather than logs — not because it became harmful, but because this
+ * file's own note says a stale entry must fail rather than warn, and then left this one warning. A yellow
+ * line in a green run is read as decoration, which is the mechanism the whole check exists to defeat.
+ */
 {
   const stale = [...NOT_A_QUEUE.keys()].filter(f => !files.includes(f));
   if (stale.length) {
-    console.log(`${YELLOW}  !${R} exempt but absent: ${stale.join(', ')} ${DIM}(harmless, but tidy it)${R}`);
+    fail(`NOT_A_QUEUE exempts ${stale.join(', ')}, which todo/ does not contain.\n\n`
+      + `      Harmless on its own — it excuses nothing. It fails because an exemption nobody re-reads is how\n`
+      + `      a page goes unchecked for weeks, and a list with a dead row in it is a list nobody is reading.`);
+  }
+
+  for (const [f, reason] of NOT_A_QUEUE) {
+    const stated = statedStructureCount(reason);
+    if (stated === null || !files.includes(f)) continue;
+    const actual = checklistBoxCount(readFileSync(join(TODO, f), 'utf8'));
+    if (stated !== actual) {
+      fail(`NOT_A_QUEUE exempts ${f} as "${reason}", and it has ${actual} ${actual === 1 ? 'box' : 'boxes'}.\n\n`
+        + `      A number in a reason is a claim about the page. This one is what the next person checks before\n`
+        + `      adding a rule, so correct the reason — or the page, if the count is what moved.`);
+    }
   }
 }
 

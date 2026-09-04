@@ -253,6 +253,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A request with no authenticated token can no longer be read as an unrestricted legacy one.** Two
+  places in the tokens API check what the caller holds before deciding what a new token may be granted,
+  and both fell back to an EMPTY legacy record when there was no token at all.
+
+  An empty legacy record is the widest thing this codebase can express: in the pre-3.0 model absence
+  meant unrestricted, so it derives a write floor on every area of every space, **including spaces created
+  later**. As the caller's own ceiling, that would have let a request with no token mint an instance-wide
+  write token.
+
+  **Not reachable — both routes sit behind authentication — which is exactly why it was easy to write and
+  would have stayed until something moved.** A default that fails open behind a guard is a hole waiting
+  for the guard to change.
+
+  **The migration itself is unchanged, deliberately.** Reading an empty record as unrestricted is correct
+  for what it is for: a genuine pre-3.0 token on disk relies on that reading, and changing it would have
+  locked out somebody's working token to close a hole nothing reaches. The gate that compares the rights
+  matrix against the old allowlist is what said so — it failed on the first attempt at this fix, and it
+  was right to.
+
 - **A graph hop is ONE query over the link records, not one per class — a 3.8× slowdown caught before
   release and removed.** The first implementation asked the links collection once per link class and then
   fetched the records it named once per class: twelve round trips per hop, where the array walk it

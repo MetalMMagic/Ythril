@@ -13,6 +13,13 @@ import { capRights, describeExcess } from '../auth/mint-cap.js';
 import { reportServerFailure } from '../util/report-failure.js';
 import { refuseSelfFloorRaise } from '../auth/floor-guard.js';
 import { migrateToken } from '../auth/rights-migration.js';
+/**
+ * What a request with NO authenticated token holds. Every field at its narrowest.
+ *
+ * Declared once rather than written `{}` twice, because `{}` is what the two call sites used to pass to
+ * `migrateToken` — and an empty legacy record is the WIDEST thing that function can be handed.
+ */
+const NO_RIGHTS = { instanceAdmin: false, createSpaces: false, floor: null, perSpace: {} } as const;
 import { canWriteAnywhere } from '../auth/write-anywhere.js';
 import type { TokenRights } from '../config/rights-shape.js';
 
@@ -258,7 +265,21 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
     // backfill — so the minter's matrix is derived on the spot from the same legacy fields. Deriving is the
     // same answer, not a weaker one; treating a missing matrix as "unrestricted" would be the widening.
     const held = (req.authToken as { rights?: unknown } | undefined)?.rights;
-    const minter = held ?? migrateToken(req.authToken ?? {});
+    /*
+     * NO TOKEN AT ALL REACHES NOTHING — `?? {}` was the wrong default and it failed OPEN.
+     *
+     * `migrateToken({})` returns a WRITE floor on every area of every space, including spaces created
+     * later. That is correct for a real pre-3.0 token, where absence genuinely meant unrestricted, and it
+     * is the widest possible answer to an input carrying no information. Used as the MINTER's ceiling, it
+     * would let a request with no authenticated token mint an instance-wide write token.
+     *
+     * Not reachable today — this route sits behind auth, so `req.authToken` is set — which is exactly why
+     * the `?? {}` was easy to write and would stay until something moved. Fixed HERE and not in
+     * `migrateToken`, because that function's job is to read a legacy record faithfully: changing what it
+     * answers for an empty one would change what a genuine old token gets on upgrade, and
+     * `rights-reach-matches-legacy.test.js` holds it to the old semantics on purpose.
+     */
+    const minter = held ?? (req.authToken ? migrateToken(req.authToken) : NO_RIGHTS);
     const excess = capRights(minter as never, rights as never);
     if (excess.length > 0) {
       res.status(403).json({
@@ -495,8 +516,10 @@ tokensRouter.patch('/:id', requireAdminOrSpaceAdminMfa, (req, res) => {
   if (rights) {
     // A token may never GRANT above itself, edit or mint. Same rule, same function — a second
     // implementation here is how the two would come to disagree about what "above" means.
+    // Same rule and the same fail-closed default as the mint route above — see the note there for why the
+    // fix is at the call site rather than in `migrateToken`.
     const editorRights = (req.authToken as { rights?: unknown } | undefined)?.rights
-      ?? migrateToken(req.authToken ?? {});
+      ?? (req.authToken ? migrateToken(req.authToken) : NO_RIGHTS);
     const excess = capRights(editorRights as never, rights as never);
     if (excess.length > 0) {
       res.status(403).json({ error: `A token cannot grant rights it does not hold — ${describeExcess(excess)}` });

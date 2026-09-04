@@ -63,7 +63,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                   <input type="text" [(ngModel)]="entityForm.name" name="name" required />
                 </div>
                 <div class="field" style="width:150px;">
-                  <label>{{ 'brain.entities.table.type' | transloco }} @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
+                  <label>{{ 'brain.entities.table.type' | transloco }} <span style="color:var(--error)">*</span></label>
                   @if (store.entityTypeNames().length) {
                     <select [(ngModel)]="entityForm.type" name="type" required (ngModelChange)="onEntityTypeChange($event, 'create')">
                       @for (t of store.entityTypeNames(); track t) {
@@ -71,7 +71,14 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                       }
                     </select>
                   } @else {
-                    <input type="text" [(ngModel)]="entityForm.type" name="type" [placeholder]="'brain.entities.form.typePlaceholder' | transloco" />
+                    <!--
+                      REQUIRED even with no declared types — owner's ruling P-29, option A. The server
+                      refuses a typeless entity on every door now, and the type is what selects the property
+                      schema. Free
+                      TEXT rather than a picker here because a space that declares nothing has no vocabulary
+                      to offer — the operator names the kind of thing this is.
+                    -->
+                    <input type="text" [(ngModel)]="entityForm.type" name="type" required [placeholder]="'brain.entities.form.typePlaceholder' | transloco" />
                   }
                 </div>
                 <div class="field" style="flex:2; min-width:180px;">
@@ -95,7 +102,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                 </div>
               </div>
               <div style="display:flex; gap:8px;">
-                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || (store.entityTypeNames().length ? !entityForm.type : false)">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || !entityForm.type.trim()">
                   @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
                   {{ 'common.save' | transloco }}
                 </button>
@@ -332,8 +339,12 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (!this.entityForm.name.trim()) return;
     this.creatingEntity.set(true);
     this.createEntityError.set('');
-    const body: Parameters<BrainApi['createEntity']>[1] = { name: this.entityForm.name.trim() };
-    if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
+    // `type` in the initialiser rather than assigned after: it is required in the signature now, which is
+    // what makes a second caller unable to omit it and find out from a 400. Owner's ruling `P-29`.
+    const body: Parameters<BrainApi['createEntity']>[1] = {
+      name: this.entityForm.name.trim(),
+      type: this.entityForm.type.trim(),
+    };
     if (this.entityForm.tags.length) body.tags = this.entityForm.tags;
     if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
     const props = this.store.stripEmptyOptionalProps(this.entityForm.properties, this.store.entitySchema(this.entityForm.type));

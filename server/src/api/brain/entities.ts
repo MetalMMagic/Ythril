@@ -58,18 +58,19 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   /*
-   * `W-19` IS PARKED, and the default stays for now — see `_PARKED-DECISIONS.md`.
+   * `type` IS REQUIRED, and it no longer defaults to the empty string.
    *
-   * Three doors of four require `type` and this one defaults it to `''`, which is a real disagreement:
-   * `type` selects the per-type schema, so a typeless entity is one `validateEntity` can never check.
-   * Requiring it here is the obvious resolution and it BREAKS THE CREATE ENTITY BUTTON in any space that
-   * declares no entity types — the form seeds the field from the space's declared types and omits it when
-   * blank. Which way that resolves is the owner's, not a unification's to take in passing.
+   * Owner’s ruling on `P-29`, 2026-09-04: option A. `upsert_entity` requires it, the batch importer reports
+   * *"missing required field: type"*, and `bulk_write`’s item schema requires it — three doors of four. This
+   * one defaulted it, which was not a permissive default: `type` is what SELECTS the per-type property
+   * schema, so a typeless entity is one `validateEntity` can never check. The most-used door was the one
+   * producing records nothing could validate.
    *
-   * An explicitly-sent `type: ''` IS refused now, by the shared shape table, which is the half that needs
-   * no decision: it matches what both MCP doors have always done.
+   * **It is a breaking change and the release notes lead with it.** A script that creates entities without a
+   * type starts getting a `400`, and the Create Entity form gained a required field in the same commit — in
+   * a space that declares no entity types it is free text, because there is no vocabulary to pick from.
    */
-  const { id, name, type = '', tags = [], properties = {}, description } = req.body ?? {};
+  const { id, name, type, tags = [], properties = {}, description } = req.body ?? {};
   if (id !== undefined) {
     if (typeof id !== 'string' || !UUID_V4_RE.test(id)) {
       res.status(400).json({ error: '`id` must be a valid UUID v4' });
@@ -84,6 +85,10 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
    */
   if (typeof name !== 'string' || !name.trim()) {
     res.status(400).json({ error: '`name` string required' });
+    return;
+  }
+  if (typeof type !== 'string' || !type.trim()) {
+    res.status(400).json({ error: '`type` string required' });
     return;
   }
   if (typeof type !== 'string') {

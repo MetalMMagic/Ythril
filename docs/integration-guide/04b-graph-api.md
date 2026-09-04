@@ -23,6 +23,14 @@ POST /api/brain/spaces/:spaceId/entities
 
 **Response** `201`: Full entity doc.
 
+> **`type` IS REQUIRED, and this is a BREAKING change in 4.0.** It used to default to the empty string on
+> this endpoint alone: `upsert_entity`, the batch importer and `bulk_write` have always demanded it. `type`
+> is what selects the per-type property schema, so an entity without one is an entity nothing can validate
+> — and this was the door producing them. A create that omits it now answers `400`.
+>
+> There is no vocabulary to pick from in a space that declares no entity types, and none is needed: any
+> non-empty string is accepted. Name the kind of thing it is.
+
 **Identity model**: If `id` is supplied (must be a valid UUID v4), the entity with that `_id` is updated; if no entity with that ID exists, a new one is created with that ID. If `id` is omitted, a new entity is always inserted with a freshly generated UUID v4. Name is a non-unique searchable label, not a primary key. Multiple entities with the same name and type can coexist in a space (e.g. several "Lisa" entities of type "person").
 
 **Duplicate warning**: When inserting without `id` and entities with the same `name` + `type` already exist, the response includes a `warning` field:

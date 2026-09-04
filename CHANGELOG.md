@@ -242,6 +242,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: an entity must have a type.** `POST /api/brain/spaces/:spaceId/entities` used to default it
+  to the empty string. It now answers `400` without one, and the Create Entity form has a required field.
+
+  **It was the only door that allowed it.** The `upsert_entity` tool, the batch importer and `bulk_write`
+  have all demanded a non-empty type for as long as they have existed — so an agent could not make a
+  typeless entity and a person using the web UI could. The type is what selects the per-type property
+  rules, which means the most-used door was the one producing records none of the space's own rules could
+  check.
+
+  **A script that creates entities without a type will start failing**, which is why this is at the top of
+  the notes rather than in a list of field changes. In a space that has declared no entity types the form
+  field is free text rather than a picker: there is no vocabulary to offer, so you name the kind of thing
+  it is.
+
 - **`direction` still narrows stored edges only, and the REASON it gives is now a different one.** Every
   surface said *"a link is an entityIds array, carrying one orientation only"*. That stopped being true the
   moment a link became a record with a `from` and a `to`.

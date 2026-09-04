@@ -63,7 +63,13 @@ tags, linked entities and properties.
 
 Entities are named concepts — people, services, projects, tools, anything you want to connect knowledge around.
 
-Each entity has a **name**, optional **type** (e.g. `person`, `service`), optional **tags**, an optional **description**, and optional **properties** (key-value pairs like `{ "version": "3.0", "active": true }`).
+Each entity has a **name**, a **type** (e.g. `person`, `service`), optional **tags**, an optional
+**description**, and optional **properties** (key-value pairs like `{ "version": "3.0", "active": true }`).
+
+> **The type is required from 4.0, and it used to be optional here.** It is what tells Ythril which set of
+> properties this kind of thing has, so an entity without one is an entity none of the space's rules can
+> check — and this form was the only way to make one. If the space has declared its entity types you pick
+> from them; if it has not, type whatever the thing is.
 
 **A property value has to be plain — a word, a number, or true/false.** You cannot nest one property inside
 another, and that is on purpose: something with parts inside it is a set of connected things, and those work

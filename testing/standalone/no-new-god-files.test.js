@@ -300,7 +300,11 @@ const FROZEN = {
   // NO DECOMPOSITION: the argument above still applies and this is the case it was written for — a record's
   // fields belong in the same file as the records it is deliberately not. `LinkDoc` exists to say what an
   // `EdgeDoc` is not, and reading the two apart is how they drift back together.
-  'server/src/config/types.ts': 580,
+  // RAISED 580 -> 581 for `SpaceConfig.completeLinkage`, one optional field. Same answer as `sha256` above and
+  // for a sharper reason: WHICH interface a flag sits on IS the behaviour here. `SpaceMeta` is voted and
+  // applied network-wide, `SpaceConfig` is local — so moving this field to save a line would arm one
+  // instance's conversion marker on peers that had converted nothing. There is no smaller place for it.
+  'server/src/config/types.ts': 581,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any

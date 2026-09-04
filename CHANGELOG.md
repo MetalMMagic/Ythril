@@ -110,6 +110,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A link has a door of its own, on both surfaces — `POST /api/brain/spaces/:spaceId/links` and
+  `upsert_link`, with a delete for each.** `M-2` slice 2a, part two. Slice 2a made every path that
+  writes one of the six array fields maintain the link records; this is how you write one directly.
+
+  **The door writes the ARRAY, and that is the design rather than an implementation detail.** A door that
+  inserted a link record and stopped would look completely correct — right derived id, replicates, shows up
+  in `/query` — and the record would be deleted by the next ordinary edit of whatever it hangs off,
+  because the reconcile makes the stored rows equal what the arrays say. An hour later, a `PATCH` of a
+  memory's text by somebody who has never heard of the link, and it is gone. No error, no warning, and the
+  two callers cannot see each other. So the array is written first and the row is derived from it, by the
+  same function the six writers use.
+
+  **Six classes and no seventh** — `memory.entityIds`, `chrono.entityIds`/`memoryIds`,
+  `file.entityIds`/`memoryIds`/`chronoIds`. A pair outside them is refused with the list of the ones that
+  are allowed. An entity is only ever the TO end: nothing hangs off an entity, which is what an edge is
+  for.
+
+  **`POST` answers 200, not 201.** A link's id is derived from the two records and the class, so creating
+  one that exists succeeds and changes nothing. 201 would claim a record was created when none was, which
+  matters to a client retrying a request whose answer it never saw.
+
+  No `GET`: links are a queryable collection like any other, and a list endpoint here would be a second,
+  weaker copy of the filter grammar `/query` already has.
+
+- **A conversion script turns an existing space's arrays into link records — `npm run links:convert`.**
+  Run it once after upgrading, or run it five times: a link's id is a UUIDv5 over the two records and the
+  class, so a second pass recomputes the same ids, finds them stored, and writes nothing. **An interrupted
+  run is fixed by running it again**, which is also why nothing has to record whether it has run — that
+  would be a piece of state that can be wrong.
+
+  **It never deletes an array.** These documents replicate by whole-document replace, so an array it
+  removed would be restored by any peer on an older build, and a space where the two disagree lets
+  whichever reader wins decide what is true. Creating is safe at any time; removing is gated on a version
+  floor and is not this script's job.
+
+  A boot migration was the obvious shape and is the wrong one: link records SYNC, so every instance in a
+  network would independently decide to create the same records at whatever moment it happened to
+  restart. On demand means the operator picks it.
+
+- **`completeLinkage` on a space says its links are all records — a LOCAL setting, never voted.**
+  Set by the conversion script when a space finishes with no failures, and withheld when anything did
+  fail. It arms nothing yet; the refusal it gates lands with the readers.
+
+  **Where it lives is the behaviour, not a filing decision.** The flag one word away, `strictLinkage`,
+  is on the space META because it states what the space MEANS and a network should agree on it — so
+  changing it opens a `meta_change` vote and applies on every peer. This one states what has happened on
+  ONE disk. Voted, the first instance to run the script would arm it everywhere, and the refusal it will
+  gate would then reject array writes on peers holding no link records at all: writes refused, reads
+  empty, and a correctly-passed vote in every log. It sits with `dupeRules` and `recordTtlDays` instead.
+
+### Changed
+
+- **The space update body's "you asked for nothing" guard and the sentence it fails with are one list.**
+  They were two hand-written copies of twelve field names, and a field added to the schema but missed in
+  either one parses fine and is then refused as empty — with a message naming every field the caller could
+  have sent except the one they did.
+
 - **Link records are now WRITTEN — every path that writes one of the six array fields maintains them.**
   `M-2` slice 2a. Slice 1 gave a link record a collection, a content hash, replication and a query door;
   nothing created one. Now writing `memory.entityIds`, `chrono.entityIds`/`memoryIds` or

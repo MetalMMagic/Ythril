@@ -5,6 +5,7 @@ import { recallTool, find_similarTool, queryTool } from './search.js';
 import { bulk_writeTool } from './bulk.js';
 import { merge_entitiesTool, upsert_entityTool, find_entities_by_nameTool, update_entityTool, delete_entityTool } from './entity.js';
 import { upsert_edgeTool, traverseTool, update_edgeTool, delete_edgeTool } from './edge.js';
+import { upsert_linkTool, delete_linkTool } from './link.js';
 import { create_chronoTool, update_chronoTool, list_chronoTool, delete_chronoTool } from './chrono.js';
 import { read_fileTool, write_fileTool, update_file_metaTool, list_dirTool, delete_fileTool, create_dirTool, move_fileTool, retry_embeddingTool } from './file.js';
 import { list_peersTool, sync_nowTool } from './sync.js';
@@ -43,6 +44,8 @@ export const ALL_TOOLS: ToolHandler[] = [
   // MCP had `delete_memory` alone, so the only way to remove one edge was to wipe the whole space.
   delete_entityTool,
   delete_edgeTool,
+  upsert_linkTool,
+  delete_linkTool,
   create_chronoTool,
   update_chronoTool,
   delete_chronoTool,

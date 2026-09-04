@@ -41,7 +41,7 @@ export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null },
+  updates: { label?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | RecordTtlWindows | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null; textAnalysis?: TextLevel | null; completeLinkage?: boolean },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -87,6 +87,8 @@ export function updateSpace(
   if ('audioAnalysis' in updates) space.audioAnalysis = updates.audioAnalysis ?? undefined;
   if ('videoAnalysis' in updates) space.videoAnalysis = updates.videoAnalysis ?? undefined;
   if ('textAnalysis' in updates) space.textAnalysis = updates.textAnalysis ?? undefined;
+  // `M-2`: the conversion marker. Local, never voted — see `SpaceConfig.completeLinkage`.
+  if (updates.completeLinkage !== undefined) space.completeLinkage = updates.completeLinkage || undefined;
 
   if (updates.meta !== undefined) {
     const now = new Date().toISOString();

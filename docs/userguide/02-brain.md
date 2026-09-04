@@ -145,6 +145,33 @@ When a **label** is selected and the space has a schema defined for that label, 
 
 ---
 
+### Links — the other kind of connection
+
+An edge says **how** two things relate. A link says only that one record **is about** another, and that is
+a different thing you already use every day: the entities you attach to a memory, the entities and memories
+you attach to a chrono entry, the three lists on a file. Those attachments are links.
+
+They have always existed as lists on the record. From 4.0 each one is also a record of its own, so that
+everything asking *"what is connected to this?"* — the graph, search, the ER model — looks in one place
+instead of each following a different part of the lists.
+
+**Nothing you do changes.** Attach an entity to a memory the way you always have and the link is made for
+you. Remove it and the link goes. There is no new box to tick and no new step; you will see the same
+connections you saw before.
+
+**Where to see them:** the **Query** tab, Advanced mode, with the collection picker set to **links** — one
+row per connection, showing which record it hangs off and which record it names.
+
+> **A link is not an edge and cannot become one.** It carries no label, no weight and no properties, on
+> purpose. If you want to record *why* two things are connected, that is an edge, and the Edges tab is
+> where you make one.
+
+**Making one directly** is an API capability in this release — `POST /api/brain/spaces/:spaceId/links` or the
+`upsert_link` tool, needing the same **write knowledge** right as an edge. There is no button for it,
+because the ordinary way to make a link is to attach the record, which the tabs already do.
+
+---
+
 ### Chrono
 
 Chrono stores time-anchored entries: events, deadlines, plans, predictions, and milestones.

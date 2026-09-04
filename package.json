@@ -38,6 +38,7 @@
     "test:client": "npm run test --workspace=client",
     "typecheck:client": "npm run typecheck --workspace=client",
     "release:gate": "node ./scripts/release-gate.mjs",
+    "links:convert": "node ./scripts/convert-links.mjs",
     "todo:check": "node ./scripts/todo-consistency.mjs",
     "loop:check": "node ./scripts/loop-check.mjs"
   },

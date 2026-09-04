@@ -46,24 +46,30 @@ const EDGES = 'server/src/brain/edges.ts';
 const SEEDS = 'server/src/brain/recall-seed-traversal.ts';
 const SPILL = 'server/src/brain/graph-spill.ts';
 
-const SCANS = ['linkedRecordsAtFrontier', 'entitiesLinkedFromRecords'];
+/*
+ * THE READING FUNCTIONS, which is not the same list as the two exported scans any more.
+ *
+ * `linkedRecordsAtFrontier` no longer reads: it computes the bound and hands it to one of two helpers, one
+ * per storage shape, because a hop over link records is ONE query and a hop over arrays is one per class.
+ * That split is what took a measured 3.8× regression off the link path — see
+ * `benchmarks/LINK-READERS.md`.
+ *
+ * So the property is asserted where the read happens, and separately that the caller still forwards a
+ * bound. Checking only the exported name would have gone green on a helper that reads unbounded.
+ */
+const SCANS = ['linkedRecordsFromRows', 'linkedRecordsFromArrays', 'entitiesLinkedFromRecords'];
+
+/** The two exported scans, which must still compute a bound and report what their helper found. */
+const EXPORTED = ['linkedRecordsAtFrontier', 'entitiesLinkedFromRecords'];
 
 describe('a bounded scan reports that it stopped early', () => {
   for (const fn of SCANS) {
     it(`${fn} tells its caller the scan was capped`, () => {
       const body = bodyOf(read(FRONTIER), fn);
-      assert.match(body, /scanCapped/,
+      // `capped` OR `scanCapped`: the two helpers report the flag under the shorter name and the exported
+      // scans under the longer one. The RULE is that a truncated read is reported at all.
+      assert.match(body, /[Cc]apped/,
         `${fn} returns a bare array, so a caller cannot tell a complete answer from a truncated one`);
-    });
-
-    it(`${fn} reports an exhausted budget, where a whole class goes unread`, () => {
-      /*
-       * Returning early because `remaining` reached zero means later link classes were never queried at all.
-       * Nothing was discarded, so it does not feel like a truncation — and it is the larger one.
-       */
-      const body = bodyOf(read(FRONTIER), fn);
-      assert.match(body, /remaining === 0[^\n]*scanCapped: true/,
-        `${fn} returns on an exhausted budget without saying the answer is short`);
     });
 
     it(`${fn} counts a FULL cursor as capped, not only an exhausted budget`, () => {
@@ -82,19 +88,53 @@ describe('a bounded scan reports that it stopped early', () => {
        * flagged complete — the failure this whole gate was written about, arriving through the new path.
        */
       const body = bodyOf(read(FRONTIER), fn);
-      assert.match(body, /length\s*(===|>=)\s*remaining|remaining\s*(===|<=)\s*\w+\.length/,
+      // `remaining` in the exported scans, `left` in the per-class helper — one bound under two names.
+      assert.match(body, /length\s*(===|>=)\s*(remaining|left)|(remaining|left)\s*(===|<=)\s*\w+\.length/,
         `${fn} does not notice a cursor that came back full, which is the case the bound actually hits`);
     });
   }
 
   it('both scans are covered — neither is left as the weaker copy', () => {
-    // One rule, two implementations, the weaker winning silently is this repo's signature defect, and these
-    // two helpers are the same rule twice by construction.
+    // One rule, several implementations, the weaker winning silently is this repo's signature defect, and
+    // these are the same rule once per storage shape by construction.
     const src = read(FRONTIER);
     for (const fn of SCANS) {
-      assert.match(bodyOf(src, fn), /scanCapped/, `${fn} was left behind`);
+      assert.match(bodyOf(src, fn), /[Cc]apped/, `${fn} was left behind`);
     }
   });
+
+  it('and the exported scan FORWARDS what its helper found, rather than dropping it', () => {
+    /*
+     * The seam the split created. A helper that reports a capped read into a caller that ignores it is a
+     * bound with no signal — the answer comes back short and flagged complete, which is the exact failure
+     * this whole file exists for, relocated one function inward.
+     */
+    const src = read(FRONTIER);
+    const body = bodyOf(src, 'linkedRecordsAtFrontier');
+    assert.match(body, /\.capped\)\s*scanCapped = true|if \(rows\.capped\)/,
+      'linkedRecordsAtFrontier drops its helper\'s capped flag');
+    for (const fn of EXPORTED) {
+      assert.match(bodyOf(src, fn), /scanCapped/, `${fn} no longer reports truncation at all`);
+    }
+  });
+});
+
+describe('an EXHAUSTED budget is reported too, where a whole class goes unread', () => {
+  /*
+   * Returning early because the budget reached zero means later link classes were never queried at all.
+   * Nothing was discarded, so it does not feel like a truncation — and it is the larger one.
+   *
+   * **`linkedRecordsFromRows` is deliberately not on this list.** It issues ONE query for the whole hop, so
+   * there is no later class for a spent budget to skip; the zero check lives in its caller, which is on the
+   * list. That is the batching this file's numbers come from — see `benchmarks/LINK-READERS.md`.
+   */
+  for (const fn of ['linkedRecordsAtFrontier', 'linkedRecordsFromArrays', 'entitiesLinkedFromRecords']) {
+    it(`${fn} says so`, () => {
+      const body = bodyOf(read(FRONTIER), fn);
+      assert.match(body, /(remaining|left) === 0[^\n]*[Cc]apped: true/,
+        `${fn} returns on an exhausted budget without saying the answer is short`);
+    });
+  }
 });
 
 describe('and the caller turns that into a truncation the API states', () => {

@@ -21,8 +21,10 @@
  * which is two functions wearing one name.
  */
 import { col, asFilter } from '../db/mongo.js';
-import { LINK_CLASSES, linksToAny, usesLinkRecords, linkedFromIds, linkedToPairs, scopedDocs, type LinkClass }
-  from './link-adjacency.js';
+import {
+  LINK_CLASSES, linksToAny, usesLinkRecords, linksPointingAt, linksStartingFrom, docsFromCollection,
+  type LinkClass, type LinkEnd,
+} from './link-adjacency.js';
 import type { ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
 
 /**
@@ -77,6 +79,83 @@ function labelWanted(cls: LinkClass, edgeLabels?: readonly string[] | undefined)
   return !edgeLabels || edgeLabels.length === 0 || edgeLabels.includes(cls.label);
 }
 
+/** What one scan found, and whether the database stopped handing documents over before it ran out. */
+interface FoundRecords {
+  found: Array<{ cls: LinkClass; doc: LinkRow }>;
+  capped: boolean;
+}
+
+/**
+ * The link-record path: rows already fetched, turned into the records they name.
+ *
+ * **One document fetch per COLLECTION, not per class.** A file has three classes and a chrono entry two, so
+ * fetching per class reads the same document two or three times — and that repetition, six link queries
+ * deep, is what measured 3.8× slower than the arrays this replaced.
+ *
+ * A row can satisfy more than one class only if two classes share a `(fromKind, toKind)` pair, which none
+ * do — so each row maps to exactly one class, and the record it names is emitted once per class that
+ * claimed it.
+ */
+async function linkedRecordsFromRows(
+  mid: string, rows: readonly LinkEnd[], wanted: readonly LinkClass[], remaining: number | undefined,
+): Promise<FoundRecords> {
+  // A cursor that came back FULL is the case that hides: the database stopped reading, so there may be
+  // more behind it — and that is true however many of these survive the class filter and the visited set.
+  const capped = remaining !== undefined && rows.length >= remaining;
+
+  const byPair = new Map<string, LinkClass>();
+  for (const c of wanted) byPair.set(`${c.kind}>${c.toKind}`, c);
+
+  /** Which ids each COLLECTION must be asked for, and which class each id was claimed by. */
+  const idsPerCollection = new Map<LinkClass['collection'], Set<string>>();
+  const classOfId = new Map<string, LinkClass[]>();
+  for (const r of rows) {
+    const cls = byPair.get(`${r.fromKind}>${r.toKind}`);
+    if (!cls) continue;
+    let ids = idsPerCollection.get(cls.collection);
+    if (!ids) { ids = new Set(); idsPerCollection.set(cls.collection, ids); }
+    ids.add(r.from);
+    const claimed = classOfId.get(r.from) ?? [];
+    if (!claimed.includes(cls)) { claimed.push(cls); classOfId.set(r.from, claimed); }
+  }
+
+  const found: FoundRecords['found'] = [];
+  for (const [collection, ids] of idsPerCollection) {
+    // The chunk exclusion rides here — a link row has no `parentFileId`, so a file link and a chunk link
+    // are indistinguishable in the links collection and the narrowing has to happen against the record.
+    for (const doc of await docsFromCollection<LinkRow>(mid, collection, [...ids])) {
+      for (const cls of classOfId.get(doc._id) ?? []) found.push({ cls, doc });
+    }
+  }
+  return { found, capped };
+}
+
+/**
+ * The ARRAY path, byte-for-byte the 3.x walk: one collection read per class, bounded on the cursor.
+ *
+ * Every space that has not run the conversion answers from here, so this is not a fallback that can be
+ * allowed to rot — it is what most instances will use for as long as the arrays exist.
+ */
+async function linkedRecordsFromArrays(
+  mid: string, frontier: readonly string[], wanted: readonly LinkClass[], remaining: number | undefined,
+): Promise<FoundRecords> {
+  const found: FoundRecords['found'] = [];
+  let capped = false;
+  for (const cls of wanted) {
+    // `found.length` is subtracted so the bound covers the call rather than each class separately.
+    const left = remaining === undefined ? undefined : Math.max(0, remaining - found.length);
+    // A budget spent before every class was read leaves whole kinds of record unlooked-at, not merely
+    // trimmed — so this is a truncation even though nothing was thrown away here.
+    if (left === 0) return { found, capped: true };
+    const docs = await col<LinkRow>(`${mid}_${cls.collection}`)
+      .find(asFilter<LinkRow>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
+      .limit(left ?? 0)
+      .toArray() as LinkRow[];
+    if (left !== undefined && docs.length === left) capped = true;
+    for (const doc of docs) found.push({ cls, doc });
+  }
+  return { found, capped };
+}
 /**
  * Every linked record meeting `frontier`, across `memberIds`, for the classes this walk follows.
  *
@@ -119,52 +198,41 @@ export async function linkedRecordsAtFrontier(
   let scanCapped = false;
   if (frontier.length === 0) return { records: out, scanCapped };
 
-  for (const cls of LINK_CLASSES) {
-    if (!included(cls, inclusion) || !labelWanted(cls, edgeLabels)) continue;
-    for (const mid of memberIds) {
-      // Bounded on the CURSOR. Reading everything and discarding the tail would cost the same scan and the
-      // same transfer — the point is that the database stops early. `out.length` is subtracted so the bound
-      // covers the call rather than each class separately.
-      const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
-      // A budget spent before every class was read leaves whole kinds of record unlooked-at, not merely
-      // trimmed — so this is a truncation even though nothing was thrown away here.
-      if (remaining === 0) return { records: out, scanCapped: true };
+  const wanted = LINK_CLASSES.filter(cls => included(cls, inclusion) && labelWanted(cls, edgeLabels));
+  if (wanted.length === 0) return { records: out, scanCapped };
 
-      /*
-       * Two storage shapes, one question — and the choice is `usesLinkRecords`, never a decision taken here.
-       *
-       * The link-record path is one indexed lookup on `{to, toKind}` and then a read of the records it named.
-       * That second read is not overhead: a link row carries no title, no path and no `parentFileId`, so the
-       * projection and the chunk exclusion both have to happen against the record itself. The array path is
-       * one collection scan, exactly as 3.x did it.
-       */
-      const linked = usesLinkRecords(mid)
-        ? await scopedDocs<LinkRow>(mid, cls, await linkedFromIds(mid, cls, frontier, remaining))
-        : await col<LinkRow>(`${mid}_${cls.collection}`)
-            .find(asFilter<LinkRow>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
-            .limit(remaining ?? 0)
-            .toArray() as LinkRow[];
-      // A cursor that came back FULL is the case that hides. The database stopped handing documents over, so
-      // there may be more behind it — and that is true however many of these survive the `visited` filter
-      // below. Counting what survives instead is exactly the mistake that made the bound silent.
+  for (const mid of memberIds) {
+    const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
+    // A budget spent before every member space was read leaves whole spaces unlooked-at, not merely
+    // trimmed — so this is a truncation even though nothing was thrown away here.
+    if (remaining === 0) return { records: out, scanCapped: true };
+
+    /*
+     * ONE QUERY PER HOP on the link-record path, and it is the whole point of the migration working out.
+     *
+     * The first version asked per class — six link queries plus up to six document fetches — and MEASURED
+     * 3.8× SLOWER than the array walk it replaced, for an identical answer. The indexed lookup was never
+     * the cost; the round trips were. See `linksPointingAt`.
+     *
+     * Which shape a space answers from is `usesLinkRecords`, never a decision taken here.
+     */
+    const rows = usesLinkRecords(mid)
+      ? await linkedRecordsFromRows(mid, await linksPointingAt(mid, frontier, remaining), wanted, remaining)
+      : await linkedRecordsFromArrays(mid, frontier, wanted, remaining);
+    if (rows.capped) scanCapped = true;
+
+    for (const { cls, doc } of rows.found) {
+      if (visited.has(doc._id)) continue;
+      visited.add(doc._id);
+      // `cls.field`, not `entityIds`: five of the six classes are named through a different field, and a
+      // hardcoded `entityIds` here would give every chrono-to-memory link a `via` of `frontier[0]` — a
+      // synthetic edge drawn from the wrong node, which reads as a real relationship.
       //
-      // On the link-record path the bound is spent on LINK ROWS and `linked` counts RECORDS, which is the
-      // smaller number once two rows name the same record — so the comparison is `>=`, not `===`. Equality
-      // there would under-report the cap on exactly the dense neighbourhoods it exists for.
-      if (remaining !== undefined && linked.length >= remaining) scanCapped = true;
-      for (const doc of linked) {
-        if (visited.has(doc._id)) continue;
-        visited.add(doc._id);
-        // `cls.field`, not `entityIds`: five of the six classes are named through a different field, and a
-        // hardcoded `entityIds` here would give every chrono-to-memory link a `via` of `frontier[0]` — a
-        // synthetic edge drawn from the wrong node, which reads as a real relationship.
-        //
-        // `?? []` because a projection is what decides whether the field comes BACK, which is a different
-        // question from whether the filter proved it present.
-        const named = (doc[cls.field] as string[] | undefined) ?? [];
-        const via = named.find(id => frontierSet.has(id)) ?? frontier[0];
-        out.push({ kind: cls.kind, label: cls.label, doc: doc as unknown as LinkedRecord['doc'], via });
-      }
+      // `?? []` because a projection is what decides whether the field comes BACK, which is a different
+      // question from whether the filter proved it present.
+      const named = (doc[cls.field] as string[] | undefined) ?? [];
+      const via = named.find(id => frontierSet.has(id)) ?? frontier[0];
+      out.push({ kind: cls.kind, label: cls.label, doc: doc as unknown as LinkedRecord['doc'], via });
     }
   }
   return { records: out, scanCapped };
@@ -226,46 +294,69 @@ export async function entitiesLinkedFromRecords(
   let scanCapped = false;
   if (recordIds.length === 0) return { records: out, scanCapped };
 
-  for (const cls of LINK_CLASSES) {
-    if (!included(cls, inclusion) || !labelWanted(cls, edgeLabels)) continue;
-    for (const mid of memberIds) {
-      // `cls.scope` still applies: a chunk is a filemeta record and must not be walked as a file. `_id` is
-      // the whole predicate otherwise — a record either is one of the seeds or it is not.
-      /*
-       * Bounded on the RECORDS read, not on the links emitted. One record can name many entities, so the two
-       * are different numbers — and the read is what this bound exists to limit. The seed set is already
-       * small (it is the recall's matches), so this bites only on a pathological call.
-       */
-      /*
-       * And because those are different numbers, the budget can run out FASTER than the reads: `out` counts
-       * links while `.limit()` counts records, so a few link-dense seeds drive `remaining` to zero and return
-       * before a whole later class is read at all. That is a truncation, and it was silent.
-       */
-      const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
-      if (remaining === 0) return { records: out, scanCapped: true };
+  const wanted = LINK_CLASSES.filter(cls => included(cls, inclusion) && labelWanted(cls, edgeLabels));
+  if (wanted.length === 0) return { records: out, scanCapped };
 
-      if (usesLinkRecords(mid)) {
-        /*
-         * The `{from, fromKind, toKind}` index answers this directly, and the scope still has to be applied
-         * to the FROM side: a chunk is a filemeta record, so a chunk that names an entity would otherwise be
-         * walked as if it were the file it came from.
-         */
-        const pairs = await linkedToPairs(mid, cls, recordIds, remaining);
-        if (remaining !== undefined && pairs.length >= remaining) scanCapped = true;
-        const froms = [...new Set(pairs.map(p => p.from))];
-        const admitted = new Set((await scopedDocs<{ _id: string }>(mid, cls, froms)).map(d => d._id));
-        for (const p of pairs) {
-          if (admitted.has(p.from)) out.push({ from: p.from, to: p.to, label: cls.label, kind: cls.kind });
-        }
-        continue;
+  for (const mid of memberIds) {
+    /*
+     * Bounded on the RECORDS read, not on the links emitted. One record can name many others, so the two
+     * are different numbers — and the read is what this bound exists to limit. The seed set is already
+     * small (it is the recall's matches), so this bites only on a pathological call.
+     *
+     * And because those are different numbers, the budget can run out FASTER than the reads: `out` counts
+     * links while the limit counts records, so a few link-dense seeds drive `remaining` to zero and return
+     * before a whole later class is read. That is a truncation, and it was silent.
+     */
+    const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
+    if (remaining === 0) return { records: out, scanCapped: true };
+
+    if (usesLinkRecords(mid)) {
+      /*
+       * ONE query on the `{from, fromKind, …}` index for the whole seed set, then one document read per
+       * COLLECTION to apply the scope — a chunk is a filemeta record, so a chunk that names an entity would
+       * otherwise be walked as if it were the file it came from.
+       *
+       * Per class it was six queries plus six scope reads. See `linksPointingAt` for what that measured.
+       */
+      const rows = await linksStartingFrom(mid, recordIds, remaining);
+      if (remaining !== undefined && rows.length >= remaining) scanCapped = true;
+
+      const byPair = new Map<string, LinkClass>();
+      for (const c of wanted) byPair.set(`${c.kind}>${c.toKind}`, c);
+
+      const idsPerCollection = new Map<LinkClass['collection'], Set<string>>();
+      const claimed: Array<{ cls: LinkClass; row: LinkEnd }> = [];
+      for (const r of rows) {
+        const cls = byPair.get(`${r.fromKind}>${r.toKind}`);
+        if (!cls) continue;
+        let ids = idsPerCollection.get(cls.collection);
+        if (!ids) { ids = new Set(); idsPerCollection.set(cls.collection, ids); }
+        ids.add(r.from);
+        claimed.push({ cls, row: r });
       }
 
+      const admitted = new Set<string>();
+      for (const [collection, ids] of idsPerCollection) {
+        for (const d of await docsFromCollection<{ _id: string }>(mid, collection, [...ids])) {
+          admitted.add(d._id);
+        }
+      }
+      for (const { cls, row } of claimed) {
+        if (admitted.has(row.from)) out.push({ from: row.from, to: row.to, label: cls.label, kind: cls.kind });
+      }
+      continue;
+    }
+
+    // The ARRAY path, unchanged from 3.x: one read per class, `_id` the whole predicate beyond the scope.
+    for (const cls of wanted) {
+      const left = remaining === undefined ? undefined : Math.max(0, remaining - out.length);
+      if (left === 0) return { records: out, scanCapped: true };
       const docs = await col<LinkRow>(`${mid}_${cls.collection}`)
         .find(asFilter<LinkRow>({ _id: { $in: [...recordIds] }, ...cls.scope }),
               { projection: { [cls.field]: 1 } })
-        .limit(remaining ?? 0)
+        .limit(left ?? 0)
         .toArray() as LinkRow[];
-      if (remaining !== undefined && docs.length === remaining) scanCapped = true;
+      if (left !== undefined && docs.length === left) scanCapped = true;
       for (const doc of docs) {
         // `cls.field` again. Reading `entityIds` here for all six classes is the mistake that would leave
         // `chrono.memoryIds` looking implemented and answering nothing.

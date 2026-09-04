@@ -82,13 +82,21 @@ describe('backlinks cover every entity reference', () => {
      * tombstone. What changed is that a SEVENTH class is now covered by the commit that declares it,
      * instead of needing a fourth block that would be forgotten — the way the file one was.
      */
+    /*
+     * `LINK_CLASSES.filter(...)` since the per-class loop became ONE batched call. The derivation is the same
+     * and the round-trip count is not: per class it was six link queries plus six document reads for a single
+     * delete, which measured 3.8× slower than the arrays it replaced (`benchmarks/LINK-READERS.md`).
+     *
+     * Matching the `for` keyword was checking a spelling. What must hold is that the class list comes from
+     * `LINK_CLASSES` and is narrowed by the kind being deleted.
+     */
     const body = backlinkFn();
-    assert.match(body, /for \(const cls of LINK_CLASSES\)/,
+    assert.match(body, /LINK_CLASSES\.filter\(|for \(const cls of LINK_CLASSES\)/,
       'findEntityReferences no longer derives its scans from LINK_CLASSES. A hand-written block per class is '
       + 'how the file class came to be missing while the face scan beside it was present.');
-    assert.match(body, /cls\.toKind !== targetKind/,
-      'the loop must narrow to the classes that point at the KIND being deleted, or an entity delete reports '
-      + 'blockers of every other kind as well');
+    assert.match(body, /toKind === targetKind|toKind !== targetKind/,
+      'the class list must be narrowed to the classes that point at the KIND being deleted, or an entity '
+      + 'delete reports blockers of every other kind as well');
   });
 
   it('and the scan it delegates to opens the class\'s OWN collection and field', () => {
@@ -97,22 +105,24 @@ describe('backlinks cover every entity reference', () => {
      * every assertion in this file and answer about the wrong data six times.
      *
      * Both storage shapes are checked. The array path must reach `linksToAny`, which is what carries the
-     * chunk exclusion; the link-record path must narrow its results through `scopedDocs`, because a link row
-     * has no `parentFileId` and a chunk link is otherwise indistinguishable from a file link.
+     * chunk exclusion; the link-record path must narrow its results by reading the records, because a link
+     * row has no `parentFileId` and a chunk link is otherwise indistinguishable from a file link.
+     *
+     * `referencesByClass` since the scan was batched — one query for every class rather than one per class.
      */
-    const fn = bodyOf(stripComments(readFileSync(ENTITIES, 'utf8')), 'referencingIds');
-    assert.ok(fn, 'referencingIds not found — re-anchor this gate');
+    const fn = bodyOf(stripComments(readFileSync(ENTITIES, 'utf8')), 'referencesByClass');
+    assert.ok(fn, 'referencesByClass not found — re-anchor this gate');
     assert.match(fn, /\$\{spaceId\}_\$\{cls\.collection\}/,
-      'the delegate hardcodes a collection instead of taking the class\'s own');
+      'the array path hardcodes a collection instead of taking the class\'s own');
     assert.match(fn, /linksToAny\(spaceId, cls,/,
       'the array path must go through the shared builder, which is what carries the chunk exclusion');
     assert.match(fn, /usesLinkRecords\(spaceId\)/,
       'the storage shape must be chosen by the one selector, never decided in a reader');
-    // `[<(]` because the call carries a type argument. Matching only `(` is a check on how the call was
-    // spelled rather than on whether it happens.
-    assert.match(fn, /scopedDocs[<(]/,
+    assert.match(fn, /docsFromCollection[<(]/,
       'the link-record path returns ids from a collection with no `parentFileId`, so it must narrow them by '
       + 'reading the records — otherwise a forty-passage document comes back as forty blockers');
+    assert.match(fn, /linksPointingAt\(/,
+      'the link-record path is asking per class again, which is the 3.8× regression the benchmark caught');
   });
 
   it('edges are scanned on both endpoints', () => {

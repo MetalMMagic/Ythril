@@ -147,6 +147,7 @@ describe('every array writer reconciles its links', () => {
       'server/src/api/sync/docs.ts': 'reads the stored seq to compare against an arriving link, then writes through ingestBrainDoc',
       'server/src/spaces/lifecycle.ts': 'CREATES the collection and its indexes, and clears it on a space wipe — whole-collection, never a row',
       'server/src/sync/engine.ts': 'pages the collection to a peer, and reconciles PULLED records; it writes rows only through reconcileLinks',
+      'server/src/brain/links-conversion.ts': 'COUNTS the rows on one record before and after, to report what a conversion added; it creates them only through reconcileLinksForDocument',
     };
 
     // The floor, and `gates-cannot-pass-vacuously.test.js` is what asked for it — correctly. Everything

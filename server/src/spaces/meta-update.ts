@@ -305,6 +305,13 @@ export async function applySpaceMetaUpdate(plan: MetaUpdatePlan): Promise<MetaUp
     if (plan.recordTtlDays !== undefined) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
+  // `M-2`: the conversion marker. Local like the two above and applied here for the same reason plus one of
+  // its own — it says what has been done to the data on THIS disk, so a network vote could carry one
+  // instance's finished conversion onto peers that have converted nothing.
+  if (patchData.completeLinkage !== undefined) {
+    updateSpace(id, { completeLinkage: patchData.completeLinkage });
+  }
+
   // Already capped to the instance ceiling by the planner.
   if (plan.hasDocExtraction) {
     updateSpace(id, { documentExtraction: plan.documentExtraction });

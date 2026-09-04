@@ -422,6 +422,91 @@ DELETE /api/brain/spaces/:spaceId/edges/:id
 
 ---
 
+## Links
+
+A **link** says one record CONCERNS another. A memory about an entity, a chrono entry about a memory, a
+file about all three. It is not an edge and cannot become one: it carries no label, no weight, no
+properties and no type, because saying **how** two things relate is what an edge is for.
+
+These are the six public array fields — `memory.entityIds`, `chrono.entityIds`/`memoryIds` and
+`file.entityIds`/`memoryIds`/`chronoIds` — stored as records of their own, so that everything which
+asks *"what is adjacent to this?"* has one place to look instead of following a different subset of the six.
+
+**The six classes, and there is no seventh:**
+
+| from | to | the array it is |
+|---|---|---|
+| memory | entity | `memory.entityIds` |
+| chrono | entity | `chrono.entityIds` |
+| chrono | memory | `chrono.memoryIds` |
+| file | entity | `file.entityIds` |
+| file | memory | `file.memoryIds` |
+| file | chrono | `file.chronoIds` |
+
+An entity is only ever the **to** end. Nothing hangs off an entity, which is why there is no `entity.…`
+class — the way to say something about two entities is an edge.
+
+**Writing a link also writes the array**, and reading one back is the same fact either way. That is what
+makes a link durable rather than a second opinion: an ordinary `PATCH` of the memory would otherwise
+silently drop a link record the array never claimed.
+
+**There is no `GET`.** Links are a queryable collection like any other — `POST /api/brain/spaces/:spaceId/query`
+with `collection: "links"` and the full filter grammar. A list endpoint here would be a second, weaker copy
+of it.
+
+---
+
+### Create a Link
+
+```http
+POST /api/brain/spaces/:spaceId/links
+Content-Type: application/json
+```
+
+```json
+{
+  "from": "3f2a…",
+  "fromKind": "memory",
+  "to": "8c41…",
+  "toKind": "entity"
+}
+```
+
+All four fields are required. `fromKind` and `toKind` are one of `entity`, `memory`, `chrono`, `file`, and
+they are **not guessed from the id** — the same UUID could name records in two collections, and a wrong
+guess produces a link that reads as correct and points at nothing.
+
+**Response** `200` with the link record, including its `_id` and a derived `label` (`memory.entityIds`).
+
+**It is an upsert, and `200` rather than `201` says so.** A link's `_id` is a UUIDv5 over the two records
+and the class, so one connection has exactly one id for ever: creating a link that already exists succeeds
+and changes nothing. Retry it as often as you like — it cannot produce a duplicate, and it will never
+report a conflict.
+
+**Refusals:**
+
+| | |
+|---|---|
+| `400` | a `(fromKind, toKind)` pair outside the six — the error names the ones that are allowed |
+| `400` | under `strictLinkage`, either end failing to resolve |
+| `404` | the `from` record does not exist — there is no array to write into |
+
+---
+
+### Delete a Link
+
+```http
+DELETE /api/brain/spaces/:spaceId/links/:id
+```
+
+**Response** `204`, or `404` if the id is not a link.
+
+The two records at either end are untouched. The array entry goes with the record, so nothing is left
+claiming the connection, and a tombstone is written so the removal reaches peer instances on the next sync
+instead of being restored by one that still holds it.
+
+---
+
 ### Traverse Graph
 
 BFS traversal from a starting entity, following edges up to `maxDepth` hops.

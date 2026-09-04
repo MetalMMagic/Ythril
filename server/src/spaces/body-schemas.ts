@@ -412,6 +412,22 @@ export const DupeActionRuleBody = z.object({
 /** One bucket's window: a positive day count, or 0/null to clear it. Same bounds as the legacy scalar. */
 const TtlWindowZ = z.number().int().nonnegative().max(36500).nullable().optional();
 
+/**
+ * The fields that count as "you asked for something" — an update naming none of them is an empty request.
+ *
+ * **One list, read twice.** The guard and the sentence it fails with used to be two hand-written copies of
+ * twelve names, and a field added to the schema but forgotten in one of them is the worse half of this
+ * codebase's commonest defect: the body parses, the guard refuses it, and the message lists everything the
+ * caller could have sent EXCEPT the field they did send.
+ *
+ * `typeSchemasMode` is deliberately absent — it qualifies `meta`, so a body carrying only that has still
+ * asked for nothing.
+ */
+const UPDATABLE = [
+  'label', 'maxGiB', 'meta', 'dupeRules', 'dupeMergeSurvivor', 'dupeRulesOnInsert', 'recordTtlDays',
+  'documentExtraction', 'imageAnalysis', 'audioAnalysis', 'videoAnalysis', 'textAnalysis', 'completeLinkage',
+] as const;
+
 export const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
   maxGiB: z.number().positive().nullable().optional(),
@@ -467,8 +483,13 @@ export const UpdateSpaceBody = z.object({
   audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
   videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
   textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
-}).strict().refine(d => d.label !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
-  message: 'At least one of label, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
+  /**
+   * `M-2`: this space's links are all link RECORDS. Local and never voted — see `SpaceConfig.completeLinkage`
+   * for why the interface it sits on is the behaviour and not a filing decision.
+   */
+  completeLinkage: z.boolean().optional(),
+}).strict().refine(d => UPDATABLE.some(k => d[k] !== undefined), {
+  message: `At least one of ${UPDATABLE.slice(0, -1).join(', ')}, or ${UPDATABLE[UPDATABLE.length - 1]} must be provided`,
 });
 
 export const ReorderSpacesBody = z.object({

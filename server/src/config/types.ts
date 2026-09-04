@@ -251,6 +251,21 @@ export interface SpaceConfig {
    *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
    *  including bulk. */
   dupeRulesOnInsert?: boolean;
+  /**
+   * Every link in this space is a link RECORD, not just an array entry — set by the conversion script when it
+   * has finished walking `memory.entityIds`, the two chrono arrays and the three file arrays.
+   *
+   * **Local/operational, like `dupeRules` and `recordTtlDays`, and that placement is the whole point.** The
+   * flag one word away, `strictLinkage`, lives on `SpaceMeta` because it states what the space MEANS and a
+   * network should agree on it — so a meta change opens a `meta_change` vote and applies on every peer. This
+   * one states what has happened on ONE disk. Voted, the first instance to run the script would arm it
+   * everywhere, and the refusal it gates would then reject array writes on peers holding no link records at
+   * all: writes refused, reads empty, and a correctly-passed vote in every log.
+   *
+   * Absent means false. It arms nothing yet — the refusal is 2b, because refusing an array write is only
+   * honest once the readers prefer the records.
+   */
+  completeLinkage?: boolean;
   /** Per-space document-extraction mode override (F11-c). Local/operational (not governed or synced,
    *  like dupeRules): when set, documents uploaded to THIS space use this mode instead of the
    *  instance-wide `documentProcessing.mode`. Absent = inherit the instance default. */

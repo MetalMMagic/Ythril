@@ -62,7 +62,11 @@ describe('MCP tool schemas — universal invariants', () => {
     // 43 -> 44: `update_file_meta`. Prerequisites done — `audit-map.ts` maps it to `file.meta.update` like
     // the route it mirrors, it is `mutating: true` and listed among the tools a readOnly token cannot see,
     // and `16-mcp.md` carries its row.
-    assert.equal(ALL_TOOLS.length, 44);
+    // 44 -> 46: `upsert_link` + `delete_link`, the link write door. Prerequisites done for both:
+    // `audit-map.ts` maps them to `link.create` / `link.delete`, both are `mutating: true` and listed among
+    // the tools a readOnly token cannot see, and `16-mcp.md` carries a row for each. They ship WITH their
+    // REST routes rather than after them, which is the rule the capability map exists to enforce.
+    assert.equal(ALL_TOOLS.length, 46);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

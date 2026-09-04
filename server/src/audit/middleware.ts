@@ -52,6 +52,12 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/edges$/,      operation: 'edge.delete',    spaceGroup: 1 },
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/edges/,       operation: 'edge.list',      spaceGroup: 1, read: true },
 
+  // ── Links ────────────────────────────────────────────────────────────────
+  // No `link.list`: links are read through `/query` like any other collection, so the read is already
+  // audited under that route rather than under a second one that does not exist.
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/links$/,      operation: 'link.create',    spaceGroup: 1 },
+  { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/links\/([^/]+)$/, operation: 'link.delete', spaceGroup: 1, entryGroup: 2 },
+
   // ── Chrono CRUD ──────────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono$/,     operation: 'chrono.create',  spaceGroup: 1 },

@@ -46,6 +46,8 @@ export const MCP_TOOL_OPERATIONS: Record<string, string | null> = {
   upsert_edge: 'edge.create',
   update_edge: 'edge.update',
   delete_edge: 'edge.delete',
+  upsert_link: 'link.create',
+  delete_link: 'link.delete',
   create_chrono: 'chrono.create',
   update_chrono: 'chrono.update',
   delete_chrono: 'chrono.delete',

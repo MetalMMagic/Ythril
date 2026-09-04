@@ -1,0 +1,114 @@
+/**
+ * Turn a space's existing array entries into link records — the one-off an operator runs after upgrading.
+ *
+ * ## Why it is a script and not a boot migration
+ *
+ * Link records SYNC. A boot migration writing synced data means every instance in a network independently
+ * decides to create the same records at whatever moment it happens to restart, which is a large write burst
+ * nobody asked for and a divergence report for as long as the peers disagree. `_REFERENCE.md →
+ * migration-strategy` states the rule: synced data migrates lazily or on demand, and only LOCAL state may
+ * migrate at boot.
+ *
+ * On demand is what this is. The operator picks the moment.
+ *
+ * ## Running it twice is a no-op, and that is load-bearing
+ *
+ * A link's id is a UUIDv5 over the two records and the class, so the second run computes the same ids and
+ * `reconcileLinks` finds them already there. Nothing is written, nothing is duplicated, and nothing has to
+ * remember whether the script has run — which means an interrupted run is fixed by running it again rather
+ * than by working out where it stopped.
+ *
+ * ## It never deletes an array
+ *
+ * These documents replicate by whole-document replace, so a peer on an older build would restore any array
+ * this removed — and a space where the two disagree lets whichever reader wins decide what is true. Creating
+ * is safe at any time; removing is gated on a version floor and is not this script's job (`D-6`).
+ *
+ * ## What `completeLinkage` then means
+ *
+ * Set on the space when a conversion finishes with no failures: *"on THIS instance, every link in this space
+ * is also a link record."* It is `SpaceConfig` and not `SpaceMeta` deliberately — meta is voted and applied
+ * network-wide, so a marker there would announce one instance's finished conversion as everybody's.
+ */
+import { col, asFilter } from '../db/mongo.js';
+import { getConfig } from '../config/loader.js';
+import { updateSpace } from '../spaces/spaces.js';
+import { reconcileLinksForDocument, LINK_BEARING_COLLECTIONS } from './links.js';
+import { log } from '../util/log.js';
+
+/** What one space's conversion did, per collection and in total. */
+export interface ConversionReport {
+  spaceId: string;
+  /** Documents walked, by collection suffix. */
+  scanned: Record<string, number>;
+  /** Link records created. A re-run reports 0 and that is success, not a no-op to worry about. */
+  added: number;
+  /** Documents whose reconcile threw. Non-zero means `completeLinkage` is NOT set. */
+  failed: number;
+}
+
+/** How many documents are read per round trip. Large enough to be quick, small enough not to hold a space's worth in memory. */
+const PAGE = 200;
+
+/**
+ * Convert one space.
+ *
+ * Paged by `_id` rather than by `skip`: a skip-paged walk over a collection being written to at the same
+ * time can visit a document twice and miss another entirely, and the one it misses is silent.
+ */
+export async function convertSpaceLinks(spaceId: string): Promise<ConversionReport> {
+  const report: ConversionReport = { spaceId, scanned: {}, added: 0, failed: 0 };
+
+  for (const [suffix, fromKind] of Object.entries(LINK_BEARING_COLLECTIONS)) {
+    if (!fromKind) continue;
+    report.scanned[suffix] = 0;
+    let after: string | undefined;
+
+    for (;;) {
+      const filter: Record<string, unknown> = after === undefined ? {} : { _id: { $gt: after } };
+      const docs = await col<{ _id: string }>(`${spaceId}_${suffix}`)
+        .find(asFilter<{ _id: string }>(filter))
+        .sort({ _id: 1 })
+        .limit(PAGE)
+        .toArray() as Array<Record<string, unknown> & { _id: string }>;
+      if (docs.length === 0) break;
+
+      for (const doc of docs) {
+        report.scanned[suffix] = (report.scanned[suffix] ?? 0) + 1;
+        const before = await col(`${spaceId}_links`).countDocuments(asFilter({ spaceId, from: doc._id }));
+        try {
+          await reconcileLinksForDocument(spaceId, doc._id, fromKind, doc);
+          report.added += await col(`${spaceId}_links`).countDocuments(asFilter({ spaceId, from: doc._id })) - before;
+        } catch (err) {
+          // One bad document must not stop the walk. It is counted, and the count is what withholds the
+          // marker — a conversion that skipped a record and then claimed completeness is the failure this
+          // whole design exists to avoid.
+          report.failed++;
+          log.warn(`convert links ${spaceId}/${suffix}/${doc._id}: ${err}`);
+        }
+      }
+      after = docs[docs.length - 1]?._id;
+    }
+  }
+
+  return report;
+}
+
+/**
+ * Convert every space this instance holds, then mark the ones that finished clean.
+ *
+ * The marker is written per space and only when that space's walk had no failures. A single space that could
+ * not be converted must not stop the others from being marked, and must not be marked itself.
+ */
+export async function convertAllLinks(): Promise<ConversionReport[]> {
+  const reports: ConversionReport[] = [];
+  for (const space of getConfig().spaces) {
+    // A proxy space holds no documents of its own — it aggregates its members, which are converted in their
+    // own right. Walking it would find nothing and then mark it complete on the strength of that.
+    if (space.proxyFor && space.proxyFor.length > 0) continue;
+    const report = await convertSpaceLinks(space.id);
+    if (report.failed === 0) updateSpace(space.id, { completeLinkage: true });
+    reports.push(report);
+  }
+  return reports;
+}

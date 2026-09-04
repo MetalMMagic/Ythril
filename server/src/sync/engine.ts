@@ -32,7 +32,7 @@ import { resolveWatermark, truncationWarn, type TransferOutcome } from './waterm
 import { pullTombstones, pushTombstones } from './tombstone-transfer.js';
 import { applyConcludedSpaceRounds } from '../spaces/apply-wipe-round.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
-import { peerSafeFetch, isPeerUrlAllowed, PEER_TRANSFER_TIMEOUT_MS } from './peer-fetch.js';
+import { peerSafeFetch, isPeerUrlAllowed, transferInit, PEER_TRANSFER_TIMEOUT_MS } from './peer-fetch.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './governance.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
@@ -919,14 +919,17 @@ async function pullFromPeer(
    * `Math.max` across the four types was the old rule, and it moved `lastSeqReceived` to a position a
    * truncated type had not reached: its unserved records then sat behind the watermark for ever, while every
    * later cycle reported success. `safeWatermark` lowers the ceiling to whatever the stopped transfers can
-   * actually vouch for. All five are passed, including the tombstones — an omitted transfer places no ceiling,
-   * which makes it exactly the one that gets skipped.
+   * actually vouch for. EVERY transfer is passed — an omitted one places no ceiling, which makes it
+   * exactly the one that gets skipped.
    */
+  const pulled = { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, links: linkR, filemeta: fileMetaR };
   highestSeq = resolveWatermark({
     direction: 'receive', peerLabel: member.label ?? member.instanceId, spaceId,
     from: sinceSeq,
-    candidate: Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq, linkR.highSeq, fileMetaR.highSeq),
-    transfers: { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, links: linkR, filemeta: fileMetaR, tombstones },
+    transfers: pulled,
+    // Bounds the advance, never raises it: a tombstone seq is not a position in the data stream.
+    alsoCheck: { tombstones },
+    seqOf: (t) => t.highSeq,
     warn: log.warn,
   });
   // TOMBSTONES ARE IN THIS MAX, and their absence was a silent record-loss bug rather than an omission.
@@ -936,9 +939,15 @@ async function pullFromPeer(
   // counter behind a busy peer's deletions, and a record re-created there (same id, lower seq) was refused
   // by every peer holding the tombstone, permanently, with a 200 the sender reads as success.
   //
-  // The watermark line above already passes all five transfers and says why an omitted one is the dangerous
-  // one. This is the same argument about the same transfer, one line down.
-  overallMaxSeq = Math.max(memR.maxSeq, entR.maxSeq, edgeR.maxSeq, chronoR.maxSeq, linkR.maxSeq, tombstones.maxSeq);
+  // The watermark line above passes every transfer and says why an omitted one is the dangerous one. This
+  // is the same argument about the same transfer, one line down.
+  //
+  // AND IT WAS A THIRD HAND-WRITTEN LIST, missing file metadata. `filemeta` is in `transfers` and was
+  // absent here, so a file-meta record arriving with a high seq left the local counter below it — and the
+  // next local write could take a seq beneath a record already received, which is the exact failure the
+  // bump exists to prevent. Derived from the same object now, so there is one enumeration for all three
+  // uses.
+  overallMaxSeq = Math.max(...Object.values(pulled).map(t => t.maxSeq), tombstones.maxSeq);
 
   // Bump the local seq counter so future local writes always get a seq higher
   // than any document received from this peer.  Without this, sync-upserted docs
@@ -1093,12 +1102,23 @@ async function pushToPeer(
   pushedEdges = edgeP.pushed;
   pushedChrono = chronoP.pushed;
   pushedLinks = linkP.pushed;
-  // Same rule as the pull, same function — see `sync/watermark.ts` for why it is not two implementations.
+  /*
+   * Same rule as the pull, same function, AND NOW THE SAME LIST — which is what this comment used to claim
+   * while the line below it disproved it.
+   *
+   * It read *"see `sync/watermark.ts` for why it is not two implementations"*, and the `candidate`
+   * argument directly beneath was the second implementation: pull's enumerated six families, this one five,
+   * with `filemeta` present in `transfers` and missing from the max. So a file-metadata transfer could hold
+   * this watermark back and never advance it, and a cycle whose only change was file metadata re-pushed the
+   * same page for ever. The candidate is derived from the transfers now.
+   */
+  const pushed = { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, links: linkP, filemeta: fileMetaP };
   maxSeqPushed = resolveWatermark({
     direction: 'push', peerLabel: member.label ?? member.instanceId, spaceId,
     from: lastSeqPushed,
-    candidate: Math.max(memP.maxSeq, entP.maxSeq, edgeP.maxSeq, chronoP.maxSeq, linkP.maxSeq),
-    transfers: { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, links: linkP, filemeta: fileMetaP, tombstones },
+    transfers: pushed,
+    alsoCheck: { tombstones },
+    seqOf: (t) => t.maxSeq,
     warn: log.warn,
   });
 
@@ -1235,11 +1255,24 @@ async function syncFiles(
       if (action === 'skip') continue;
 
       try {
-        // Whole-file body: the control-plane budget would abort any file that takes over 30 s to
-        // transfer, so this one gets the transfer budget. See PEER_TRANSFER_TIMEOUT_MS.
+        /*
+         * Whole-file body, so it gets the TRANSFER budget — and until now it did not, whatever this
+         * comment said.
+         *
+         * `opts()` is the control-plane request init and already carries `signal:
+         * AbortSignal.timeout(FETCH_TIMEOUT_MS)`. `peerSafeFetch` resolves `init.signal ??
+         * AbortSignal.timeout(opts.timeoutMs)`, so the caller's signal WON and the transfer budget beside
+         * it was dead code. The effective ceiling was ten seconds — not the thirty this comment assumed —
+         * so any file whose body took longer than that aborted, logged, and was retried identically on
+         * every cycle, for ever. Large files simply never replicated.
+         *
+         * `transferInit` strips the control-plane deadline, and it lives in `peer-fetch.ts` because that
+         * file owns what each budget is for — stripping it by hand here would be a second copy of the
+         * decision that was wrong the first time.
+         */
         const dl = await peerSafeFetch(
           `${member.url}/api/files/${encodeURIComponent(remoteSpaceId)}?path=${encodeURIComponent(remote.path)}`,
-          opts(),
+          transferInit(opts()),
           { timeoutMs: PEER_TRANSFER_TIMEOUT_MS },
         );
         if (!dl.ok) { log.warn(`DL file ${remote.path} from ${member.label}: ${dl.status}`); continue; }

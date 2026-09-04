@@ -28,7 +28,8 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { getConfig, saveConfig } from '../config/loader.js';
-import type { NetworkConfig } from '../config/types.js';
+import type { NetworkConfig, VoteRound } from '../config/types.js';
+import { makeSignedOwnCast } from '../util/signing.js';
 
 /** The verdict: wipe now, or a round was opened on each network holding the space. */
 export type WipePlan =
@@ -64,7 +65,18 @@ export function planSpaceWipe(spaceId: string, types?: readonly string[]): WipeP
   for (const net of cfg.networks.filter(n => n.spaces.includes(spaceId))) {
     const roundId = uuidv4();
     net.pendingRounds ??= [];
-    net.pendingRounds.push({
+
+    /*
+     * BUILT FIRST, THEN SIGNED, because a signature is over the round it belongs to.
+     *
+     * This pushed a bare `{ instanceId, vote: 'yes', castAt }` while every other own-cast site — the join
+     * flow, the member relay, the removal path — uses `makeSignedOwnCast`. On a network with
+     * `requireSignedVotes` a peer refuses an unsigned cast from anyone, including the voter, so a proposed
+     * wipe or space deletion carried LOCALLY and nowhere else: the round existed, the yes was ours, and
+     * every peer dropped it. Nothing reported that, because a refused relay is the documented behaviour
+     * for an unsigned cast.
+     */
+    const round: VoteRound = {
       roundId,
       type: 'space_wipe',
       subjectInstanceId: cfg.instanceId,
@@ -72,12 +84,15 @@ export function planSpaceWipe(spaceId: string, types?: readonly string[]): WipeP
       subjectUrl: '',   // not meaningful for a wipe, as for space_deletion
       deadline: new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString(),
       openedAt: now,
-      votes: [{ instanceId: cfg.instanceId, vote: 'yes', castAt: now }],
+      votes: [],
       spaceId,
-      // Omitted rather than defaulted when the caller wants everything: an absent `wipeTypes` means all
-      // five at conclusion, which is the same meaning it has on the request.
+      // Omitted rather than defaulted when the caller wants everything: an absent `wipeTypes` means every
+      // brain collection at conclusion, which is the same meaning it has on the request. It said "all
+      // five" and `WIPE_COLLECTION_TYPES` is `BRAIN_COLLECTIONS` — six, with `links` the one left out.
       ...(types && types.length > 0 ? { wipeTypes: [...types] } : {}),
-    });
+    };
+    round.votes = [makeSignedOwnCast(net.id, round, cfg.instanceId, 'yes')];
+    net.pendingRounds.push(round);
     rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
   }
 

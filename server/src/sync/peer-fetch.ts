@@ -56,6 +56,22 @@ export const PEER_TIMEOUT_MS = 30_000;
 export const PEER_TRANSFER_TIMEOUT_MS = 10 * 60_000;
 
 /**
+ * A request init for a WHOLE-FILE transfer: the caller's headers without its control-plane deadline.
+ *
+ * `peerSafeFetch` resolves `init.signal ?? AbortSignal.timeout(opts.timeoutMs)`, so an explicit signal
+ * WINS over the budget beside it. The engine builds one request init for the control plane, carrying a
+ * ten-second signal, and passing that to a transfer call made `PEER_TRANSFER_TIMEOUT_MS` dead code —
+ * every file whose body took longer than ten seconds aborted and was retried identically for ever.
+ *
+ * The rule lives here rather than at the call site because this file owns what each budget is FOR. A call
+ * site that strips the signal by hand is a second copy of that decision, and the first one was wrong.
+ */
+export function transferInit(init: RequestInit): RequestInit {
+  const { signal: _controlPlane, ...rest } = init;
+  return rest;
+}
+
+/**
  * SSRF-safe drop-in for `fetch()` used by the sync engine. Resolves + pins + re-validates redirects
  * against the peer policy. Also enforces the transport policy: in `requireEncryptedTransport` mode a
  * plaintext `http://` peer is refused outright; otherwise a plaintext peer that wasn't explicitly

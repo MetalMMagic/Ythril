@@ -155,9 +155,14 @@ They have always existed as lists on the record. From 4.0 each one is also a rec
 everything asking *"what is connected to this?"* — the graph, search, the ER model — looks in one place
 instead of each following a different part of the lists.
 
-**Nothing you do changes.** Attach an entity to a memory the way you always have and the link is made for
-you. Remove it and the link goes. There is no new box to tick and no new step; you will see the same
-connections you saw before.
+**Nothing you do changes — but you will see MORE.** Attach an entity to a memory the way you always have and
+the link is made for you. Remove it and the link goes. There is no new box to tick and no new step.
+
+What is new is that three kinds of connection you could already record are finally followed: a timeline
+entry pointing at a **memory**, and a file pointing at a **memory** or at a **timeline entry**. Those
+attachments have been saved and shown on the record since 3.x, and nothing that walked the graph looked at
+them — so a graph from a memory did not reach the timeline entry about it. It does now, on every space,
+with nothing to run.
 
 **Where to see them:** the **Query** tab, Advanced mode, with the collection picker set to **links** — one
 row per connection, showing which record it hangs off and which record it names.
@@ -422,9 +427,11 @@ you land on the neighbourhood rather than on a lone node — then adjust with th
 Edges table the view is centred on the edge's **from** endpoint; the `to` endpoint is one hop away, so the
 edge itself is always on the canvas.
 
-The Memories, Chrono and Files tables have no such button, because those records are not nodes in this graph:
-a memory reaches it only through the entities it links, and a chrono entry is not reachable by traversal at
-all. Use the **Entities** column in those tables to find the entity you want, then open the graph from there.
+The Memories, Chrono and Files tables have no such button, because a graph always STARTS from an entity.
+Those records are reachable *within* a graph — turn on the matching toggle and a walk brings back the memories,
+timeline entries and files that mention what it passes through, and from 4.0 the ones that mention each other
+as well. What they cannot be is the starting point. Use the **Entities** column in those tables to find the
+entity you want, then open the graph from there.
 
 **Toolbar controls:**
 

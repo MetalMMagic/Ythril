@@ -70,61 +70,66 @@ describe('backlinks cover every entity reference', () => {
     }
   });
 
-  it('every collection that can hold an entityIds reference is scanned', () => {
+  it('the scan is DERIVED from the link classes, not three hand-written blocks', () => {
+    /*
+     * This case used to assert that `findEntityReferences` names `_memories`, `_chrono` and `_files`
+     * literally, and it was right to while the function held three near-identical query blocks. It now
+     * loops `LINK_CLASSES`, so the collection names are not in it at all — and asserting the old spelling
+     * would fail on the change that made the rule structural.
+     *
+     * **The rule it was standing in for has not moved:** an entity referenced only by a record this scan
+     * cannot see deletes cleanly under `strictLinkage`, and the referring record is left pointing at a
+     * tombstone. What changed is that a SEVENTH class is now covered by the commit that declares it,
+     * instead of needing a fourth block that would be forgotten — the way the file one was.
+     */
     const body = backlinkFn();
-    for (const type of typesWithEntityIds()) {
-      const coll = COLLECTION_FOR[type];
-      assert.ok(coll, `${type} declares entityIds but this gate does not know its collection — add it`);
-      assert.ok(
-        body.includes(`_${coll}\``) || body.includes(`_${coll}'`),
-        `findEntityReferences never reads '${coll}', so an entity referenced only by a ${type} deletes cleanly `
-        + `under strictLinkage and the referring record is left pointing at a tombstone.`,
-      );
-      /*
-       * Statement-bounded, never a character window.
-       *
-       * The first version of this matched the collection name and then `entityIds` within a few hundred
-       * characters, and it SURVIVED its own mutant: deleting `entityIds` from the memories query still passed,
-       * because the chrono scan below supplied the word from inside the window. A fixed character budget spans
-       * whatever happens to sit nearby, and on a function of four near-identical queries that is always the
-       * next query. `gates-bound-their-subject-structurally.test.js` refuses the shape outright.
-       */
-      const tick = body.indexOf(`_${coll}\``);
-      const at = tick === -1 ? body.indexOf(`_${coll}'`) : tick;
-      const stmt = statementAround(body, at, `the ${coll} scan`);
-      /*
-       * The field arrives through the link class now, so the literal name is no longer in the query — and
-       * requiring it would force a copy of exactly what `link-adjacency.ts` was extracted to hold once.
-       *
-       * The invariant is unchanged and the check is stronger: `linksToAny(spaceId, linkClassFor('<kind>'), …)`
-       * carries the field AND the class's own scope, so a query built this way cannot scan a collection for
-       * the wrong reference — which is the failure this assertion has always been about. A query that named
-       * `entityIds` itself but forgot the file class's chunk predicate would have passed the old form.
-       */
-      assert.match(
-        stmt, /linksToAny\(|entityIds/,
-        `findEntityReferences reads '${coll}' but that query neither names entityIds nor goes through the `
-        + 'shared link class — scanning a collection for some other reference is not the same as scanning it '
-        + `for this one, which is exactly how files was missed.\n\nstatement:\n${stmt}`,
-      );
-      if (/linksToAny\(/.test(stmt)) {
-        // And it must ask for THIS collection's class. `linkClassFor('memory')` inside the chrono scan would
-        // satisfy the line above while scanning chrono for memory's rules.
-        const kind = { memories: 'memory', chrono: 'chrono', files: 'file' }[coll];
-        assert.match(
-          stmt, new RegExp(`linkClassFor\\('${kind}'\\)`),
-          `the ${coll} scan resolves a link class that is not '${kind}'`,
-        );
-      }
-    }
+    assert.match(body, /for \(const cls of LINK_CLASSES\)/,
+      'findEntityReferences no longer derives its scans from LINK_CLASSES. A hand-written block per class is '
+      + 'how the file class came to be missing while the face scan beside it was present.');
+    assert.match(body, /cls\.toKind !== targetKind/,
+      'the loop must narrow to the classes that point at the KIND being deleted, or an entity delete reports '
+      + 'blockers of every other kind as well');
+  });
+
+  it('and the scan it delegates to opens the class\'s OWN collection and field', () => {
+    /*
+     * The half the loop above cannot state: a loop over six classes that queried one collection would pass
+     * every assertion in this file and answer about the wrong data six times.
+     *
+     * Both storage shapes are checked. The array path must reach `linksToAny`, which is what carries the
+     * chunk exclusion; the link-record path must narrow its results through `scopedDocs`, because a link row
+     * has no `parentFileId` and a chunk link is otherwise indistinguishable from a file link.
+     */
+    const fn = bodyOf(stripComments(readFileSync(ENTITIES, 'utf8')), 'referencingIds');
+    assert.ok(fn, 'referencingIds not found — re-anchor this gate');
+    assert.match(fn, /\$\{spaceId\}_\$\{cls\.collection\}/,
+      'the delegate hardcodes a collection instead of taking the class\'s own');
+    assert.match(fn, /linksToAny\(spaceId, cls,/,
+      'the array path must go through the shared builder, which is what carries the chunk exclusion');
+    assert.match(fn, /usesLinkRecords\(spaceId\)/,
+      'the storage shape must be chosen by the one selector, never decided in a reader');
+    // `[<(]` because the call carries a type argument. Matching only `(` is a check on how the call was
+    // spelled rather than on whether it happens.
+    assert.match(fn, /scopedDocs[<(]/,
+      'the link-record path returns ids from a collection with no `parentFileId`, so it must narrow them by '
+      + 'reading the records — otherwise a forty-passage document comes back as forty blockers');
   });
 
   it('edges are scanned on both endpoints', () => {
     const body = backlinkFn();
-    assert.match(body, /from:\s*entityId/, 'an edge referencing the entity as `from` is a backlink');
-    assert.match(body, /to:\s*entityId/, 'an edge referencing the entity as `to` is a backlink');
+    assert.match(body, /kindMatches\('from'\)/, 'an edge referencing the record as `from` is a backlink');
+    assert.match(body, /kindMatches\('to'\)/, 'an edge referencing the record as `to` is a backlink');
+    /*
+     * And the KIND is compared, which is new and is the half that would be silently wrong.
+     *
+     * An edge endpoint has carried its own kind since 3.7, so `{ from: id }` alone matches an edge whose
+     * `from` is a MEMORY with the same id as the entity being deleted. Ids are UUIDs from one space, so that
+     * is not a collision anybody would notice until it happened once.
+     */
+    assert.match(body, /\$\{side\}Kind/,
+      'the edge scan ignores the endpoint KIND, so a delete is blocked by an edge pointing at a different '
+      + 'record that happens to share the id');
   });
-
   it('the face reference is still scanned, and still reported as its own type', () => {
     // Both doors filter `b.type !== 'face'` to make face labels non-blocking. That distinction only works
     // while faces are reported under a type of their own, so the exemption cannot silently widen.

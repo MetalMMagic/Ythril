@@ -22,7 +22,7 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
-import { linkClassFor } from './link-adjacency.js';
+import { linkClassFor, LINK_CLASSES } from './link-adjacency.js';
 import { frontierEdgeQuery, type TraverseNarrowing } from './frontier-query.js';
 import { linkedRecordsAtFrontier, entitiesLinkedFromRecords, linkedRecordName, linkedRecordType, type LinkedRecord, type LinkInclusion }
   from './link-frontier.js';
@@ -676,9 +676,19 @@ export async function updateEdgeById(
  * names stay because they are what `edgeLabels` callers and four test suites already spell.
  */
 // `!` because `LINK_CLASSES` declares all three — a missing one is a programming error, not a runtime state.
-export const CHRONO_LINK_LABEL = linkClassFor('chrono')!.label;
-export const MEMORY_LINK_LABEL = linkClassFor('memory')!.label;
-export const FILE_LINK_LABEL = linkClassFor('file')!.label;
+export const CHRONO_LINK_LABEL = linkClassFor('chrono', 'entity')!.label;
+export const MEMORY_LINK_LABEL = linkClassFor('memory', 'entity')!.label;
+export const FILE_LINK_LABEL = linkClassFor('file', 'entity')!.label;
+
+/**
+ * Every synthetic link label, all six.
+ *
+ * The three named constants above are the ENTITY classes and keep their names because `edgeLabels`
+ * callers and four test suites already spell them. They are no longer the whole set: three more classes
+ * gained readers in 4.0, and a caller building an `edgeLabels` filter from the three would silently
+ * exclude the other half of the graph.
+ */
+export const ALL_LINK_LABELS: readonly string[] = LINK_CLASSES.map(c => c.label);
 
 /**
  * BFS graph traversal from a starting entity.

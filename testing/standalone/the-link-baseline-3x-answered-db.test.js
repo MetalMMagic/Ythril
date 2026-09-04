@@ -238,57 +238,68 @@ describe('the 3.x link baseline — what the array walk answered', { skip }, () 
   // PART TWO — the deficit. Every assertion here is EXPECTED TO INVERT at slice 2.
   // ────────────────────────────────────────────────────────────────────────────────────────────
 
-  it('DEFICIT: chrono.memoryIds is stored and no walk reads it', async () => {
+  it('CLOSED: chrono.memoryIds is read — a traverse from the memory reaches the chrono entry naming it', async () => {
     /*
-     * **This assertion is expected to FAIL when slice 2 lands, and that failure is the feature arriving.**
-     * Do not delete it — invert it: after slice 2 a traverse from the memory reaches the chrono entry that
-     * names it.
+     * **Inverted at slice 2b, which is what the deficit version of this case asked for in as many words.**
+     * It read `assert.ok(!res.nodes.some(...))` with the message "SLICE 2 HAS LANDED. Invert this assertion
+     * rather than deleting it". This is that inversion, and the case keeps its number and its seed so the
+     * before and after are the same question asked twice.
      *
-     * Both halves are asserted on purpose. The first proves the DATA says they are connected, so the second
-     * cannot be satisfied by removing the seed — which is the only way a "reaches nothing" test can be
-     * quietly made to pass.
+     * Both halves are still asserted. The first proves the DATA says they are connected, so the second
+     * cannot be satisfied by seeding differently — which is the only way a reachability test can be quietly
+     * made to pass.
      */
     const chrono = await coll('chrono').findOne({ _id: CHR });
     assert.deepEqual(chrono.memoryIds, [MEM], 'the data says this chrono entry names that memory');
 
     const res = await edgesMod.traverseGraph([SPACE], MEM, 'both', undefined, 2, 100, true, true, true);
-    assert.ok(!res.nodes.some(n => n._id === CHR),
-      'a traverse from the memory reached the chrono entry that names it — SLICE 2 HAS LANDED. Invert this '
-      + 'assertion rather than deleting it: the deficit it recorded is closed.');
+    assert.ok(res.nodes.some(n => n._id === CHR),
+      'a traverse from the memory does not reach the chrono entry that names it. `chrono.memoryIds` has been '
+      + 'stored, resolvability-checked, replicated and documented since 3.x with no reader at all; 2b is what '
+      + 'gives it one.');
   });
 
-  it('DEFICIT: file.memoryIds is stored and no walk reads it', async () => {
-    // Same shape, same expectation. See the case above for why both halves are asserted.
+  it('CLOSED: file.memoryIds is read', async () => {
+    // Same shape, same inversion. See the case above for why both halves are asserted.
     const file = await coll('files').findOne({ _id: FILE });
     assert.deepEqual(file.memoryIds, [MEM], 'the data says this file names that memory');
 
     const res = await edgesMod.traverseGraph([SPACE], MEM, 'both', undefined, 2, 100, true, true, true);
-    assert.ok(!res.nodes.some(n => n._id === FILE),
-      'a traverse from the memory reached the file that names it — SLICE 2 HAS LANDED. Invert, do not delete.');
+    assert.ok(res.nodes.some(n => n._id === FILE),
+      'a traverse from the memory does not reach the file that names it');
   });
 
-  it('DEFICIT: file.chronoIds is stored and no walk reads it', async () => {
+  it('CLOSED: file.chronoIds is read', async () => {
     const file = await coll('files').findOne({ _id: FILE });
     assert.deepEqual(file.chronoIds, [CHR], 'the data says this file names that chrono entry');
 
     const res = await edgesMod.traverseGraph([SPACE], CHR, 'both', undefined, 2, 100, true, true, true);
-    assert.ok(!res.nodes.some(n => n._id === FILE),
-      'a traverse from the chrono entry reached the file that names it — SLICE 2 HAS LANDED. Invert, do not '
-      + 'delete.');
+    assert.ok(res.nodes.some(n => n._id === FILE),
+      'a traverse from the chrono entry does not reach the file that names it');
   });
 
-  it('DEFICIT: the backlink scan that blocks a DELETE cannot see the other three either', async () => {
+  it('CLOSED: the scan that blocks a DELETE sees a reference to a MEMORY', async () => {
     /*
-     * The consequence worth stating plainly, because it is the one an operator meets: nothing blocks deleting
-     * a memory that a chrono entry names, even under strict linkage, because that link has no reader.
+     * The consequence an operator actually meets, and it is a BEHAVIOUR CHANGE rather than a new feature:
+     * until 2b nothing blocked deleting a memory that a chrono entry named, even under strict linkage,
+     * because that link had no reader. It is refused now.
      *
-     * After slice 2 that delete starts being refused. It is a behaviour change a running script can hit,
-     * which is why the six-field deprecation row has to announce it rather than only announcing the fields.
+     * A running script can hit this, which is why the six-field deprecation row announces the behaviour and
+     * not only the fields.
      */
     assert.equal(typeof entitiesMod.findEntityReferences, 'function');
-    const refs = await entitiesMod.findEntityReferences(SPACE, MEM);
-    assert.deepEqual(refs, [],
-      'something now reports inbound references to a MEMORY — slice 2 has landed, and the delete-blocking '
-      + 'behaviour it changes must be in the deprecation notice.');
+
+    // ASKED FOR THE RIGHT KIND. A memory id is not an entity id, so the two-argument call below still
+    // correctly answers nothing — the kind is a parameter and not a guess, because a UUID cannot say which
+    // collection it belongs to and inferring it would be a scan of four collections hoping for one hit.
+    const refs = await entitiesMod.findEntityReferences(SPACE, MEM, 'memory');
+    assert.deepEqual(refs.map(r => `${r.type}:${r._id}`).sort(), [`chrono:${CHR}`, `file:${FILE}`].sort(),
+      'the scan still cannot see what references a memory. Asserted on IDENTITY rather than on a count, '
+      + 'because a scan pointed at the wrong collection returns a plausible number.');
+
+    // And the DEFAULT has not moved. Every existing caller passes two arguments and means entities; a
+    // default that had quietly widened would make an entity delete start reporting blockers of other kinds.
+    assert.deepEqual(await entitiesMod.findEntityReferences(SPACE, MEM), [],
+      'the two-argument call is asking what references this id AS AN ENTITY, and nothing does');
   });
 });

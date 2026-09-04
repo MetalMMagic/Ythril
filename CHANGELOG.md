@@ -110,6 +110,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three link fields that have never been read now work — `chrono.memoryIds`, `file.memoryIds` and
+  `file.chronoIds`.** They have been accepted, checked for resolvability, stored, replicated and documented
+  since 3.x. Nothing walked them. A traverse from a memory did not reach the timeline entry that named it;
+  a traverse from a timeline entry did not reach the file about it.
+
+  **That was never a decision.** It was three fields nobody had written a reader for, and it was invisible
+  from the outside precisely because the data was all there — you could see the ids on the record and get
+  nothing back from the graph.
+
+  A link class is a `(fromKind, toKind)` PAIR now rather than a record kind. Keyed on the from kind alone,
+  a caller asking about a chrono entry's MEMORY links was silently handed the class for its ENTITY links
+  and scanned the wrong column — no error, and a plausible empty answer.
+
+- **Every reader of "what is next to this?" answers from one definition.** Five of them each followed a
+  different subset of the six fields: the standalone traverse, the walk inside `recall`, the scan that
+  refuses a delete, the ER diagram, and the check sync runs on arriving records. The last one had never
+  adopted the shared module at all — it hardcoded one field name, one target collection and the UUID shape.
+
+  It now derives its classes like everything else, so a memory or timeline entry arriving from a peer has
+  every one of its link arrays checked instead of one. **It still only RECORDS** — sync ingest is
+  "validated, counted, and let in", and a refusal there would hold the watermark and stop the channel.
+
+- **The scan that refuses a delete can see references to a memory, a timeline entry or a file, not just to
+  an entity.** Nothing blocked deleting a memory that a timeline entry named, even under the strictest
+  linkage setting on offer, because that link had no reader. The scan sees it now; the refusal itself
+  arrives with the deprecation notice for the six fields, so it is announced rather than sprung.
+
+  The edge half of that scan also compares the endpoint KIND. An edge endpoint has carried its own kind
+  since 3.7, so matching on the id alone could block a delete because of an edge pointing at a different
+  record that happened to share it.
+
+- **A converted space answers adjacency from link records, and an unconverted one keeps the array walk.**
+  One selector decides, for every reader — a reader choosing for itself is how five of them came to follow
+  five different subsets. Reading records alone would answer about whatever was written since the upgrade
+  and silently drop the rest; the arrays are complete on every space, always, which is what makes them the
+  safe side of the branch.
+
+  **Both shapes answer all six classes**, so the three fields above start working on every space
+  immediately. Running `npm run links:convert` is a speed and consistency upgrade — one indexed lookup in
+  place of a collection scan per class — and never a correctness prerequisite.
+
+### Changed
+
+- **`direction` still narrows stored edges only, and the REASON it gives is now a different one.** Every
+  surface said *"a link is an entityIds array, carrying one orientation only"*. That stopped being true the
+  moment a link became a record with a `from` and a `to`.
+
+  The rule survives on a better argument: which way a link runs is fixed by the KINDS at its ends, not by
+  the data. A memory names entities and an entity names nothing. Honouring `direction` on links would
+  therefore empty the DEFAULT traverse — `outbound` from an entity would reach no linked records at all —
+  which is a large silent change to the commonest call for a parameter that would still have nothing useful
+  to select between.
+
 - **A link has a door of its own, on both surfaces — `POST /api/brain/spaces/:spaceId/links` and
   `upsert_link`, with a delete for each.** `M-2` slice 2a, part two. Slice 2a made every path that
   writes one of the six array fields maintain the link records; this is how you write one directly.

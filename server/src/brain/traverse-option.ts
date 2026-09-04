@@ -220,9 +220,10 @@ export function traverseOptionSchema(maxDepth: number): Record<string, unknown> 
           direction: {
             type: 'string',
             enum: ['outbound', 'inbound', 'both'],
-            description: 'Which way to walk STORED EDGES; default both. It does NOT narrow links — a link is an '
-              + 'entityIds array carrying one orientation only, the record naming the entity, so there is '
-              + 'nothing for direction to select between and both traversals reach the entity it names '
+            description: 'Which way to walk STORED EDGES; default both. It does NOT narrow links. A link is a '
+              + 'record with a from and a to since 4.0, but which way it runs is fixed by the KINDS at its '
+              + 'ends rather than by the data — a memory names entities and entities name nothing — so there '
+              + 'is nothing for direction to select between and both traversals reach the entity it names '
               + 'whatever this says. So {direction: "inbound", includeMemories: true} on a matched memory '
               + 'still returns the entities that memory NAMES.',
           },

@@ -446,6 +446,11 @@ asks *"what is adjacent to this?"* has one place to look instead of following a 
 An entity is only ever the **to** end. Nothing hangs off an entity, which is why there is no `entity.…`
 class — the way to say something about two entities is an edge.
 
+**All six are followed by a traversal from 4.0.** Three of them — `chrono.memoryIds`, `file.memoryIds` and
+`file.chronoIds` — were accepted, resolvability-checked, stored, replicated and documented since 3.x with no
+reader at all, so the ids were visible on the record and the graph returned nothing. They are also visible
+to the scan that refuses a delete, and to the check sync runs on arriving records.
+
 **Writing a link also writes the array**, and reading one back is the same fact either way. That is what
 makes a link durable rather than a second opinion: an ordinary `PATCH` of the memory would otherwise
 silently drop a link record the array never claimed.
@@ -554,9 +559,13 @@ So a walk through a hub now answers `truncated: true` where it previously answer
 had paid a very large read for. Treat the flag as *"there was more graph than this answer contains"* rather
 than as *"the node cap filled"* — the two were the same thing until this release and are not any more.
 
-**`direction` narrows stored edges and never links.** A link is an `entityIds` ARRAY today — the field a memory, chrono
-entry or file carries — and it holds one orientation only: the record names the entity. There is nothing for
-`direction` to select between. With
+**`direction` narrows stored edges and never links.** A link is a **record** with a `from` and a `to` since 4.0 — but which way it runs is fixed by the
+KINDS at its ends rather than by the data. A memory names entities and an entity names nothing, so asking for
+a memory's outbound links and its inbound links is not a choice between two answers; for an entity one of the
+two is always empty. There is nothing for `direction` to select between, so it selects nothing.
+
+Honouring it on links would empty the DEFAULT traverse: `outbound` from an entity would reach no linked records
+at all, because nothing hangs off an entity. With
 `includeChrono`, `includeMemories` or `includeFiles` on, the walk reaches the records that NAME this entity
 whatever `direction` says. The traverse expansion inside `recall` behaves identically, deliberately: two walks
 disagreeing about one parameter is worse than either reading of it.

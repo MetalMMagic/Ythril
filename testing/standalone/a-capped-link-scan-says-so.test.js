@@ -73,8 +73,16 @@ describe('a bounded scan reports that it stopped early', () => {
        * visited filter. A rule that only fires when `remaining` reaches zero misses every case where the
        * limit was spent on records that were then discarded, which is the reported failure.
        */
+      /*
+       * `>=` is accepted as well as `===`, and on the link-record path it is REQUIRED rather than tolerated.
+       *
+       * There the bound is spent on LINK ROWS and the array being measured holds RECORDS, which is the
+       * smaller number as soon as two rows name the same record. An equality test would then be false on
+       * exactly the dense neighbourhoods the bound exists for, and the answer would come back short and
+       * flagged complete — the failure this whole gate was written about, arriving through the new path.
+       */
       const body = bodyOf(read(FRONTIER), fn);
-      assert.match(body, /length\s*===\s*remaining|remaining\s*===\s*\w+\.length/,
+      assert.match(body, /length\s*(===|>=)\s*remaining|remaining\s*(===|<=)\s*\w+\.length/,
         `${fn} does not notice a cursor that came back full, which is the case the bound actually hits`);
     });
   }

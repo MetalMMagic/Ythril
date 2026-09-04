@@ -19,6 +19,7 @@ import type { TokenRights } from '../../config/rights-shape.js';
 import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import { isStrictLinkage } from '../../spaces/proxy.js';
+import { LINK_CLASSES } from '../../brain/link-adjacency.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, LinkViolationDoc, BrainEmbedRecordType } from '../../config/types.js';
 
@@ -92,26 +93,63 @@ export async function checkEdgeLinkViolations(
 }
 
 /**
- * Validate a memory/chrono document's entityIds against strict linkage rules.
+ * Record what an arriving document's link arrays point at that is not there — every class it can hold.
+ *
+ * ## What it used to check, and what that missed
+ *
+ * It took `entityIds` and a `docType` of `'memory' | 'chrono'`, and hardcoded the field name, the target
+ * collection and the UUID shape. So it saw ONE of the six link classes. `chrono.memoryIds` and all three of
+ * a file's arrays were invisible to sync — and there was no file call site at all, so a file arriving with a
+ * dangling `entityIds` was never reported even for the class that was implemented.
+ *
+ * That is the shape `CLAUDE.md` names as this codebase's commonest: one rule, several implementations, and
+ * **the copy that RECORDS rather than refuses is the one to check hardest** — an operator reads a link
+ * violation as real damage, and reads its absence as everything being fine.
+ *
+ * ## It still only RECORDS
+ *
+ * Owner's ruling `P-21`, 2026-08-29: sync ingest is *"validated, counted, and let in"*. A peer validated
+ * these records against ITS schema, and a refusal here would hold the watermark and stop the channel
+ * making progress. Nothing below throws.
+ *
+ * ## A file id is not a UUID
+ *
+ * The UUID check applies to the kinds whose ids are UUIDs. A file is keyed by its space-relative path, so
+ * testing it against `UUID_V4_RE` would report every legitimate `file.` reference as malformed — a violation
+ * log full of correct data, which is worse than an empty one.
+ *
+ * ## What is still not checked, and why it is not a half-done job here
+ *
+ * A FILE's three arrays. Files replicate, but not through this router — they arrive on the file transfer
+ * path, and `LinkViolationDoc.docType` has no `file` member, so reporting one would mean widening a STORED
+ * shape and the screen that displays it. That gap predates the link migration: sync has never checked a
+ * file's links at all, for any class. Tracked as its own row rather than smuggled in here.
  */
-export async function checkEntityIdLinkViolations(
+export async function checkLinkViolations(
   spaceId: string,
   docId: string,
   docType: 'memory' | 'chrono',
-  entityIds: string[] | undefined,
+  doc: object | undefined,
   peerInstanceId: string,
 ): Promise<void> {
-  if (!isStrictLinkage(spaceId) || !entityIds?.length) return;
+  if (!isStrictLinkage(spaceId) || !doc) return;
 
-  for (const eid of entityIds) {
-    if (!UUID_V4_RE.test(eid)) {
-      await recordLinkViolation(spaceId, docId, docType, 'entityIds',
-        `entityIds contains non-UUID value '${eid}'`, peerInstanceId);
-    } else {
-      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: eid }));
+  for (const cls of LINK_CLASSES) {
+    if (cls.kind !== docType) continue;
+    const raw = (doc as Record<string, unknown>)[cls.field];
+    if (!Array.isArray(raw) || raw.length === 0) continue;
+
+    for (const id of raw as string[]) {
+      if (cls.toKind !== 'file' && !UUID_V4_RE.test(id)) {
+        await recordLinkViolation(spaceId, docId, docType, cls.field,
+          `${cls.field} contains non-UUID value '${id}'`, peerInstanceId);
+        continue;
+      }
+      const coll = `${spaceId}_${collectionForRefKind(cls.toKind)}`;
+      const exists = await col<{ _id: string }>(coll).findOne(asFilter<{ _id: string }>({ _id: id }));
       if (!exists) {
-        await recordLinkViolation(spaceId, docId, docType, 'entityIds',
-          `entityIds references non-existent entity '${eid}'`, peerInstanceId);
+        await recordLinkViolation(spaceId, docId, docType, cls.field,
+          `${cls.field} references non-existent ${cls.toKind} '${id}'`, peerInstanceId);
       }
     }
   }

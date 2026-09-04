@@ -428,7 +428,15 @@ const FROZEN = {
   // after.** An append-only comment block contradicting itself is how a finished task keeps being owed — and
   // `todo:check` was satisfied the whole time by the id appearing in a tracker's PROSE rather than in a row.
   // Stripping that prose is what surfaced it.
-  'server/src/brain/edges.ts': 490,
+  // RAISED 490 -> 491 by ONE line: `ALL_LINK_LABELS`, the six synthetic link labels as a set.
+  // The three named constants beside it are the ENTITY classes and keep their names because `edgeLabels`
+  // callers and four test suites already spell them — but they stopped being the whole set when `M-2` gave
+  // readers to `chrono.memoryIds`, `file.memoryIds` and `file.chronoIds`, and a caller building a filter
+  // from the three would silently exclude half the graph. Derived from `LINK_CLASSES`, so a seventh class
+  // joins it on the commit that declares it.
+  // NO DECOMPOSITION: one derived export beside the three it completes. Moving it would separate a set from
+  // its members.
+  'server/src/brain/edges.ts': 491,
   /*
    * A BARREL of API response shapes, and the one entry here that is not a decomposition debt.
    *

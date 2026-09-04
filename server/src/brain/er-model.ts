@@ -224,13 +224,23 @@ export async function buildErModel(spaceId: string): Promise<ErModel> {
   // Through the shared link classes, so the diagram counts what a traversal would reach. This scan had no
   // chunk exclusion of its own: a file split into forty passages could have contributed forty link rows and
   // drawn a relationship forty times thicker than it is.
+  /*
+   * ENTITY classes only, and that is what an ER model IS rather than a narrowing.
+   *
+   * `LINK_CLASSES` holds six since 4.0, three of which name a memory or a chrono entry. Those are real links
+   * and a traversal reaches them — but this diagram draws ENTITY TYPES and the relationships between them,
+   * so a file naming a chrono entry has no entity type at either end and no row to contribute. Included, the
+   * three would each be counted under a `cls.collection` bucket that already has an entry, and `files`
+   * appears three times: the last class written would silently replace the first two.
+   */
   for (const cls of LINK_CLASSES) {
+    if (cls.toKind !== 'entity') continue;
     const rows = await col(`${spaceId}_${cls.collection}`)
       .find(asFilter(hasAnyLink(cls)),
-        { projection: { entityIds: 1 }, limit: ER_ENTITY_SCAN_LIMIT })
-      .toArray() as Array<{ entityIds?: string[] }>;
+        { projection: { [cls.field]: 1 }, limit: ER_ENTITY_SCAN_LIMIT })
+      .toArray() as Array<Record<string, unknown>>;
     if (rows.length >= ER_ENTITY_SCAN_LIMIT) linksTruncated = true;
-    links[cls.collection] = rows.map(r => r.entityIds ?? []);
+    links[cls.collection] = rows.map(r => (r[cls.field] as string[] | undefined) ?? []);
   }
 
   // The first cap hit wins the report. One name is enough to tell a reader the diagram is partial; listing

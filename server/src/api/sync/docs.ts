@@ -146,7 +146,7 @@ syncDocsRouter.get('/edges', syncRateLimit, requireAuth, pageBySeq<EdgeDoc>('edg
 syncDocsRouter.get('/chrono', syncRateLimit, requireAuth, pageBySeq<ChronoEntry>('chrono', 'chrono'));
 syncDocsRouter.get('/links', syncRateLimit, requireAuth, pageBySeq<LinkDoc>('links', 'link'));
 /*
- * A file's METADATA — the sixth family, on the owner's `P-30` ruling.
+ * A file's METADATA — the sixth family, on the owner's `P-32` ruling.
  *
  * The BYTES still travel through the manifest and `/api/files`; this carries what somebody wrote about
  * them. Before it existed, a file linked to an entity on one instance sent the LINK record and not the
@@ -552,7 +552,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const chronoRaw = parsed<ChronoEntry>(Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [], IncomingChronoDoc, 'chrono');
     const linksRaw = parsed<LinkDoc>(Array.isArray(body?.links) ? body.links.slice(0, 500) : [], IncomingLinkDoc, 'link');
     /*
-     * A file's METADATA — the sixth family (`P-30`).
+     * A file's METADATA — the sixth family (`P-32`).
      *
      * A CHUNK sent here is REPORTED by `parsed` rather than stripped, because `IncomingFileMetaDoc` refuses
      * `parentFileId` outright: zod would otherwise drop the key and the chunk would land as a FILE, carrying

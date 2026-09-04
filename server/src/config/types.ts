@@ -1749,7 +1749,7 @@ export interface FileMetaDoc {
    *
    * ## Why it did not exist before, and what its absence cost
    *
-   * A file's metadata did not replicate, so it needed no place in the seq order. `P-30` made it replicate,
+   * A file's metadata did not replicate, so it needed no place in the seq order. `P-32` made it replicate,
    * and every part of the sync mechanism is seq-based: the page cursor, the watermark, and last-writer-wins.
    *
    * Its absence was also a live defect independent of sync. Two writers appending to a file's `entityIds`

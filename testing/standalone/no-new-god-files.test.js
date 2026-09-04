@@ -109,7 +109,7 @@ const FROZEN = {
   // make" moved 65 lines; a THIRD of the file was its inline template and stylesheet, which no store
   // extraction could reach, and taking those out as two components is what ended it.
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
-  // RAISED 966 -> 975 for `P-30`: a sixth sync family. The push call, the pull call, both watermark
+  // RAISED 966 -> 975 for `P-32`: a sixth sync family. The push call, the pull call, both watermark
   // entries, and the two signatures widened to accept it — every line of it is the engine deciding what
   // crosses the wire, which is what this file is for. The MERGE it needs is already elsewhere:
   // `applyFileMetaPage` lives in `api/sync/_shared.ts` beside the push path's `ingestFileMeta`, so the two
@@ -328,7 +328,7 @@ const FROZEN = {
   // NO DECOMPOSITION: splitting shared interfaces by size would put a record's fields in a different file
   // from the record, which is worse to read and worse to keep correct.
   //
-  // It is the ordering primitive `P-30` needed. A file's metadata did not replicate, so it had no place in
+  // It is the ordering primitive `P-32` needed. A file's metadata did not replicate, so it had no place in
   // the seq order — and its absence was also the only lost-update race in the brain collections, since two
   // writers appending to a file's `entityIds` had nothing to order them.
   'server/src/config/types.ts': 583,

@@ -110,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A file's METADATA now replicates — its description, tags, properties and the records attached to it.**
+- **A file's METADATA now replicates — its description, tags, properties and the records attached to it**
+  (owner's ruling `P-32`).
   The bytes have always travelled. What somebody wrote about a file did not.
 
   **That was consistent until link records started replicating.** From then on, a file linked to an entity
@@ -309,7 +310,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING: an entity must have a type.** `POST /api/brain/spaces/:spaceId/entities` used to default it
+- **BREAKING: an entity must have a type** (owner's ruling `P-31`). `POST /api/brain/spaces/:spaceId/entities` used to default it
   to the empty string. It now answers `400` without one, and the Create Entity form has a required field.
 
   **It was the only door that allowed it.** The `upsert_entity` tool, the batch importer and `bulk_write`

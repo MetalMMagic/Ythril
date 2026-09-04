@@ -62,7 +62,7 @@ export async function upsertFileMeta(
   // was that a document stopped being findable by its own opening words. Three copies of "what goes into a
   // file's embedding" existed and two of them disagreed; `buildEmbedText` is now the only one.
   if (existing) {
-    // `P-30`: an authored write advances the space counter, which is what pages this record to a peer.
+    // `P-32`: an authored write advances the space counter, which is what pages this record to a peer.
     // A re-upload can change the description, the tags and the properties, so it is an authored write.
     const $set: Record<string, unknown> = { updatedAt: now, sizeBytes, seq: await nextSeq(spaceId) };
     if (opts.description !== undefined) $set['description'] = opts.description;
@@ -162,7 +162,7 @@ export async function setDerivedDescriptionIfUnset(
       ],
     } as never),
     asUpdate<FileMetaDoc>({
-      // `P-30`: an authored write, so it advances the space counter and pages to a peer.
+      // `P-32`: an authored write, so it advances the space counter and pages to a peer.
       $set: { description, updatedAt: new Date().toISOString(), seq: await nextSeq(spaceId), ...(descriptionSource ? { descriptionSource } : {}) },
       ...(descriptionSource ? {} : { $unset: { descriptionSource: '' } }),
     }),
@@ -301,7 +301,7 @@ export async function updateFileMeta(
     }
   }
 
-  // `P-30`: the only writer of a file's three link arrays, its tags, its description and its properties —
+  // `P-32`: the only writer of a file's three link arrays, its tags, its description and its properties —
   // every one of them authored, so this advances the space counter and pages the record to a peer.
   $set['seq'] = await nextSeq(spaceId);
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
@@ -426,7 +426,7 @@ export async function markFileMetaDeleted(
   const normalised = toDocId(filePath);
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
-    // `P-30`: a deletion is an authored change. The file TOMBSTONE carries the removal to a peer; this
+    // `P-32`: a deletion is an authored change. The file TOMBSTONE carries the removal to a peer; this
     // seq is what pages the soft-deleted record itself, so a peer sees the flag rather than a record
     // that simply stopped changing.
     asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString(), seq: await nextSeq(spaceId) } }),

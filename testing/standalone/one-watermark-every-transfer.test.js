@@ -148,7 +148,7 @@ describe('every transfer under a shared watermark is passed to the rule', () => 
      *
      * **`files` used to be filtered out of this list, and the reason it gave stopped being true.** It read
      * *"a file crosses the wire as a blob plus a manifest entry, not as a document in this loop"* — correct
-     * until `P-30` made a file's METADATA replicate like every other record. A filter with a stale reason
+     * until `P-32` made a file's METADATA replicate like every other record. A filter with a stale reason
      * beside it is the shape that survives review, because the sentence still reads well.
      *
      * The transfer KEY is `filemeta` where the collection is `files`, one word apart on purpose: the route

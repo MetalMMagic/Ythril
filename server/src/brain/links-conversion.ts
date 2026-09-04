@@ -64,7 +64,7 @@ const PAGE = 200;
  *
  * ## Why it is here and not a boot migration
  *
- * `P-30` made a file's metadata replicate, and the sync mechanism is seq-ordered: the page cursor is
+ * `P-32` made a file's metadata replicate, and the sync mechanism is seq-ordered: the page cursor is
  * `seq: { $gt: n }`, which never matches a document without one. So a record stamped before 4.0 simply does
  * not page to a peer until it is next written — correct, silent, and permanent for a file nobody edits.
  *

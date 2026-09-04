@@ -72,7 +72,7 @@ import { TimestampComponent } from '../../shared/timestamp.component';
                     </select>
                   } @else {
                     <!--
-                      REQUIRED even with no declared types — owner's ruling P-29, option A. The server
+                      REQUIRED even with no declared types — owner's ruling P-31, option A. The server
                       refuses a typeless entity on every door now, and the type is what selects the property
                       schema. Free
                       TEXT rather than a picker here because a space that declares nothing has no vocabulary
@@ -340,7 +340,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     this.creatingEntity.set(true);
     this.createEntityError.set('');
     // `type` in the initialiser rather than assigned after: it is required in the signature now, which is
-    // what makes a second caller unable to omit it and find out from a 400. Owner's ruling `P-29`.
+    // what makes a second caller unable to omit it and find out from a 400. Owner's ruling `P-31`.
     const body: Parameters<BrainApi['createEntity']>[1] = {
       name: this.entityForm.name.trim(),
       type: this.entityForm.type.trim(),

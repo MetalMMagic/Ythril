@@ -135,7 +135,10 @@ describe('the MCP entity delete carries the REST route’s referential guard', (
     // The floor: if that module were gutted, both cases above would still pass while nothing was enforced.
     const guard = read('server/src/brain/entity-delete-guard.ts');
     assert.match(guard, /isStrictLinkage\(spaceId\)/, 'the guard does not consult the opt-out');
-    assert.match(guard, /findEntityReferences\(spaceId, entityId\)/, 'the guard does not look for references');
+    // The third argument is the record KIND, added in 4.0 so a memory or chrono entry can be the target too.
+    // Matched loosely on the two that matter: pinning the exact argument list is a check on a signature
+    // rather than on the guard doing its job, and it went red on the change that widened it.
+    assert.match(guard, /findEntityReferences\(spaceId, entityId/, 'the guard does not look for references');
     assert.match(guard, /b\.type !== 'face'/, 'the face exemption is nowhere');
   });
 

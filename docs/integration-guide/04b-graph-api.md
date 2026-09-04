@@ -455,6 +455,20 @@ to the scan that refuses a delete, and to the check sync runs on arriving record
 makes a link durable rather than a second opinion: an ordinary `PATCH` of the memory would otherwise
 silently drop a link record the array never claimed.
 
+**On a CONVERTED space the arrays stop being a write surface.** Once `npm run links:convert` has finished a
+space, `completeLinkage` is set on it and a body carrying `entityIds`, `memoryIds` or `chronoIds` is refused
+with a `400` naming this endpoint. The fields are still READ, still stored and still replicated — nothing you
+have is lost, and nothing changes on a space you have not converted.
+
+Three things it deliberately never does:
+
+- **It is not `validationMode: strict`.** That governs schema rules and is already set on live spaces;
+  hung off it, every one of them would start refusing on upgrade.
+- **It never applies to records arriving from a peer.** Sync ingest is validated, counted and let in — a
+  refusal there would hold the watermark and the channel would stop.
+- **It never applies to a write that does not MENTION an array.** A `PATCH` of a memory's `fact` on a record
+  still carrying a legacy array succeeds, or every unconverted record would become uneditable.
+
 **There is no `GET`.** Links are a queryable collection like any other — `POST /api/brain/spaces/:spaceId/query`
 with `collection: "links"` and the full filter grammar. A list endpoint here would be a second, weaker copy
 of it.

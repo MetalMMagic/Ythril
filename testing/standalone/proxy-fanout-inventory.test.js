@@ -138,7 +138,19 @@ const RECLASSIFIED = 1;
  * The REST route it mirrors has always summed across members with `memberSpacesForRequest`; the tool narrows
  * with `memberSpacesWithin` and retries every member, because asking a proxy to retry means all of them.
  */
-const TOTAL = 40;
+/**
+ * 40 -> 42: the memory and chrono DELETE routes.
+ *
+ * Both used to hand `findFirstAcrossMembers` a closure and never name the member list, so neither was a
+ * visible fan-out. `M-2` made a delete refusable — something can point at a memory or a chrono entry now, and
+ * under strict linkage that blocks — so each route walks the members itself, checks the guard, and answers
+ * `409` with the referring rows. The scope did not widen: `memberSpacesForRequest` is the same narrowing
+ * `findFirstAcrossMembers` was applying, said out loud.
+ *
+ * The number moving up as narrowing becomes explicit is the healthy direction for this invariant, and is why
+ * the note above says so.
+ */
+const TOTAL = 42;
 
 const GUARDS = {
   'server/src/auth/middleware.ts': 2,

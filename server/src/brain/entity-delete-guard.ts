@@ -27,6 +27,7 @@ import { col, asFilter } from '../db/mongo.js';
 import type { EdgeDoc } from '../config/types.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
 import { findEntityReferences, type BacklinkEntry } from './entities.js';
+import type { RefKind } from '../config/types-knowledge.js';
 
 /** What blocks a delete, and the sentence to say about it. `null` from the check means "go ahead". */
 export interface EntityDeleteBlock {
@@ -85,10 +86,22 @@ async function endsOfEdges(spaceId: string, entityId: string, ids: readonly stri
  * setting one door eventually stops honouring. A space that opted out gets `null` whatever is pointing at the
  * record, which is what the opt-out is bought for.
  */
-export async function entityDeleteBlockers(spaceId: string, entityId: string): Promise<EntityDeleteBlock | null> {
+/**
+ * What stops this record being deleted, or `null` if nothing does.
+ *
+ * **`targetKind` since 4.0**, defaulting to `entity` because that is every existing caller. Until `M-2` gave
+ * the three unread link fields a reader, deleting a memory that a chrono entry named was never refused —
+ * even under `strictLinkage`, which is the strongest setting on offer — because nothing could see the
+ * reference. The chrono entry was then left pointing at a record that does not exist, which is the outcome
+ * the setting is bought to prevent.
+ *
+ * It is a BEHAVIOUR CHANGE a running script can hit, which is why it is in the deprecation notice for the six
+ * array fields rather than only in a changelog line about them.
+ */
+export async function entityDeleteBlockers(spaceId: string, entityId: string, targetKind: RefKind = 'entity'): Promise<EntityDeleteBlock | null> {
   if (!isStrictLinkage(spaceId)) return null;
 
-  const found = await findEntityReferences(spaceId, entityId);
+  const found = await findEntityReferences(spaceId, entityId, targetKind);
   if (found.length === 0) return null;
 
   const ends = await endsOfEdges(spaceId, entityId,
@@ -108,8 +121,8 @@ export async function entityDeleteBlockers(spaceId: string, entityId: string): P
   if (blocking.length === 0) return null;
 
   return {
-    message: `Cannot delete: entity still has references — ${blocking.map(describe).join(', ')}. `
-      + 'Delete or relink those first; there is no cascade delete for an entity.',
+    message: `Cannot delete: ${targetKind} still has references — ${blocking.map(describe).join(', ')}. `
+      + `Delete or relink those first; there is no cascade delete for ${targetKind === 'entity' ? 'an entity' : `a ${targetKind}`}.`,
     backlinks,
     blocking,
   };

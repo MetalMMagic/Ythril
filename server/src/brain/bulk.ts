@@ -13,6 +13,8 @@
 
 import { col, asFilter } from '../db/mongo.js';
 import { primitivePropertyError } from './property-values.js';
+import { arrayWriteError } from './array-write-refusal.js';
+import { usesLinkRecords } from './link-adjacency.js';
 import { getConfig } from '../config/loader.js';
 import {
   resolveMetaRefs, getAllowedChronoTypes, validateMemory, validateEntity, validateEdge, validateChrono,
@@ -94,6 +96,15 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
   const meta = metaRaw ? resolveMetaRefs(metaRaw) : undefined;
   const mode = meta?.validationMode ?? 'off';
   const strict = isStrictLinkage(spaceId);
+  /*
+   * `M-2`: on a converted space the six link arrays are no longer a write surface.
+   *
+   * Resolved ONCE for the batch rather than per item — the marker is a property of the space, and reading
+   * config inside a loop over a thousand items is a thousand lookups of a value that cannot change between
+   * them. Each item is still refused individually, so a batch reports which of its items were the problem
+   * instead of failing whole.
+   */
+  const converted = usesLinkRecords(spaceId);
 
   const inserted: Counts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
   const updated: Counts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
@@ -117,6 +128,8 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const properties = optProps(item['properties']);
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'memory', index: i, reason: TTL_INVALID_MSG }); continue; }
+    const linkArrErr = arrayWriteError(converted, item);
+    if (linkArrErr) { errors.push({ type: 'memory', index: i, reason: linkArrErr }); continue; }
     // Memory items were the one bulk shape with no reference check at all — edges and chrono both
     // had one. Format only, like the rest of bulk: a payload may legitimately reference an entity
     // created earlier in the SAME payload, so an existence check here would reject valid forward
@@ -257,6 +270,8 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (!title) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' }); continue; }
     if (!allowedChronoTypes.has(type)) { errors.push({ type: 'chrono', index: i, reason: `\`type\` must be one of: ${[...allowedChronoTypes].join(', ')}` }); continue; }
     if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
+    const chronoLinkArrErr = arrayWriteError(converted, item);
+    if (chronoLinkArrErr) { errors.push({ type: 'chrono', index: i, reason: chronoLinkArrErr }); continue; }
     const entityIds = optStrArray(item['entityIds']);
     const memoryIds = optStrArray(item['memoryIds']);
     if (strict && entityIds && entityIds.some(id => !UUID_V4_RE.test(id))) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }

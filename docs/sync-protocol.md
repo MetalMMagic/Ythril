@@ -14,7 +14,7 @@ A sync cycle for a single member consists of these phases in order:
 |-------|-----------|-------------|
 | **Warm-up** | us → peer | `POST /api/sync/warm` asks the peer to eagerly warm its embedding model, bcrypt token cache, and MongoDB collection handles before the real work starts; local collections are warmed in parallel. Best-effort. |
 | **Gossip** | us ↔ peer | Exchange member identity records (label, URL, children, signing keys) |
-| **Vote propagation** | us ↔ peer | Push local vote casts, pull the peer's rounds, conclude rounds |
+| **Vote propagation** | us ↔ peer | Pull the peer's rounds, push local vote casts, conclude rounds |
 | **Pull** | peer → us | Fetch everything the peer has that we haven't seen yet |
 | **Push** | us → peer | Upload everything we have that the peer hasn't seen yet |
 | **File sync** | us ↔ peer | Exchange file tombstones, download files we lack, push files the peer lacks |
@@ -41,7 +41,9 @@ For non-directional networks (`closed`, `democratic`, `club`), pull and push alw
 Sync can be triggered two ways:
 
 - **Scheduled** — `syncSchedule` on the network config starts a node-cron task per network at startup. A standard cron expression only (e.g. `"*/5 * * * *"`, `"0 * * * *"`), refused with a `400` if the scheduler could not run it. The legacy shorthands `"*/N minutes|hours"` and `"every Nm|Nh"` were removed in 4.0: a stored one is rewritten to its cron form at boot, and sending one is refused with the expression it used to mean.
-- **Manual** — `POST /api/notify/trigger { networkId }` starts the cycle asynchronously (fire-and-forget) and returns `{ status: 'triggered', networkId }` immediately — a full cycle can run for minutes, so the HTTP response never waits on it. Results surface in the per-network sync history and logs. (The admin UI's `POST /api/networks/:id/sync` behaves the same way, returning `{ ok: true }`.)
+- **Manual** — `POST /api/notify/trigger { networkId }` starts the cycle and returns `{ status: 'triggered', networkId }` immediately. Results surface in the per-network sync history and logs. (The admin UI's `POST /api/networks/:id/sync` behaves the same way, returning `{ ok: true }`.)
+
+  **`?wait=true` makes it synchronous instead**, answering `{ status: 'completed', networkId, synced, errors }` when the cycle finishes — bounded by `?timeoutMs` (default 30 000, clamped 1 000–120 000), which answers `504 { status: 'timeout', networkId, timeoutMs }` if the bound is reached. A cycle can run for minutes, so the default is still fire-and-forget; this paragraph used to say the response *"never waits on it"*, full stop, which left the one mode a caller reaches for when scripting a sync undocumented.
 
 ---
 
@@ -56,9 +58,9 @@ Four high-water marks are kept per member. The first two prevent redundant data 
 | `lastSeqServed[spaceId]` | `Record<string,number>` | Highest `sinceSeq` this peer has pulled **our** tombstones from — its confirmed position in our data ([details](#lastseqserved--the-mirror-watermark-and-why-tombstone-retention-needs-it)) |
 | `lastFileTombstoneAckedAt[spaceId]` | `Record<string,string>` | Newest `deletedAt` among FILE tombstones this peer answered `200` to on a push ([details](#lastfiletombstoneackedat--the-same-bound-for-file-tombstones-from-acknowledgement)) |
 
-All three are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced past the failure — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
+All four are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced past the failure — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
 
-**One watermark, six transfers, and that is what "the last safe point" has to mean.** A cycle runs six independent transfers under each watermark — tombstones plus memories, entities, edges, chrono and links — and any one of them can stop early: a non-`2xx` from the peer, or its page cap. **The watermark advances only as far as EVERY transfer in the cycle is complete through.** A transfer that finished places no limit; one that stopped early limits the advance to the last position it actually delivered, and the lowest such limit wins.
+**One watermark, seven transfers, and that is what "the last safe point" has to mean.** A cycle runs seven independent transfers under each watermark — tombstones plus memories, entities, edges, chrono, links and FILE METADATA — and any one of them can stop early: a non-`2xx` from the peer, or its page cap. **The watermark advances only as far as EVERY transfer in the cycle is complete through.** A transfer that finished places no limit; one that stopped early limits the advance to the last position it actually delivered, and the lowest such limit wins.
 
 Before 3.2.0 both watermarks were set to the *maximum* across the transfers, which is only correct when all of them finished. A memories push that failed at seq 300, in a cycle where the entities push succeeded to seq 500, moved the watermark to 500 — and the memory at seq 400 was behind it permanently, re-sent by nothing, while every later cycle reported success. A held-back cycle now says so in the log, naming which transfers stopped, because a watermark quietly staying put reads exactly like a cycle with nothing to do.
 
@@ -102,11 +104,12 @@ GET /api/sync/entities?...                                                  (cei
 GET /api/sync/edges?...                                                     (ceil(N/200) requests)
 GET /api/sync/chrono?...                                                    (ceil(N/200) requests)
 GET /api/sync/links?...                                                     (ceil(N/200) requests)
+GET /api/sync/filemeta?...                                                  (ceil(N/200) requests)
 ```
 
 ### Why `?full=true`
 
-Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the caller would need a second `GET /api/sync/memories/:id` request per document to fetch the full content — **N additional round-trips** per sync cycle. Each family has that per-document route: `GET /api/sync/entities/:id`, `GET /api/sync/edges/:id`, `GET /api/sync/chrono/:id` and `GET /api/sync/links/:id`.
+Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the caller would need a second `GET /api/sync/memories/:id` request per document to fetch the full content — **N additional round-trips** per sync cycle. Each family has that per-document route: `GET /api/sync/entities/:id`, `GET /api/sync/edges/:id`, `GET /api/sync/chrono/:id`, `GET /api/sync/links/:id` and `GET /api/sync/filemeta/:id`.
 
 With `?full=true` the full document payload is embedded in the paginated list response. The pull phase is `ceil(N/200)` requests regardless of how many documents exist.
 
@@ -157,7 +160,7 @@ The prune (`brain/tombstone-prune.ts`, every 6 h) therefore deletes tombstones w
 |---|---|
 | a member has no `lastSeqServed` for the space | **no prune** — including every member until it pulls once after upgrading |
 | the minimum is 0 | **no prune** |
-| a `peerInstanceId` token is scoped to the space but has no member entry | **no prune** — it can pull and has nowhere to record a position (`TokenRecord.spaces` omitted means *all* spaces) |
+| a `peerInstanceId` token is scoped to the space but has no member entry | **no prune** — it can pull and has nowhere to record a position |
 | no network carries the space **and** no peer token reaches it | prune everything — the single-instance case |
 | `member.direction === 'push'` | still counted; direction governs our outbound behaviour, not what a peer may `GET` |
 
@@ -168,7 +171,8 @@ File tombstones carry no `seq` (they are keyed by `deletedAt`) and their pull is
 `lastFileTombstoneAckedAt[spaceId]` is the newest `deletedAt` in a set the member answered 200 to, and the prune deletes file tombstones at or below `min()` of it across the space's members. Three rules make it safe:
 
 - **The position comes from the array that was sent**, never from a fresh query — a file deleted between building the body and reading the reply was not in the payload.
-- **Only a 200 counts.** A 403 (direction-blocked peer) or a timeout leaves the position unknown, which blocks pruning. `applied: 0` still counts: the upsert is idempotent, so a peer that already held them all legitimately answers zero.
+- **Only a 200 counts.** A 403 (direction-blocked peer) or a timeout leaves the position unknown, which blocks pruning.
+- **`applied` is not a count of what CHANGED, and `applied: 0` is not proof of receipt.** The receiver increments it for every element that passes a shape check (`_id` present, `path` a string) and a path-traversal guard, whether or not the upsert inserted anything — so an already-held tombstone still counts. What it does NOT count is an element it rejected, and it rejects them **silently**. So `applied` short of the number you sent means that many were thrown away, and `applied: 0` on a non-empty push means **every** element was. This paragraph used to say the opposite — that zero was the legitimate answer from a peer that already had them — and then told you to prune on it.
 - **Timestamps are compared only in the fixed-width `…Z` form**, which sorts lexically. An offset form (`+02:00`) sorts later while being earlier in real time, so anything else is treated as unknown rather than compared.
 
 **The file-tombstone pull is deliberately NOT filtered by `since`.** A file tombstone carries its original `deletedAt` and can reach a peer long after that timestamp — a third instance's old deletion relayed onward, or a peer back from a week offline. `deletedAt > since` would skip exactly those, and the file they should delete would stay. The payload concern such a filter would address is answered by the prune instead: once every peer's copy is bounded, the full set is small.
@@ -194,7 +198,7 @@ If the peer has never been synced (`lastSeqPushed` = 0), the full history is sen
 
 ### `POST /batch-upsert`
 
-Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], chrono?: ChronoEntry[], links?: LinkDoc[] }` in a single request. Up to 500 documents per type per request. The server applies the same conflict rules as the individual `POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono` endpoints:
+Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], chrono?: ChronoEntry[], links?: LinkDoc[], filemeta?: FileMetaDoc[] }` in a single request. **An array the receiver does not read is dropped with a `200`**, so a peer built without `filemeta` loses every file description, tag and link array at the boundary — and nothing says so at either end. Up to 500 documents per type per request. The server applies the same conflict rules as the individual `POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono` endpoints:
 
 | Type | Rule |
 |------|------|
@@ -203,7 +207,11 @@ Accepts `{ memories?: MemoryDoc[], entities?: EntityDoc[], edges?: EdgeDoc[], ch
 | Edges | same as entities |
 | Chrono | same as entities |
 
-Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned}, entities: {upserted,skipped,tombstoned}, edges: {upserted,skipped,tombstoned}, chrono: {upserted,skipped,tombstoned}, links: {upserted,skipped,tombstoned} }`
+Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,forkDepthRefused,tombstoned,schemaViolations}, entities: {upserted,skipped,tombstoned,schemaViolations}, edges: {upserted,skipped,tombstoned,schemaViolations,duplicateTriplets}, chrono: {upserted,skipped,tombstoned,schemaViolations,unknownType}, links: {upserted,skipped,tombstoned} }`
+
+**Four of those counters were undocumented, and one of them is the sender's only report of a PERMANENT loss.** `skipped` means the peer was already current, which is benign. `forkDepthRefused` means a record was DROPPED and will not be retried — the push path reads exactly that field to report a refusal, so a receiver that does not emit it makes the loss silent at both ends. `schemaViolations` counts documents stored despite failing the RECEIVER's schema (validated, counted and let in — see the ingest rule below); `duplicateTriplets` counts edges the unique index rejected; `unknownType` counts the case below.
+
+**`filemeta` is accepted and applied, and is NOT in the response.** Six arrays go in and five sets of counters come back, so a sender has no way to tell whether its file metadata landed. The receiver does count it internally and only logs it. Tracked as `Q-1a`.
 
 **A link has no fork counter, and that is a property of the record rather than an omission.** A fork exists
 because two peers can write different CONTENT under one id at one `seq`. A link record is two endpoints and
@@ -246,7 +254,8 @@ Entities and edges are structural metadata (names, relationships). They use a si
 
 | Constant | Value | Applied to |
 |----------|-------|------------|
-| `FETCH_TIMEOUT_MS` | 10 s | Tombstone requests, individual per-doc requests (legacy), manifest requests, file downloads |
+| `FETCH_TIMEOUT_MS` | 10 s | Tombstone requests, individual per-doc requests (legacy), manifest requests |
+| *(whole-file transfer budget)* | 10 min | File UPLOADS to a peer. A source constant with no environment variable — naming it here would invite you to set something that is not settable |
 | `BATCH_FETCH_TIMEOUT_MS` | 60 s | `GET /memories?full=true`, `GET /entities?full=true`, `GET /edges?full=true`, `POST /batch-upsert` |
 
 The separation prevents a single slow 800 KB batch payload from being aborted by the 10 s timeout while also preventing a timed-out offline peer from holding up a sync cycle for more than 10 s per non-batch call.
@@ -310,13 +319,21 @@ After document sync, the engine performs a manifest-based file sync. It is bidir
 4. **Divergence → conflict, never overwrite** — when a file exists on both sides with different hashes, the engine does **not** overwrite the local copy. It writes the peer's version as a conflict copy alongside and records a `ConflictDoc`, surfaced in **Workspace → Conflicts** for the user to resolve.
 5. **Push** — files the peer lacks (or holds an older `modifiedAt` for) are uploaded to it.
 
-Manifest requests and individual downloads use the 10 s timeout; the batch-style transfer operations use the 60 s batch timeout. Files that time out are retried on the next cycle.
+Manifest requests use the 10 s timeout and batch-style transfers the 60 s one. A whole file body gets the ten-minute transfer budget, because a 10 s ceiling on a multi-megabyte upload aborts it on any ordinary link.
+
+**A file DOWNLOAD does not get that budget today, and it is a defect rather than a policy.** The call passes the transfer budget alongside a request that already carries the 10 s signal, and the signal wins — so any file whose body takes longer than ten seconds to arrive aborts, logs, and is retried identically on every cycle, for ever. Tracked as `Q-1a`.
 
 ---
 
 ## Merkle divergence check (opt-in)
 
-With `merkle: true` on the network config, the engine ends each per-space sync by comparing content roots with the peer: it computes the local Merkle root (embeddings excluded from hashing) and fetches the peer's via `GET /api/sync/merkle?spaceId=&networkId=`. Matching roots log `Merkle OK`; a mismatch logs a loud `MERKLE_DIVERGENCE` warning naming the space, peer, and both roots with leaf counts — the space contents differ *after* sync, indicating possible data loss, a concurrent write, or a sync bug. This is **detection only**: nothing is auto-repaired, and any failure in the check itself (peer error, missing field) degrades to a warning without affecting the sync result.
+With `merkle: true` on the network config, the engine ends each per-space sync by comparing content roots with the peer: it computes the local Merkle root and fetches the peer's via `GET /api/sync/merkle?spaceId=&networkId=`.
+
+**The algorithm, because a root cannot be reproduced from a prose summary.** Each brain document contributes a leaf `SHA-256("doc:<collection>:<_id>:<seq>:<sha256(canonical JSON)>")` over **all six** collections — memories, entities, edges, chrono, links and files — and each file manifest entry contributes `SHA-256("file:<path>:<sha256>")`. Leaves are sorted lexicographically; an odd level duplicates its last node; an empty tree is `SHA-256("")`. File CHUNK records are excluded by a `parentFileId: {$exists: false}` filter, so a chunked file contributes its parent only.
+
+**What is left out of a document's hash is five fields, not "embeddings"** — `embedding`, `embeddingModel`, `matchedText`, `_expireAt` and `_contentExpireAt`. The first three are derived by the local embedding model and the last two by the local retention policy, so none of them can travel: peers running different models hold different vectors for identical content, and a retention stamp would let one instance decide when another deletes its data.
+
+**And `files` runs the opposite way round.** The five other collections EXCLUDE those fields from an otherwise-complete document; a file record has thirty-odd fields, most of them local machinery, so it is hashed from an INCLUSION list of its sixteen authored keys instead. A field added to a file record is therefore outside the hash until it is added to that list — the reverse of the rule for every other collection, and the direction that fails silently. Matching roots log `Merkle OK`; a mismatch logs a loud `MERKLE_DIVERGENCE` warning naming the space, peer, and both roots with leaf counts — the space contents differ *after* sync, indicating possible data loss, a concurrent write, or a sync bug. This is **detection only**: nothing is auto-repaired, and any failure in the check itself (peer error, missing field) degrades to a warning without affecting the sync result.
 
 ---
 
@@ -358,15 +375,21 @@ The two **governance relays** — `POST /networks/:networkId/members` and `POST 
 | `GET` | `/api/sync/edges/:id` | `spaceId`, `networkId` | Full `EdgeDoc` |
 | `GET` | `/api/sync/chrono` | same as memories | `{ items[], nextCursor }` |
 | `GET` | `/api/sync/chrono/:id` | `spaceId`, `networkId` | Full `ChronoEntry` |
-| `GET` | `/api/sync/tombstones` | `spaceId`, `networkId`, `sinceSeq` | `{ memories[], entities[], edges[], chrono[] }` |
-| `GET` | `/api/sync/file-tombstones` | `spaceId`, `networkId` | `{ tombstones[] }` |
-| `GET` | `/api/sync/manifest` | `spaceId`, `networkId` | `{ manifest[{ path, sha256, size, modifiedAt }] }` |
-| `GET` | `/api/sync/merkle` | `spaceId`, `networkId` | `{ root, leafCount }` (only used when `network.merkle: true`) |
+| `GET` | `/api/sync/links` | same as memories | `{ items[], nextCursor }` |
+| `GET` | `/api/sync/links/:id` | `spaceId`, `networkId` | Full `LinkDoc` |
+| `GET` | `/api/sync/filemeta` | same as memories | `{ items[], nextCursor }` |
+| `GET` | `/api/sync/filemeta/:id` | `spaceId`, `networkId` | Full `FileMetaDoc` |
+| `GET` | `/api/sync/tombstones` | `spaceId`, `networkId`, `sinceSeq`, `limit` (default 1000, max 5000) | `{ memories[], entities[], edges[], chrono[], links[] }` |
+| `GET` | `/api/sync/file-tombstones` | `spaceId`, `networkId`, `since` | `{ tombstones[] }` |
+| `GET` | `/api/sync/manifest` | `spaceId`, `networkId`, `since` | `{ manifest[{ path, sha256, size, modifiedAt }] }` |
+| `GET` | `/api/sync/merkle` | `spaceId`, `networkId` | `{ spaceId, root, leafCount, computedAt, networkId }` (only used when `network.merkle: true`) |
 | `GET` | `/api/sync/networks/:networkId/members` | `networkId` | `{ members[{ instanceId, label, url, direction, … }], updatedAt }` |
 
 There is no dedicated identity endpoint — a peer that needs the instance's identity calls the regular authenticated `GET /api/about` (`{ instanceId, instanceLabel, version, … }`), and identity also arrives on every cycle via the gossip `self` record.
 
 `?full=true` on the list endpoints returns complete documents instead of `{_id,seq}` stubs. Maximum `limit` is 500. Tombstone stubs (items with `deletedAt`) are always appended to list responses regardless of `full` mode.
+
+**`links` and `filemeta` had no rows in this table until 2026-09-04, and `tombstones` was missing its `links[]` key.** Both are consequences of one thing: file metadata became the sixth replicated family and links the fifth, and the places that enumerate the families were not derived from anything. A peer built from the old table serves neither, drops both on the way in, and never propagates a link deletion — and because `merkle` hashes all six collections, its root then diverges permanently on data that is not actually different. The advisory nature of that check is what makes it worse: nothing contradicts the warning, so an operator learns to ignore the one signal that means data really is missing.
 
 ### Write endpoints (called during push)
 
@@ -374,14 +397,18 @@ There is no dedicated identity endpoint — a peer that needs the instance's ide
 |--------|------|------|---------|
 | `POST` | `/api/sync/memories` | `MemoryDoc` | `200 { status: 'inserted'\|'updated'\|'forked'\|'skipped'\|'tombstoned' }` — the `'forked'` case also returns `forkId` (the new fork document's `_id`) |
 | `POST` | `/api/sync/entities` | `EntityDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
-| `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
+| `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }`, `'tombstoned'`, or **`'duplicate'`** when the unique `(from, fromKind, to, toKind)` index rejects the insert |
 | `POST` | `/api/sync/chrono` | `ChronoEntry` | `200 { status:'ok' }` (or `'tombstoned'`) |
-| `POST` | `/api/sync/batch-upsert` | `{ memories?, entities?, edges?, chrono? }` | `200 { status:'ok', memories:{…}, entities:{…}, edges:{…}, chrono:{…} }` |
+| `POST` | `/api/sync/batch-upsert` | `{ memories?, entities?, edges?, chrono?, links?, filemeta? }` | `200 { status:'ok', memories:{…}, entities:{…}, edges:{…}, chrono:{…}, links:{…} }` — six arrays in, five sets of counters out |
 | `POST` | `/api/sync/tombstones` | `{ tombstones[] }` | `200 { applied: N }` |
-| `POST` | `/api/sync/file-tombstones` | `{ tombstones[] }` | `200 { applied: N }` |
-| `POST` | `/api/sync/warm` | `{ networkId, spaces[] }` | `200` once the embedding model, token cache, and collection handles are warm |
+| `POST` | `/api/sync/file-tombstones` | **`{ spaceId, tombstones[] }`** — `spaceId` in the BODY, not the query; absent it answers `400 { error: 'spaceId required' }` | `200 { applied: N }` |
+| `POST` | `/api/sync/warm` | `{ networkId, spaces[] }` | `200` once the embedding model, token cache and collection handles are warm. It touches `memories`, `entities`, `edges` and `chrono` only, and results are discarded |
 
-All write endpoints enforce direction policy: if the caller's `member.direction === 'push'` in the network, the server returns `403`. See [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints).
+**Direction is enforced on `braintree` and `pubsub` networks only**, and this paragraph used to state it of every write endpoint on every network. A peer whose `member.direction === 'push'` — we push to them, so they should not be writing to us — is refused with a `403` on those two types. On any other type carrying the space the write is allowed, which is deliberate: direction is a topology property of a tree and a publisher, and a `closed` or `club` network has no upstream to protect. See [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints).
+
+**And two of these endpoints enforce less than the sentence above implied.** `POST /api/sync/warm` sits behind authentication and nothing else — no peer gate, no direction, no space scope — which costs nothing because it discards its results, but it is not what "all write endpoints" said. Direction is also read from the CALLER's peer identity, so a token with no `peerInstanceId` is not direction-checked at all; the peer-or-admin requirement is what stands in front of that.
+
+**There is no single-document route for `links` or `filemeta`.** Both arrive only through `batch-upsert`, so a peer implementation that only wires the per-type `POST` endpoints replicates neither.
 
 `POST /batch-upsert` is the primary push path used by the engine. The individual `POST /memories`, `/entities`, `/edges` endpoints remain for backwards compatibility and direct API usage.
 
@@ -425,19 +452,39 @@ With `requireSignedVotes: true` on the network, only signed-and-verified casts a
 
 ---
 
+## A chrono type the RECEIVER does not know is dropped
+
+A space may declare its own chrono vocabulary in `meta.typeSchemas.chrono`. When it declares any, that set
+is the whole permitted list — and it is the RECEIVER's list that applies, which follows from the ingest
+rule above: a peer validated the record against its own schema, and this instance validates against its.
+
+**The two doors answer differently, and the batch one is the quiet half.** A single
+`POST /api/sync/chrono` refuses an unknown type with a `400`. In `batch-upsert` the entry is SKIPPED,
+counted as `unknownType`, and the response is `200` — so a sender advances `lastSeqPushed` past a record
+the receiver never stored, and nothing re-sends it.
+
+So two instances that both declare chrono vocabularies, and do not declare the same one, silently do not
+replicate the entries whose types differ. Read `chrono.unknownType` on the batch response: it is the only
+signal, and it is the reason that counter is in the documented response shape above.
+
+---
+
 ## Vote propagation phase
 
 Directly after the gossip (member identity) exchange — still ahead of the data phases — the engine runs a vote propagation pass with each peer:
 
-1. **Push casts** — for each local vote round — including already-concluded ones, so that a round-concluding cast still reaches peers that have not concluded yet — each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId, sig, castAt }`, forwarding the voter's signature so the peer can verify and relay it onward. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
+**Pull before push, and the order is load-bearing.** Adopting the peer's rounds first means a cast this
+instance is about to relay has a round to land on. This list used to run the other way round, which is the
+silently-skipped `404` in step 2: a cast pushed for a round the peer has not yet adopted.
 
-2. **Pull rounds** — `GET /api/sync/networks/:networkId/votes` fetches the peer's open rounds. For each round:
+1. **Pull rounds** — `GET /api/sync/networks/:networkId/votes` fetches the peer's open rounds. For each round:
    - **New round**: if the round does not exist locally, it is adopted into `pendingRounds` (with an empty `votes` array); votes are then merged in the same pass.
    - **Vote merge**: each cast from the peer's round is accepted only if it passes the signature/own-cast check above (a forged cast attributed to another member is dropped). The cast — including its signature — is stored verbatim so it can be relayed onward unchanged. If the same voter's cast changes (e.g., `yes` → `veto`), the local cast is replaced.
 
+2. **Push casts** — for each local vote round — including already-concluded ones, so that a round-concluding cast still reaches peers that have not concluded yet — each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId, sig, castAt }`, forwarding the voter's signature so the peer can verify and relay it onward. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
 3. **Round conclusion** — after all merges, `concludeRoundIfReady` is evaluated for every open local round. Unanimous-type networks (closed, braintree) require every listed remote member to have individually cast `yes`; a single outstanding member prevents conclusion. For **braintree** rounds the required-voter set (ancestor path) is recomputed from the local topology at conclusion, never trusted from the adopted round, so a peer cannot shrink it. Democratic networks use a simple majority count. Club networks conclude on the first `yes`.
 
-4. **Side effects** — if a `space_deletion` round concludes with zero vetoes, the space is removed from the local instance asynchronously. A `space_wipe` round behaves the same way but EMPTIES the space instead of removing it, wiping exactly the collections named on the round (all five when it names none). Both are applied through one function called from all three conclusion paths — an operator's own vote, a peer's vote arriving, and the gossip pass.
+4. **Side effects** — if a `space_deletion` round concludes with zero vetoes, the space is removed from the local instance asynchronously. A `space_wipe` round behaves the same way but EMPTIES the space instead of removing it, wiping exactly the collections named on the round (**all six** when it names none — memories, entities, edges, chrono, files and links; this said five, and `links` was the one it left out). Both are applied through one function called from all three conclusion paths — an operator's own vote, a peer's vote arriving, and the gossip pass.
 
 This means a vote cast on any peer propagates to all other peers within one gossip cycle per hop, and a round concludes independently on each instance as soon as it has received enough votes to satisfy its network's pass condition.
 

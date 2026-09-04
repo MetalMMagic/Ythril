@@ -30,8 +30,15 @@ The left sidebar is the main navigation. It is divided into two sections:
 
 ### Admin (admin tokens only)
 
-- **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates,
-  Help, About
+- **Settings** → Tokens, Spaces, Metrics, Networks, Preferences, Logs, Database, Webhooks,
+  Media Processing, Embedding, Help, About
+
+  > **Five of these were named by an older label and two were missing.** Storage is now **Metrics**,
+  > Audit Log is **Logs**, Data is **Database**, Models is **Media Processing** — and **Webhooks** and
+  > **Embedding** were absent from the list entirely. **Duplicates** was listed and is not a sidebar
+  > entry: it is a tab inside the Brain, and the old settings URL redirects there. The body text on
+  > [Storage, data and audit](05-storage-data-and-audit.md) already used the current names, so this
+  > list was the only page still on the old ones.
 
 Most pages carry a small **Help** link in their top-right corner. It opens the guide at the *section*
 that documents that page — not the top of it. Pages with no section yet show no link, so an empty-handed
@@ -44,7 +51,9 @@ in place. It needs no internet connection, which is the point: the installs that
 documentation are often the ones with no route to the outside. Each guide has its own link
 (`/settings/help?doc=userguide`), so a page can point at the guide that explains it.
 
-There is no global space selector in the sidebar. Space switching happens per page — the Brain page shows a row of space chips, and the Graph tab has its own space picker in the toolbar. Everything you see is scoped to the space you pick there.
+There is no global space selector in the sidebar. Space switching happens per page — the Brain page shows a row of space chips **above the tab strip**, and every tab inside it, the Graph included, follows that choice. Everything you see is scoped to the space you pick there.
+
+> This said the Graph tab has *"its own space picker in the toolbar"*. It does not: that toolbar holds an > entity search, a depth slider, direction pills, a labels toggle, stats, fit and reset. The Graph page > does have space chips of its own, and they are hidden when it is embedded in the Brain — which is the > only way you reach it as a tab.
 
 **Embedded mode:** loading the app with `?embedded=1` on the URL hides the topbar (logo and **Sign out**) so Ythril can sit cleanly inside a host portal's own chrome. Navigation is unaffected — it lives in the sidebar. Trusted host origins that may iframe Ythril and push theme tokens are listed in `embed.allowedOrigins` in the config; empty or absent means same-origin only.
 

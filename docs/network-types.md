@@ -516,7 +516,20 @@ Regardless of network type:
 
 - **Any member can leave at any time**, unilaterally, without a vote.
 - The leaver **keeps all data** on their own machine. This is physically unavoidable and explicitly accepted by all parties when they join.
-- **Force-delete does not exist.** There is no mechanism to delete data from another member's instance. Network membership (who syncs with whom) is governable; what someone does with their local copy is not.
+- **A vote CAN delete or empty a space on every member, and that is what `space_deletion` and `space_wipe`
+  rounds are.** A proposal opens on every network holding the space; when it concludes, each member
+  applies it to its own copy. So the boundary is not "nobody can touch your data" — it is that the
+  decision is governed by the network's own rules.
+
+  **Read your network type before relying on that.** On `club` and `pubsub` a round passes on a single
+  yes with no veto, so one member can empty or delete the space everywhere. On `closed` and `braintree`
+  every listed member has to agree, and on `democratic` it is a majority.
+
+  > This bullet read *"Force-delete does not exist. There is no mechanism to delete data from another
+  > member's instance"*. The mechanism is the wipe vote, and on two of the five types it needs one
+  > participant.
+
+- What someone does with their local copy after leaving is not governable.
 - A departed member may found their own new network from their copy of the data.
 
 ```mermaid

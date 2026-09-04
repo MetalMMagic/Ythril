@@ -538,7 +538,7 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 
 Any other field is a `400`. See **Unknown body fields are refused** below.
 
-**`links` is read-only through this route and has no write door of its own.** A link record says that one
+**`links` is read-only through THIS route, and it does have write doors of its own** — `POST /api/brain/spaces/:spaceId/links` and `DELETE /api/brain/spaces/:spaceId/links/:id`, with `upsert_link` and `delete_link` on MCP. This said it had none, which was true before 4.0 and stopped being when links became records. A link record says that one
 record concerns another — it is what a `memory.entityIds`, `chrono.entityIds`/`memoryIds` or
 `file.entityIds`/`memoryIds`/`chronoIds` entry becomes when it is stored as a record instead of an array
 element. You write one by writing that array on the record, exactly as before; querying this collection is how
@@ -608,14 +608,24 @@ page therefore costs more on a proxy space than on a plain one, but it is the sa
 
 #### A read result too large to return inline is bounded, and you page through the rest
 
-`recall` and `find-similar` bound the response by **`maxBytes`** (default **100 000 over REST, 25 000 over MCP**; `maxTokens` is the
-same ceiling in tokens, and the smaller of the two wins). What fits comes back as the longest **prefix** of the
+`recall` and `find-similar` bound the response by **`maxChars`** (default **50 000 over REST, 25 000 over MCP** — the one
+place the two doors deliberately differ) and, if you set it, by **`maxBytes`**, which has NO default and counts real
+UTF-8 bytes. Set both and both apply: the answer stops at whichever it reaches first. `maxTokens` is a convenience
+onto `maxChars`, converted with `charsPerToken`.
+
+> **This paragraph named `maxBytes` as the defaulting parameter, at 100 000.** Neither half was right: the
+> defaulting parameter is `maxChars` at 50 000, and `maxBytes` defaults to nothing. A caller sizing to 100 KB
+> was truncated at 50 000 characters; one who set `maxBytes` expecting it to be *the* budget got both ceilings.
+> The name changed meaning in 3.7 — it used to bound characters while its name, its refusal and its response
+> field all said bytes. What fits comes back as the longest **prefix** of the
 ranked matches, every record whole, and `nextSkip` says where to continue from — send it back as **`skip`** for
 the next prefix, with no match repeated and none missed. A match is counted together with its whole `_graph`
 subtree, so a deeper or wider traversal means fewer matches fit — they are absent, not shortened.
 
-`returned`, `count`, `truncated`, `budgetBytes` and `bytesReturned` are on **every** response, whether the
-budget bit or not, so an absence never has to be interpreted; `nextSkip` is there exactly when `truncated` is.
+`returned`, `count`, `truncated`, `budgetChars`, `budgetBytes`, `charsReturned` and `bytesReturned` are on
+**every** response, whether the budget bit or not, so an absence never has to be interpreted — `budgetBytes` is
+`null` unless you asked for a byte ceiling. That is SEVEN fields; this listed five, omitting both character
+figures, which is the same confusion as the paragraph above. `nextSkip` is there exactly when `truncated` is.
 `count` stays the FULL total on a skipped page rather than shrinking as you advance.
 
 **`remainderDump: true`** additionally writes what did not fit to the space's `_tmp/` as JSON and reports it as
@@ -658,7 +668,7 @@ keys:
 
 ```json
 {
-  "error": "Unknown field(s): orderBy. Allowed: collection, filter, projection, limit, skip, sort, dir, maxTimeMS",
+  "error": "Unknown field(s): orderBy. Allowed: collection, filter, projection, limit, skip, sort, dir, maxTimeMS, maxChars, maxBytes, maxTokens, charsPerToken",
   "unrecognized_keys": ["orderBy"]
 }
 ```

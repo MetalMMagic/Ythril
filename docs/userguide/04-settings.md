@@ -161,21 +161,61 @@ Sorting is a view, not a setting: it is not remembered, and reloading the page r
 
 ### Creating a token
 
-Click **Create Token**. The dialog asks for three things: a **label**, an optional **expiry date**, and the
-**per-space rights matrix**. Click **Create** — the token value is shown **once**. Copy it immediately.
+Click **Create Token**. The dialog asks for:
+
+- **Label**
+- **Expires (optional)**
+- **Requests per minute** — this token's own rate limit; leave it empty to inherit the instance default
+- **Permission level** — the per-space rights matrix
+- **Instance-level rights**, a separate block at the bottom of the dialog with two checkboxes
+
+Then **Create token** — the value is shown **once**. Copy it immediately.
+
+> **The two instance-level checkboxes were documented on no page at all, and they are the widest thing
+> this dialog can grant.** **Instance administrator** and **May create new spaces** are not rungs on a
+> space: the dialog says so itself — *"these apply to the whole instance. A space-restricted administrator
+> cannot grant them."* An operator ticking one from a paragraph that described three fields had no way to
+> know what they were reading.
 
 The matrix is the whole permission model. Earlier versions also offered a spaces checkbox list and a
 three-way Read-only / Standard / Admin choice; those described the same access in an older vocabulary, and
 the server refuses a request that uses both at once. The matrix says everything they said and things they
 could not — such as **admin on Files in one space and nothing anywhere else**.
 
-The tokens list shows each token’s scope at any time, with the permission pill **colour-coded by privilege**
-so the riskiest tokens stand out: **admin is red**, **standard is green**, **read-only is yellow** (Library
-Access tokens keep their own blue).
+The tokens list shows each token's scope at any time. The **Permission** column draws a small **bar chart**,
+one bar per rights area, each bar's height being the highest rung that area reaches, with a red line marking
+the floor that applies to every space. So a glance separates a token that is admin everywhere from one that
+is admin on Files in a single space — which a single colour could not.
+
+> This described a **pill colour-coded by privilege** — *"admin is red, standard is green, read-only is
+> yellow"* — and there is no such pill. Those three colour labels exist in the translation file and are
+> referenced by nothing; the bar chart replaced them when the matrix did, because a token with four areas
+> and a per-space override has no single privilege to colour. An operator told to scan for red pills was
+> looking for something that had not been there for a release.
 
 This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](03-files-and-schemas.md#schema-library).
 
-**Editing a token.** Each row has a pencil button. It opens the token editor, where the **label** and the **rights matrix** are both editable and are saved together in one request — so a rename and a scope change are one audited edit, not two that can half-fail. The secret is untouched; use **Rotate** for that.
+**Editing a token.** Each row has **two** pencils, and they do different things. The one beside the label
+renames in place and saves on its own. The one in the **Permission** column opens the rights editor. So a
+rename and a scope change are two edits, not one — this paragraph said they were saved together in a single
+request, which is the opposite of what it warns about. The secret is untouched by either; use **Rotate** for
+that.
+
+#### The four areas
+
+Every space row has one cell per area, and they are not interchangeable — `write` on Files and `write` on
+Knowledge are different permissions:
+
+| Area | What it covers |
+|---|---|
+| **Knowledge** | Memories, entities, relationships and timeline entries — the records the space is made of, and searching them |
+| **Files** | Documents stored in the space: reading them, writing them, and the folder structure they live in |
+| **Schema** | The shape the space expects its records to take — which types exist and which properties they carry |
+| **Data quality** | Finding and resolving duplicates, contradictions and gaps, and the review decisions that follow |
+
+> **This page named three of them and never mentioned Data quality**, while a paragraph further down told
+> you to *"set all four cells"*. So the instruction counted an area the guide had not introduced, and an
+> operator granting rights had no idea what the fourth column governed.
 
 #### Hover a rung to see what it grants
 
@@ -371,7 +411,12 @@ The first time you open **Settings → Networks**, networking is off. Click **En
 
 ### Creating a network
 
-Click **Create Network**. Enter a label, choose a type, enter the space IDs to include, and optionally set a sync schedule (cron expression).
+Click **Create Network**. The dialog asks for a **label**, a **type**, the **spaces** to include, and a
+**Voting deadline (hours)** — how long a vote round stays open before it lapses, 1 to 72.
+
+> **There is no schedule field in this dialog.** This step said to set one here *"(cron expression)"*,
+> and the cron box is on the network card afterwards — see [Sync schedule](#sync-schedule) below, which
+> describes it correctly. The voting deadline, which IS in the dialog, was not mentioned at all.
 
 ### Inviting another brain
 
@@ -425,7 +470,11 @@ By default, Ythril ships with a bundled vision service (Ollama running `moondrea
 
 ### When to change this
 
-- **Turn a class off.** There is no single on/off switch — each media class (images, audio, video) has its own **level**. Set a class to **Off** if you don't upload that kind of media or your machine is tight on memory; its provider card then reads **off** and new uploads of that class are stored as-is (existing files keep their captions). Setting all three to Off turns media embedding off entirely.
+- **Turn a class off.** There is no single on/off switch — each media class has its own **level**, and
+  there are **four**: images, audio, video and **text**. Set a class to **Off** if you don't upload that
+  kind of media or your machine is tight on memory; its provider card then reads **off** and new uploads
+  of that class are stored as-is (existing files keep their captions). **All four have to be Off** to
+  turn media embedding off entirely — this said three, so following it left Text running.
 - **Use an external provider.** Switch the **Provider** on the **Vision** or **Speech** card to *External* if you'd rather call OpenAI, Azure, or any other OpenAI-compatible service. Fill in the **Endpoint**, **Model**, and **API key (external only)** for that provider. API keys are stored in the encrypted secrets file, never alongside the rest of the configuration.
 - **Use a different local model.** Keep the provider on *Local* but change the **Model** field — for example, switch the vision model from `moondream` to `llava` if you've pulled it into Ollama.
 

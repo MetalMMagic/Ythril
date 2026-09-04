@@ -45,6 +45,7 @@
  */
 import { primitivePropertyError } from './property-values.js';
 import { REF_KINDS } from '../config/types-knowledge.js';
+import { CHRONO_STATUSES } from '../config/types.js';
 import type { KnowledgeType } from '../config/types-knowledge.js';
 
 /**
@@ -63,8 +64,7 @@ type Check = (v: unknown) => string | null;
 /** The cap on a memory's `fact`. Declared once — it was written out at three sites and absent from two more. */
 export const MAX_FACT_LENGTH = 50_000;
 
-/** The statuses a chrono entry may carry. */
-export const CHRONO_STATUSES = new Set(['upcoming', 'ongoing', 'completed', 'cancelled', 'unknown']);
+
 
 // ── the small checks the tables are built from ──────────────────────────────────────────────
 

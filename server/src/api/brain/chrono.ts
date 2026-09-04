@@ -21,6 +21,7 @@ import { parseSortParam, SORTABLE_FIELDS, toMongoSort } from '../../brain/list-s
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
+import { CHRONO_STATUSES } from '../../config/types.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError, dupeCheckOptsFromBody, ifMatchFromRequest, preconditionFailedBody } from './_shared.js';
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
@@ -37,7 +38,9 @@ export const chronoRouter = Router();
 
 // ── Chrono CRUD ───────────────────────────────────────────────────────────────
 
-const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
+// DERIVED. These five were written out here, in `brain/bulk.ts`, and in the shared write-shape table —
+// three copies of one product fact, and the third had two of them wrong.
+const CHRONO_STATUS_SET = new Set<ChronoStatus>(CHRONO_STATUSES);
 
 // POST /api/brain/spaces/:spaceId/chrono — create a chrono entry
 /**
@@ -89,7 +92,7 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
   if (endsAt !== undefined && typeof endsAt !== 'string') {
     res.status(400).json({ error: '`endsAt` must be an ISO8601 string' }); return;
   }
-  if (status !== undefined && !CHRONO_STATUSES.has(status)) {
+  if (status !== undefined && !CHRONO_STATUS_SET.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
@@ -237,7 +240,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const recCheck = parseRecurrence(recurrence);
   if (!recCheck.ok) { res.status(400).json({ error: recCheck.error }); return; }
   const safeRecurrence = recCheck.value;
-  if (status !== undefined && !CHRONO_STATUSES.has(status)) {
+  if (status !== undefined && !CHRONO_STATUS_SET.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
   if (type !== undefined) {

@@ -78,6 +78,34 @@ describe('the table itself', () => {
     }
   });
 
+  it('takes the chrono statuses from the one tuple, and nothing writes them out again', () => {
+    /*
+     * **This case exists because the first version of this table invented them.**
+     *
+     * The five names were already written out twice — a `Set` in `api/brain/chrono.ts` and an identical one
+     * in `brain/bulk.ts` — and the table added a third that had `ongoing` and `unknown` where the product has
+     * `active` and `overdue`. Every unit test here passed: they assert that a BAD status is refused, and a
+     * wrong list still refuses bad ones. It took a Docker suite asking for `status=overdue` to see it.
+     *
+     * So the assertion is not "the list is right" — it is that there is only ONE list. A second copy can be
+     * wrong; a derived one cannot.
+     */
+    assert.equal(shapeError('chrono', { status: 'overdue' }), null, 'overdue is a real status');
+    assert.equal(shapeError('chrono', { status: 'active' }), null, 'so is active');
+    assert.ok(shapeError('chrono', { status: 'ongoing' }), 'ongoing is not, and never was');
+
+    const written = /\[\s*'upcoming'\s*,\s*'active'/;
+    const offenders = [];
+    for (const f of ['server/src/brain/write-shape.ts', 'server/src/api/brain/chrono.ts',
+      'server/src/brain/bulk.ts', 'server/src/mcp/tools/chrono.ts']) {
+      if (written.test(code(f))) offenders.push(f);
+    }
+    assert.deepEqual(offenders, [],
+      `${offenders.join(', ')} writes the chrono statuses out instead of importing CHRONO_STATUSES. A second `
+      + 'copy of a five-word list is a copy that can be two words wrong while every test that only asks it to '
+      + 'refuse rubbish keeps passing.');
+  });
+
   it('says nothing about a field that is ABSENT', () => {
     // The property that lets an update door use the same table as its create. A PATCH naming one field must
     // not be told about the nine it did not send.

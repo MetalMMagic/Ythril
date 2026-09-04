@@ -304,7 +304,15 @@ const FROZEN = {
   // for a sharper reason: WHICH interface a flag sits on IS the behaviour here. `SpaceMeta` is voted and
   // applied network-wide, `SpaceConfig` is local — so moving this field to save a line would arm one
   // instance's conversion marker on peers that had converted nothing. There is no smaller place for it.
-  'server/src/config/types.ts': 581,
+  // RAISED 581 -> 582 by ONE line: `CHRONO_STATUSES` becomes a TUPLE and `ChronoStatus` derives from it.
+  // The five status names were written out FIVE times across the server — the REST route, the batch
+  // importer and three MCP schemas — and a sixth copy in the shared write-shape table had `ongoing` and
+  // `unknown` where the product has `active` and `overdue`. Every unit test passed, because they assert
+  // that a BAD status is refused and a wrong list still refuses bad ones; a Docker suite asking for
+  // `status=overdue` is what found it.
+  // NO DECOMPOSITION: a union type cannot be iterated at run time, which is WHY every door built its own
+  // list. The tuple has to live beside the type it derives, and that is here.
+  'server/src/config/types.ts': 582,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any

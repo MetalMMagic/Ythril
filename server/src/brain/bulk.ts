@@ -28,6 +28,7 @@ import { upsertEdge, findEdgeByTriplet } from './edges.js';
 import { resolveEdgeEndsForWrite } from './edge-endpoint-names.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { createChrono } from './chrono.js';
+import { CHRONO_STATUSES } from '../config/types.js';
 import type { EntityDoc, ChronoType, ChronoStatus } from '../config/types.js';
 
 /** Max items processed per collection in a single bulk call. */
@@ -38,7 +39,9 @@ import { storedEdgeKind } from './entity-refs.js';
 import { REF_KINDS } from '../config/types-knowledge.js';
 import type { RefKind } from '../config/types-knowledge.js';
 import { NEVER_RETURNED_PROJECTION } from './read-projection.js';
-const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
+// DERIVED. These five were written out here, in `brain/bulk.ts`, and in the shared write-shape table —
+// three copies of one product fact, and the third had two of them wrong.
+const CHRONO_STATUS_SET = new Set<ChronoStatus>(CHRONO_STATUSES);
 const MAX_FACT_LENGTH = 50_000;
 
 interface Counts { memories: number; entities: number; edges: number; chrono: number }
@@ -332,7 +335,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (strict && memoryIds && memoryIds.some(id => !UUID_V4_RE.test(id))) { errors.push({ type: 'chrono', index: i, reason: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names' }); continue; }
     const properties = optProps(item['properties']);
     // Normalise status to a known value (drop unknowns) — REST did this; MCP did not.
-    const status = typeof item['status'] === 'string' && CHRONO_STATUSES.has(item['status'] as ChronoStatus)
+    const status = typeof item['status'] === 'string' && CHRONO_STATUS_SET.has(item['status'] as ChronoStatus)
       ? item['status'] as ChronoStatus : undefined;
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'chrono', index: i, reason: TTL_INVALID_MSG }); continue; }

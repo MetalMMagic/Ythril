@@ -143,7 +143,10 @@ describe('the claims those descriptions make are still true', () => {
     const start = src.indexOf('const status = ');
     assert.ok(start > 0, 'the status normalisation was not found — the scanner is wrong, not the code');
     const stmt = src.slice(start, src.indexOf(';', start) + 1);
-    assert.match(stmt, /CHRONO_STATUSES\.has/, 'and this is the statement that normalises it');
+    // `CHRONO_STATUS_SET` since the five status names became one tuple in `config/types.ts` — they were
+    // written out FIVE times (here, the REST route, and three MCP schemas) and the sixth copy had two of
+    // them wrong. The local Set derives from the tuple now; the rule this asserts is unchanged.
+    assert.match(stmt, /CHRONO_STATUS_SET\.has/, 'and this is the statement that normalises it');
     assert.match(stmt, /:\s*undefined/,
       'an unrecognised status must fall back rather than throw — the description says so');
     assert.doesNotMatch(stmt, /errors\.push/,

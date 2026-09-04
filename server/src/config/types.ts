@@ -1584,7 +1584,18 @@ export interface LinkDoc extends StampSkewable {
 }
 
 export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
-export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
+/**
+ * The statuses a chrono entry may carry.
+ *
+ * A TUPLE, and the type below derives from it — because the five names were also written out as a `Set` in
+ * `api/brain/chrono.ts` and again in `brain/bulk.ts`, and a fourth copy in the shared write-shape table got
+ * two of them wrong. A union type cannot be iterated at run time, so every door that had to CHECK a status
+ * built its own list from the same five words, and nothing compared them.
+ */
+export const CHRONO_STATUSES = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] as const;
+
+/** @see CHRONO_STATUSES — derived, never written out a second time. */
+export type ChronoStatus = typeof CHRONO_STATUSES[number];
 
 export interface ChronoEntry extends StampSkewable {
   /**

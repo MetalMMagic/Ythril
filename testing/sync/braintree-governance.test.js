@@ -349,7 +349,9 @@ describe('Braintree governance — ancestor-path voting', () => {
 
       // B opens a grandchild join round
       grandchildInstanceId = `veto-gc-${Date.now()}`;
-      const gcPat = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `bt-veto-gc-${Date.now()}` });
+      const gcPat = await post(INSTANCES.b, tokenB, '/api/tokens', {
+        name: `bt-veto-gc-${Date.now()}`, peerInstanceId: grandchildInstanceId,
+      });
       const addR = await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/members`, {
         instanceId: grandchildInstanceId,
         label: 'Veto Grandchild',

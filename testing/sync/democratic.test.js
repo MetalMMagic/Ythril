@@ -35,7 +35,9 @@ describe('Democratic network (3-member voting)', () => {
   });
 
   it('Adding first member opens a vote round', async () => {
-    const bPeer = await post(INSTANCES.b, tokenB, '/api/tokens', { name: 'dem-peer-a' });
+    const bPeer = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: 'dem-peer-a', peerInstanceId: 'instance-b-dem',
+    });
     assert.equal(bPeer.status, 201);
 
     // Democratic networks require a vote — even for the first member
@@ -65,7 +67,9 @@ describe('Democratic network (3-member voting)', () => {
   it('Veto blocks a join round immediately', async () => {
     // Re-fetch network state  
     const net = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
-    const cPeer = await postRetry429(INSTANCES.c, tokenC, '/api/tokens', { name: 'dem-peer-c' });
+    const cPeer = await postRetry429(INSTANCES.c, tokenC, '/api/tokens', {
+      name: 'dem-peer-c', peerInstanceId: 'instance-c-dem',
+    });
     assert.equal(cPeer.status, 201);
 
     const addC = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
@@ -101,7 +105,9 @@ describe('Democratic network (3-member voting)', () => {
       return t.skip('Not enough members for this test');
     }
 
-    const dPeer = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'dem-peer-d' });
+    const dPeer = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: 'dem-peer-d', peerInstanceId: 'instance-d-dem',
+    });
     assert.equal(dPeer.status, 201);
 
     const addD = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {

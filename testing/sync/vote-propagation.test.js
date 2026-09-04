@@ -89,11 +89,15 @@ describe('Vote propagation via gossip', () => {
     assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
     // Create peer PATs so the engine can authenticate cross-instance
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `vote-test-peer-a-${Date.now()}` });
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `vote-test-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+    });
     assert.equal(ptForA.status, 201);
     peerTokenForA = ptForA.body.plaintext;
 
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `vote-test-peer-b-${Date.now()}` });
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `vote-test-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+    });
     assert.equal(ptForB.status, 201);
     peerTokenForB = ptForB.body.plaintext;
 

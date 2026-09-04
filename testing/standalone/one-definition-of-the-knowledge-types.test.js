@@ -132,6 +132,108 @@ describe('the knowledge types are named in one place per side', () => {
     );
   });
 
+  /**
+   * The same enumeration written as PROPERTY NAMES, which the sweep above cannot see.
+   *
+   * It matches the four kinds as quoted literals. `TypeSchemasZ` wrote them as object keys —
+   * `entity:`, `memory:`, `edge:`, `chrono:` — and was invisible to it for a year.
+   *
+   * **That site was the worst possible one to miss.** It is `.strict()`, which makes it the only thing in
+   * the product that can REFUSE a key there: a fifth knowledge type would have been rejected by that door
+   * while every other site accepted it, and the refusal would have named a body that was correct
+   * everywhere else. The authority on the answer was a hand-written copy of it.
+   *
+   * Four keys and not three, for the same reason the literal sweep asks for four: this repo has several
+   * deliberately-different subsets over these names, and a check that cannot tell a copy from a different
+   * set makes the different sets look like debt.
+   */
+  function propertyEnumerationsIn(src) {
+    const KINDS = ['entity', 'memory', 'edge', 'chrono'];
+    // Strings blanked as well as comments: a sentence containing `entity:` is prose, not a key, and the
+    // first version of this counted one.
+    const clean = stripComments(src).replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""');
+
+    /*
+     * BRACE-MATCHED, never a character window.
+     *
+     * The first attempt matched a run of `key: value` pairs with a regex, and its value pattern stopped at
+     * the first comma — which in `z.record(k, T).optional()` is INSIDE the call. It saw one key and moved
+     * on, so it reported nothing about the exact site it was written for. Its own self-test is what said so.
+     *
+     * `gate-windows-must-be-structural-not-character-counts` is the rule this obeys: an object literal has
+     * a beginning and an end, and those are what bound the question.
+     */
+    const hits = [];
+    for (let i = 0; i < clean.length; i++) {
+      if (clean[i] !== '{') continue;
+      let depth = 0, j = i;
+      for (; j < clean.length; j++) {
+        if (clean[j] === '{') depth++;
+        else if (clean[j] === '}' && --depth === 0) break;
+      }
+      if (j >= clean.length) continue;
+      // Blank everything nested one level down, so a key of an INNER object is not read as this one's.
+      let d = 0;
+      const top = [...clean.slice(i + 1, j)].map(ch => {
+        if (ch === '{') { d++; return ' '; }
+        if (ch === '}') { d--; return ' '; }
+        return d > 0 ? ' ' : ch;
+      }).join('');
+      const named = KINDS.filter(k => new RegExp(`(?:^|[,;])\\s*${k}\\s*:`).test(top));
+      /*
+       * A `Record<SomeType, X>` annotation is EXEMPT, and that exemption is the rule rather than a hole in it.
+       *
+       * The four names being present there is the TYPE SYSTEM forcing them: add a fifth kind to the tuple and
+       * every one of those objects stops compiling, by name, with the missing key in the message. That is a
+       * better gate than this one, and it already exists.
+       *
+       * What is left — an object keyed by these four with nothing requiring it to stay complete — is the case
+       * that goes silent. `TypeSchemasZ` was one: a zod shape, `.strict()`, no link to the tuple, and the only
+       * thing in the product that could REFUSE one of these names.
+       */
+      const decl = clean.slice(Math.max(0, clean.lastIndexOf(';', i) + 1), i);
+      const forcedComplete = /Record<\s*\w+/.test(decl);
+      if (named.length === KINDS.length && !forcedComplete) hits.push(top.replace(/\s+/g, ' ').trim());
+      i = j; // an object already reported is not re-scanned from the inside
+    }
+    return hits;
+  }
+
+  it('DETECTS a property-name copy, which is how TypeSchemasZ hid', () => {
+    // A gate that has never failed is indistinguishable from one that cannot. This is the exact shape the
+    // schema had before it derived its keys.
+    const before = [
+      'export const TypeSchemasZ = z.object({',
+      '  entity: z.record(k, T).optional(),',
+      '  memory: z.record(k, T).optional(),',
+      '  edge:   z.record(k, T).optional(),',
+      '  chrono: z.record(k, T).optional(),',
+      '}).strict();',
+    ].join('\n');
+    assert.equal(propertyEnumerationsIn(before).length, 1, 'the detector does not see the shape it exists for');
+  });
+
+  it('and does NOT flag a deliberately different set', () => {
+    // `RefKind` is entity/memory/chrono/file — four names, three of them shared, and a different set on
+    // purpose. Flagging it would make the way to quieten this gate be to widen a set that is correct.
+    const refKindShaped = 'const COLLECTION_FOR = { entity: \'entities\', memory: \'memories\', chrono: \'chrono\', file: \'files\' };';
+    assert.deepEqual(propertyEnumerationsIn(refKindShaped), []);
+  });
+
+  it('no file re-enumerates them as property names either', () => {
+    const offenders = [];
+    for (const f of sourceFiles()) {
+      if (DECLARATIONS.includes(f)) continue;
+      for (const h of propertyEnumerationsIn(readFileSync(f, 'utf8'))) {
+        offenders.push(`${f} — ${h.slice(0, 72)}`);
+      }
+    }
+    assert.deepEqual(offenders, [],
+      `${offenders.length} site(s) write the knowledge types out as OBJECT KEYS:\n`
+      + offenders.map(o => `  ${o}`).join('\n')
+      + '\n\nBuild the shape from KNOWLEDGE_TYPES instead. A `.strict()` schema keyed this way is the only'
+      + '\nthing that can refuse one of these names, which makes a copy there the authority on the answer.');
+  });
   it('and each declaration file actually declares it, so the exemption is not a hole', () => {
     // An exemption that names a file which no longer declares anything would quietly let that whole file
     // re-enumerate. The point of the list is one definition, not two blessed files.

@@ -139,7 +139,12 @@ const FROZEN = {
   //
   // `A-12` still pays it back and pays back more than this: it deletes both six-family enumerations
   // rather than shortening them.
-  'server/src/sync/engine.ts': 984,
+  //
+  // 984 -> 986 with the same PR, after CI refused the first rule: the two lines are the
+  // `versionCheckedAt` stamp and its `changed` flag, written on the exchange whether or not a version
+  // came back. That stamp is what separates 'answered and named none' from 'never exchanged with' —
+  // conflating them refused every asymmetric network for ever, so this is the fix rather than growth.
+  'server/src/sync/engine.ts': 986,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
   // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
   // is 274 lines this file could regrow into without the gate saying a word.

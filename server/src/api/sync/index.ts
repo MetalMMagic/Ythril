@@ -69,7 +69,7 @@ syncRouter.use((req, res, next) => {
   for (const net of cfg.networks) {
     const member = net.members.find(m => m.instanceId === peerId);
     if (!member) continue;
-    const refusal = peerFloorRefusal(member.version);
+    const refusal = peerFloorRefusal(member.version, member.versionCheckedAt);
     if (refusal) {
       res.status(426).json({ error: refusal, minPeerVersion: MIN_PEER_VERSION, peerVersion: member.version ?? null });
       return;

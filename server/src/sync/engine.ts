@@ -596,10 +596,19 @@ async function gossipWithPeer(
                 else log.warn(`Gossip: rejected unsafe self-URL from ${member.label} (${member.instanceId}): ${peerSelf.url}`);
               }
               if (peerSelf.label && peerSelf.label !== local.label) { local.label = peerSelf.label; changed = true; }
-              // The floor's input, arriving by the other direction of the exchange. Without this the
-              // version is only ever learned from a peer that dials US, so a leaf that only ever
-              // dials out would stay versionless — and versionless is below the floor.
+              /*
+               * The floor's two inputs, arriving by the other direction of the exchange. Without them
+               * a version is only ever learned from a peer that dials US, so a leaf that only dials
+               * out would stay versionless for ever.
+               *
+               * `versionCheckedAt` IS STAMPED WHETHER OR NOT A VERSION CAME BACK, and that is the
+               * whole point of it: a peer that answered and named no version is a pre-4.0 peer, which
+               * is evidence. A peer we have never exchanged with is not. Only the stamp tells those
+               * apart, and conflating them stopped every asymmetric network's data plane.
+               */
               if (peerSelf.version && peerSelf.version !== local.version) { local.version = peerSelf.version; changed = true; }
+              local.versionCheckedAt = new Date().toISOString();
+              changed = true;
               if (pinMemberSigningKey(local, peerSelf.signingPublicKey, peerSelf.signingKeyRotation)) changed = true;
               if (changed) {
                 log.info(`Gossip: updated ${member.label} via self-piggyback (${net.id})`);

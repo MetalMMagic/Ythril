@@ -264,11 +264,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version. `/health` reported one and no sync path read it, so an instance had no way to know what its
   peers were running.
 
-  **An absent version is BELOW the floor, not exempt from it.** A peer that has never reported one
-  predates the release that started reporting, so that is the most common way of being too old rather than
-  an exception to the rule. Read the other way — unknown, so probably fine — every peer the check exists
-  to stop walks through it, which is a shape this codebase has shipped three times as an empty allowlist
-  read as unrestricted.
+  **A brain that ANSWERED and named no version is below the floor.** Only 4.0.0 onward reports itself, so
+  for a brain you have exchanged with, "said nothing" and "older than 4.0.0" are the same statement.
+  Read the other way — unknown, so probably fine — every brain the check exists to stop walks through it,
+  which is a shape this codebase has shipped three times as an empty allowlist read as unrestricted.
+
+  **But a brain you have never exchanged with is NOT refused, and getting that wrong was an outage.**
+  The first version treated any missing version as too old. A member can be legitimately versionless for
+  ever: a peer added by hand, or a network where only one side holds the configuration, may never
+  complete the exchange that reports a version — and every brand-new network is in that state until its
+  first exchange finishes. So the safe-looking reading stopped the data plane permanently, with nothing
+  on screen to say why. There are three outcomes now rather than two, and the third is silence:
+  unreachability was already counted and shown as **Failing (N)**, and the floor does not answer a
+  question it has no evidence for.
 
   **The floor is 3.1.0, deliberately not 4.0.0.** 3.1.0 is the release that started writing the current
   spelling of the never-embed mark, so at this floor no peer can be one that strips it — which is exactly
@@ -276,21 +284,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole network to upgrade in lockstep, because the moment one instance reaches 4.0 every 3.x peer stops
   syncing. Raising it later is a single line.
 
-  **A refused peer recovers by itself, and that was one edit away from being impossible.** The check went
-  in the member loop first — ahead of the gossip that learns a version. Every member on a fresh network
-  reports nothing, absent is below the floor, and the exchange that would have cleared it sits behind the
-  refusal: the network stops permanently with no way back. It now runs after gossip, and re-reads the
-  version rather than trusting the copy captured before the exchange.
+  **A refused brain recovers by itself.** Upgrade it and it reports its new version on the next round;
+  the badge clears and data resumes with no button and no restart. Two separate mistakes were in the way
+  of that and both are worth recording, because they are the same mistake at different distances: the
+  check first ran ahead of the exchange that learns a version, and then it read a copy of the member
+  captured before that exchange. Either one refuses a brain for a version it no longer runs.
 
   **Governance is deliberately not gated.** A vote round expires on a deadline, and refusing an ejection
   vote about a stale peer because the peer is stale is how a network loses the ability to remove it. Only
   the data plane is refused.
 
+  **What it is not: a defence against a brain that lies.** A version is self-reported and nothing checks
+  the claim, so this stops an OLD brain from mishandling data — a compatibility control, not a security
+  one. Trust between brains is what the voting and signing settings are for, and those authenticate.
+
   On the Networks page a refused member shows a red **Version too old** badge whose tooltip carries both
   numbers — distinct from **Failing (N)**, which means the peer was called and did not answer. A refused
   peer is never called, so it has no failure streak and no timestamp, which is also what a brand-new
-  member looks like. Both API doors carry the same two facts: `minPeerVersion` on the envelope, and
-  `version` plus `belowFloor` per member.
+  member looks like. Both API doors carry the same three fields per member — `version`,
+  `belowFloor` (the refusal sentence, or `null`) and `minPeerVersion`. Per member rather than on an
+  envelope because `list_peers` returns a bare JSON array by contract, and wrapping it would break every
+  caller that indexes the result — so one spelling of the fact through both doors, not two.
 
 ### Fixed
 

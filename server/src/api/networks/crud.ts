@@ -46,17 +46,20 @@ crudRouter.get('/', globalRateLimit, requireAdmin, (_req, res) => {
     ...n,
     members: n.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
       ...m,
-      belowFloor: peerFloorRefusal(m.version),
+      belowFloor: peerFloorRefusal(m.version, m.versionCheckedAt),
+      minPeerVersion: MIN_PEER_VERSION,
     })),
     inviteKeyHash: undefined,
   }));
   /*
-   * `minPeerVersion` and `belowFloor` on both network reads AND on `list_peers` — the same two facts
-   * through both doors, which is the first rule in `CLAUDE.md`. `version` already travels because a
-   * member is spread; the verdict does not, and the verdict is the half an operator gets wrong,
-   * because a null version reads as 'unknown, probably fine' and actually means refused.
+   * `version`, `belowFloor` and `minPeerVersion` per MEMBER — the same three facts, spelled the same
+   * way, on both doors, which is the first rule in `CLAUDE.md`. On the envelope here and per-row on
+   * MCP would be one fact with two shapes, and the MCP tool's contract is a bare array.
+   *
+   * `version` already travelled because a member is spread. The VERDICT did not, and it is the half an
+   * operator gets wrong: a null version reads as 'unknown, probably fine' when it may mean refused.
    */
-  res.json({ networks, minPeerVersion: MIN_PEER_VERSION });
+  res.json({ networks });
 });
 
 
@@ -71,10 +74,10 @@ crudRouter.get('/:id', globalRateLimit, requireAdmin, (req, res) => {
     ...net,
     members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
       ...m,
-      belowFloor: peerFloorRefusal(m.version),
+      belowFloor: peerFloorRefusal(m.version, m.versionCheckedAt),
+      minPeerVersion: MIN_PEER_VERSION,
     })),
     inviteKeyHash: undefined,
-    minPeerVersion: MIN_PEER_VERSION,
   };
   res.json(safe);
 });

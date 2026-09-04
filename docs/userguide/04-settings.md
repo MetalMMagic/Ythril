@@ -462,10 +462,30 @@ one tells the others what version it runs, and a brain that is too old is not se
 accepted from — its member row shows a red **Version too old** badge, and hovering it gives the two
 numbers: what that peer runs, and what is required.
 
-**A brain that has never said what it runs counts as too old**, and that is deliberate rather than a
-gap. Only versions from 4.0.0 onward report themselves, so "said nothing" and "is older than 4.0.0" are
-the same statement. Read the other way round — unknown, so probably fine — the check would let through
-every brain it exists to stop.
+**What is required is the first number of your own version, with zeros after it.** A 4.something brain
+requires 4.0.0 from every peer; a 5.something brain requires 5.0.0. There is nothing to configure, and
+it moves on its own when you upgrade.
+
+That first number is the one that changes when something is removed rather than added, which is why it
+is the line. It also stops a chain forming: if the requirement were a few versions back, a 4.1 brain
+would accept a 3.2 brain, which would accept a 2.5 brain, and your records would travel all the way
+down a chain whose two ends were never compatible with each other.
+
+**What this means for upgrading:** when the first number changes, upgrade every brain in the same
+session. Until they are all up, the ones left behind do not sync. Upgrades that only change the second
+or third number are unaffected — do those in any order, at any time.
+
+**A brain that ANSWERED and said nothing counts as too old**, and that is deliberate rather than a gap.
+Only versions from 4.0.0 onward report themselves, so for a brain you have actually exchanged with,
+"said nothing" and "older than 4.0.0" are the same statement. Read the other way round — unknown, so
+probably fine — the check would let through every brain it exists to stop.
+
+**A brain you have never exchanged with is a different case, and it is not refused.** Until the two
+have talked once, there is nothing to judge — so the badge stays off and an unreachable peer shows up
+the way it always has, as **Failing (N)**. This matters for real setups rather than being a technical
+nicety: a network where only one side holds the configuration, or where you added a peer by hand, may
+never complete the exchange that reports a version, and refusing those would stop them syncing for good
+with nothing to show why.
 
 **Nothing needs doing to recover.** Upgrade the old brain and it reports its new version on the next
 sync round; the badge clears and data starts flowing again by itself. There is no button, and no restart
@@ -475,6 +495,10 @@ on your side.
 an embedding model*. An old brain does not know about that mark, so it drops it, and its copy of the
 record comes back with nothing saying to leave it alone. Nobody is told. Requiring a minimum version is
 how that stops being possible.
+
+**What it is not.** A brain reports its own version, and nothing checks that claim, so this stops an
+OLD brain from mishandling your data — it is not a defence against a brain that lies about itself.
+Trust between brains is what the voting and signing settings are for.
 
 **One thing to plan for:** if you run several brains, upgrade them within the same maintenance window
 when the required version rises. A network can be upgraded one brain at a time while the requirement

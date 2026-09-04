@@ -53,6 +53,14 @@ const getInstanceId = (c) => inContainer(c,
  * build, so neither can report an old version truthfully. What is under test is the CHECK against a
  * stored value — and in production that value is written by the gossip handler, so staging it directly
  * exercises the same field the same code reads.
+ *
+ * **`versionCheckedAt` is set alongside it, and forgetting that would make this test pass for the wrong
+ * reason.** The floor needs EVIDENCE: a version below the floor refuses, and so does a null version on
+ * a peer that has answered — but a peer never exchanged with is not refused at all. Staging a version
+ * without the stamp would be staging a state gossip never produces.
+ *
+ * Clearing passes `null`, which removes both — restoring the no-evidence state rather than a
+ * half-staged one.
  */
 function pinStoredVersion(container, netId, instanceId, version) {
   return inContainer(container, `
@@ -63,7 +71,9 @@ const net = (c.networks || []).find(n => n.id === ${JSON.stringify(netId)});
 if (!net) { process.stdout.write('NO_NETWORK'); return; }
 const m = (net.members || []).find(x => x.instanceId === ${JSON.stringify(instanceId)});
 if (!m) { process.stdout.write('NO_MEMBER'); return; }
-${version === null ? 'delete m.version;' : `m.version = ${JSON.stringify(version)};`}
+${version === null
+  ? 'delete m.version; delete m.versionCheckedAt;'
+  : `m.version = ${JSON.stringify(version)}; m.versionCheckedAt = new Date().toISOString();`}
 fs.writeFileSync(p, JSON.stringify(c, null, 2));
 process.stdout.write('OK:' + (m.version || 'ABSENT'));
 `);
@@ -157,6 +167,22 @@ process.stdout.write('OK');
     if (addA.status === 202) {
       await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/votes/${addA.body.roundId}`, { vote: 'yes' });
     }
+  });
+
+  it('a member never exchanged with is NOT refused — the case CI taught me', async () => {
+    /*
+     * Asserted BEFORE the exchange, because after it there is nothing left to observe. The first
+     * version of the floor refused this state, which stopped every fresh network and every
+     * asymmetric one permanently — `conflicts.test.js` caught it in CI, not here.
+     *
+     * Read from the module rather than driven through HTTP: the observable a route would give is a
+     * successful sync, and a fresh pair has nothing to sync yet, so a green sync would prove nothing.
+     */
+    assert.equal(peerFloorRefusal(undefined, undefined), null,
+      'a peer with no version and no completed exchange is refused — that is not evidence of an old '
+      + 'peer, and refusing it stops manually-provisioned and single-side-configured networks for good');
+    assert.ok(peerFloorRefusal(undefined, new Date().toISOString()),
+      'a peer that ANSWERED and named no version is admitted — that one really is pre-4.0');
   });
 
   it('gossip teaches each side what the other runs', async () => {

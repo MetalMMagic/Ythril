@@ -46,11 +46,63 @@ const code = (f) => stripComments(readFileSync(f, 'utf8'));
 /** This checkout is CRLF; deriving it rather than assuming keeps the slice honest on either. */
 const NL = readFileSync(FLOOR, 'utf8').includes('\r\n') ? '\r\n' : '\n';
 
-describe('the floor is declared in exactly one place', () => {
+describe('the floor IS the running major, derived not chosen', () => {
   it('a module owns it, and the value is a real version', async () => {
     const { MIN_PEER_VERSION } = await import('../../server/dist/sync/peer-floor.js');
     assert.match(MIN_PEER_VERSION, /^\d+\.\d+\.\d+$/,
       `the floor is ${JSON.stringify(MIN_PEER_VERSION)}, which is not a version a peer could report`);
+  });
+
+  it('and it equals this build\'s own major at .0.0', async () => {
+    /*
+     * Owner, 2026-09-05: *"can we make the current major always be the version floor? that fits to
+     * 'this is breaking'. That makes sure no chaining (4.1 allows 3.2, 3.2 allows 2.5,...)"*.
+     *
+     * THE CHAINING ARGUMENT IS WHAT THIS CASE PROTECTS. Compatibility between two instances is not
+     * transitive, but a network is: with a floor a few minors back, 4.1 admits 3.2, 3.2 admits 2.5,
+     * and records travel the whole chain although the ends were never compatible. Every hop sits
+     * inside its own floor and the path sits outside all of them.
+     *
+     * Derived from `SERVER_VERSION`, so there is no number to remember to raise at the next major.
+     * The constant this replaced would still have read 3.1.0 the day 5.0 shipped, with nothing to
+     * contradict it.
+     */
+    const { MIN_PEER_VERSION } = await import('../../server/dist/sync/peer-floor.js');
+    const { SERVER_VERSION } = await import('../../server/dist/util/server-version.js');
+    const major = SERVER_VERSION.trim().split(/[-+]/)[0].split('.')[0];
+    assert.equal(MIN_PEER_VERSION, `${major}.0.0`,
+      `this build is ${SERVER_VERSION} so the floor must be ${major}.0.0, not ${MIN_PEER_VERSION} — a `
+      + 'floor below the running major lets a network chain across a breaking boundary');
+  });
+
+  it('and it is NOT a literal — it is computed from the manifest', () => {
+    /*
+     * The failure this forbids is someone "simplifying" the derivation back to a constant. That reads
+     * as tidier and reintroduces exactly the staleness the derivation exists to remove.
+     */
+    const src = code(FLOOR);
+    const at = src.indexOf('MIN_PEER_VERSION =');
+    assert.ok(at > 0, 'MIN_PEER_VERSION is gone — re-point this gate');
+    const decl = src.slice(at, src.indexOf(';', at));
+    assert.doesNotMatch(decl, /['"`]\d+\.\d+\.\d+['"`]/,
+      'the floor is a hardcoded version again, so it stops tracking the major and goes stale in '
+      + 'silence. The 0.0.0 fail-open fallback lives inside the function, not in the declaration');
+    assert.match(decl, /SERVER_VERSION/,
+      'the floor no longer reads the running version, so it cannot be the running major');
+  });
+
+  it('fails OPEN on an unparseable own version, not closed', () => {
+    /*
+     * The right way round for a value that comes from OUR OWN manifest: an unparseable
+     * `SERVER_VERSION` is a build defect on this side, and answering it by refusing every peer turns a
+     * packaging mistake into an outage at every member of the network.
+     */
+    const src = code(FLOOR);
+    const at = src.indexOf('MIN_PEER_VERSION =');
+    const decl = src.slice(at, src.indexOf('})()', at));
+    assert.match(decl, /0\.0\.0/,
+      'there is no fail-open fallback, so a malformed own version either throws at import or yields a '
+      + 'floor no peer can satisfy');
   });
 
   it('and nobody else hardcodes a version to compare against', () => {
@@ -61,7 +113,8 @@ describe('the floor is declared in exactly one place', () => {
      */
     for (const f of [MEMBERS, ENGINE, ROUTER, 'server/src/sync/peer-fetch.ts']) {
       assert.doesNotMatch(code(f), /['"`]\d+\.\d+\.\d+['"`]/,
-        `${f} carries a version literal — compare against MIN_PEER_VERSION instead of a second copy`);
+        `${f} carries a version literal — compare against MIN_PEER_VERSION instead of a second copy. `
+        + 'It is derived from the running major, so a literal here is a number that stops tracking it');
     }
   });
 });
@@ -118,23 +171,55 @@ describe('what the floor does with a version', () => {
     assert.equal(peerFloorRefusal(`${maj + 1}.0.0`), null, 'a NEWER peer is refused — the floor is being read as an equality');
   });
 
-  it('REFUSES an absent version rather than exempting it', async () => {
+  it('refuses an absent version WHEN AN EXCHANGE HAS COMPLETED — that peer answered and named none', async () => {
     /*
-     * THE CASE THIS GATE EXISTS FOR. A peer that reports nothing is older than the release that started
-     * reporting, so "absent" is the most common way of being below the floor — not an exception to it.
-     * Read the other way, every peer the floor was built to refuse walks straight through.
+     * THE CASE THIS GATE EXISTS FOR. A peer that answered and reported nothing is older than the
+     * release that started reporting, so it is below the floor. Read the other way — absent means
+     * "unknown, probably fine" — every peer the floor was built to refuse walks straight through.
      */
     const { peerFloorRefusal } = await import('../../server/dist/sync/peer-floor.js');
+    const answered = '2026-09-04T22:00:00.000Z';
     for (const nothing of [undefined, null, '', '   ']) {
-      assert.ok(peerFloorRefusal(nothing),
-        `a peer reporting ${JSON.stringify(nothing)} is admitted — absent is not exempt, it is old`);
+      assert.ok(peerFloorRefusal(nothing, answered),
+        `a peer that answered and reported ${JSON.stringify(nothing)} is admitted — for a peer we HAVE `
+        + 'exchanged with, absent is not exempt, it is old');
     }
+  });
+
+  it('but says NOTHING about a peer it has never exchanged with', async () => {
+    /*
+     * THE CASE CI TAUGHT ME, and it is the more expensive half. The first version refused an absent
+     * version unconditionally, which reads as safe and is an outage: a member can legitimately be
+     * versionless for ever. `conflicts.test.js` registers one under an invented `instanceId` with a
+     * token carrying no `peerInstanceId` — not a broken fixture, but what a manually-provisioned peer
+     * and a single-side-configured network both look like. Gossip can never match that member to a
+     * self-record, so no version can ever arrive, so the data plane stopped for good. Every fresh
+     * network was in the same state until its first exchange completed.
+     *
+     * Unreachability is already counted and surfaced by `consecutiveFailures`. The floor must not
+     * answer a question it has no evidence for.
+     */
+    const { peerFloorRefusal } = await import('../../server/dist/sync/peer-floor.js');
+    for (const never of [undefined, null, '']) {
+      assert.equal(peerFloorRefusal(undefined, never), null,
+        `a peer never exchanged with (checkedAt ${JSON.stringify(never)}) is refused — that is not `
+        + 'evidence of an old peer, it is evidence of no contact, and refusing it stops asymmetric '
+        + 'and manually-provisioned networks permanently');
+    }
+  });
+
+  it('and an unparseable version is refused even with no exchange stamp', async () => {
+    // Unlike silence, a junk version only exists because the peer sent it — so it IS evidence, and
+    // the no-contact exemption must not extend to it.
+    const { peerFloorRefusal } = await import('../../server/dist/sync/peer-floor.js');
+    assert.ok(peerFloorRefusal('banana', undefined),
+      'a peer that sent an uncomparable version is admitted because no stamp was recorded');
   });
 
   it('and refuses a version it cannot parse, rather than guessing', async () => {
     const { peerFloorRefusal } = await import('../../server/dist/sync/peer-floor.js');
     for (const junk of ['banana', '3', '3.x', 'v3.1.0-suffix-with-no-numbers']) {
-      assert.ok(peerFloorRefusal(junk),
+      assert.ok(peerFloorRefusal(junk, '2026-09-04T22:00:00.000Z'),
         `${JSON.stringify(junk)} is admitted — an unparseable claim is not evidence of being current`);
     }
   });
@@ -158,6 +243,50 @@ describe('what the floor does with a version', () => {
     const { peerFloorRefusal, MIN_PEER_VERSION } = await import('../../server/dist/sync/peer-floor.js');
     assert.equal(peerFloorRefusal(`${MIN_PEER_VERSION}-rc.1`), null,
       'a prerelease of a version at the floor is refused');
+  });
+});
+
+describe('the evidence stamp is written on both directions of the exchange', () => {
+  it('outbound, when we call a peer', () => {
+    /*
+     * Stamped whether or not a version came back — that is the point of it. A peer that answered and
+     * named nothing is a pre-4.0 peer, which is evidence; a peer we never reached is not.
+     */
+    const src = code(ENGINE);
+    assert.match(src, /versionCheckedAt/,
+      'the outbound exchange records no stamp, so a peer that answers us can never be judged');
+  });
+
+  it('and inbound, when a peer announces itself to us', () => {
+    // Without this a pull-only peer — one that dials us and is never dialled — stays unjudgeable.
+    const src = code(MEMBERS);
+    const at = src.indexOf('const updated = {');
+    const block = src.slice(at, src.indexOf('};', at));
+    assert.match(block, /versionCheckedAt/,
+      'an announce records no stamp, so a peer that only ever dials us can never be judged');
+  });
+});
+
+describe('both doors report the floor the same way', () => {
+  it('the same three fields, per member, on REST and on MCP', () => {
+    /*
+     * ONE SPELLING, not one per door. `minPeerVersion` went on the REST envelope first and inside an
+     * object wrapper on MCP — and CI refused the wrapper, because `list_peers` returns a bare JSON
+     * array by contract and an envelope breaks every caller that indexes it. Per-member on both is
+     * the shape that is identical through both doors and breaks nothing.
+     */
+    for (const f of ['server/src/mcp/tools/sync.ts', 'server/src/api/networks/crud.ts']) {
+      const src = code(f);
+      for (const field of ['version', 'belowFloor', 'minPeerVersion']) {
+        assert.match(src, new RegExp(field), `${f} does not report ${field}`);
+      }
+    }
+  });
+
+  it('and list_peers stays a bare array', () => {
+    const src = code('server/src/mcp/tools/sync.ts');
+    assert.match(src, /JSON\.stringify\(peers\)/,
+      'list_peers wraps its array again — its contract is an array, and `mcp.test.js` asserts it');
   });
 });
 

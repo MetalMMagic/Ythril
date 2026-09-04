@@ -76,18 +76,51 @@ Every `/api/sync/*` endpoint refuses a caller whose member record carries a vers
 
 ```json
 {
-  "error": "Peer runs 3.0.4, below the minimum of 3.1.0 this network requires. Upgrade the peer to 3.1.0 or later.",
-  "minPeerVersion": "3.1.0",
-  "peerVersion": "3.0.4"
+  "error": "Peer runs 3.4.0, below the minimum of 4.0.0 this network requires. Upgrade the peer to 4.0.0 or later.",
+  "minPeerVersion": "4.0.0",
+  "peerVersion": "3.4.0"
 }
 ```
 
-**An absent version is below the floor, not exempt from it.** A peer that has never reported one
-predates the release that started reporting, so `null` is the most common way of being too old rather
-than an exception. `peerVersion` is `null` in that case and the message says so in words.
+**`minPeerVersion` is THIS INSTANCE'S OWN MAJOR at `.0.0`, derived rather than configured.** A 4.x
+instance requires 4.0.0; a 5.x instance requires 5.0.0. There is no setting, and the value moves with
+the release.
 
-**A version is only ever learned from gossip**, so `POST /api/sync/networks/:networkId/members` is the
-one endpoint the floor does not guard. That is the floor's input rather than a hole in it: refused
+Two reasons, and the first is the one that decided it:
+
+- **Compatibility is not transitive, but a network is.** With a floor a few minors back, a 4.1 instance
+  admits 3.2, which admits 2.5 — and records travel the length of that chain even though the ends were
+  never compatible. Every hop is inside its own floor and the path is outside all of them. A floor at
+  the running major cannot chain, because every member is inside the same breaking boundary.
+- **It means what a major already means.** A major is where removals happen, so nothing a major deletes
+  can still be needed by a peer, and there is no second number to keep in step with the changelog.
+
+**The cost, stated plainly:** a network cannot be rolled across a major one instance at a time. The
+moment one member reaches 4.0, every 3.x member stops syncing data until it is upgraded too. Plan a
+major upgrade as one window. Minor and patch upgrades are unaffected and can be rolled in any order.
+
+**A null `version` means one of TWO things, and `belowFloor` is what tells them apart.**
+
+| Stored state | Verdict | Why |
+|---|---|---|
+| `version` below the floor | refused | it said so |
+| `version` present but uncomparable | refused | a claim we cannot compare is not evidence of being current, and it only exists because the peer sent it |
+| `version` null, `versionCheckedAt` **set** | refused | it answered and named none, so it predates version reporting |
+| `version` null, `versionCheckedAt` **unset** | **not refused** | no exchange has completed, so there is no evidence either way |
+
+The last row is load-bearing rather than a courtesy. A member can be legitimately versionless for ever:
+a manually-provisioned peer, or a single-side-configured network, may never complete the gossip exchange
+that reports a version. Refusing those stops the data plane permanently. Unreachability is already
+counted and surfaced by `consecutiveFailures`, and the floor does not answer a question it has no
+evidence for.
+
+So do not infer a verdict from `version` — read `belowFloor`, which is the refusal sentence or `null`.
+
+**A version — and the exchange stamp — are only ever learned from gossip**, so
+`POST /api/sync/networks/:networkId/members` is the one endpoint the floor does not guard. The stamp is
+written on BOTH directions: when this instance calls a peer and reads its piggybacked self-record, and
+when a peer announces itself here. Either alone would leave a push-only or pull-only peer permanently
+unjudgeable. That is the floor's input rather than a hole in it: refused
 there too, a peer could never report that it had been upgraded. That route lets a below-floor peer
 describe ITSELF — `instanceId`, `label`, `url`, `version` — and already refuses any attempt to write
 another member's record. No brain document moves through it.
@@ -102,10 +135,15 @@ exclusion. Governance is deliberately not gated — a vote round expires on a de
 ejection vote about a stale peer because the peer is stale is how a network loses the ability to remove
 it.
 
-**Reading it from either door.** `GET /api/networks` and `GET /api/networks/:id` both carry
-`minPeerVersion` on the envelope, and every member carries `version` plus `belowFloor` — the refusal
-sentence, or `null`. The MCP tool `list_peers` returns the same two fields per row and the same
-`minPeerVersion` on its envelope.
+**Reading it from either door — the same three fields, per member, spelled the same way.**
+`GET /api/networks`, `GET /api/networks/:id` and the MCP tool `list_peers` all carry `version` (what the
+peer last reported, `null` if never), `belowFloor` (the refusal sentence, or `null`) and
+`minPeerVersion` (this instance's floor, identical on every row) on each member.
+
+`minPeerVersion` is per-member rather than on an envelope because `list_peers` returns a bare JSON
+array by contract, and wrapping it would break every caller that indexes the result. Repeating a
+constant per row is that tool's existing idiom — `network`, `networkId` and `networkType` already are —
+and it keeps one spelling of the fact across both doors.
 
 Base path: `/api/sync` — used by the sync engine between peers. All endpoints require auth + sync rate limit.
 

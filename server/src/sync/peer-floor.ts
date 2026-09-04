@@ -16,37 +16,82 @@
  *   one. Nothing derived it, and nothing could express it: there was no `minPeerVersion` in the
  *   codebase, no version on `NetworkMember`, and no sync path that read the version `/health` reports.
  *
- * ## Why 3.1.0 rather than 4.0.0
+ * ## The floor IS the running major, and it is derived rather than chosen
  *
- * The smallest floor that does the job the ruling asked for. 3.1.0 is the release that started writing
- * `suppressEmbeddings`, so at this floor no peer on the network can be one that strips it — which is
- * exactly what row 1.8 needs and nothing more.
+ * Owner, 2026-09-05: *"can we make the current major always be the version floor? that fits to 'this is
+ * breaking'. That makes sure no chaining (4.1 allows 3.2, 3.2 allows 2.5,...) It also fits to
+ * deprecation kills"*.
  *
- * A 4.0.0 floor would also have worked and it would have been worse: it forces a whole network to
- * upgrade in lockstep, because the moment one instance reaches 4.0 every 3.x peer stops syncing. A
- * rolling upgrade is the normal way an operator moves a network, and a floor that forbids it turns a
- * routine upgrade into an outage window.
+ * **The chaining argument is the one that settles it, and it defeats the alternative outright.**
+ * Compatibility between two instances is not transitive, but a NETWORK is: with a hand-set floor a few
+ * minors back, 4.1 admits 3.2, 3.2 admits 2.5, and records travel the length of that chain even though
+ * the ends were never compatible. Every hop is individually within its own floor and the path as a whole
+ * is outside all of them. A floor at the running major cannot chain, because every member is inside the
+ * same breaking boundary by construction.
  *
- * **Raising it is one edit here.** That is the point of declaring it in one place, and
- * `a-peer-below-the-floor-is-refused.test.js` holds the "one place" half by refusing a second version
- * literal in any of the three call sites.
+ * **And it makes the floor mean what a major already means.** A major is the release where removals
+ * happen — that is what `_DEPRECATIONS.md` is a list of. So anything a major deletes cannot be needed by
+ * a peer, which is exactly the guarantee `D-6` was waiting for, with no separate number to keep in step.
  *
- * ## Absent is BELOW the floor, not exempt from it
+ * **What it costs, stated plainly.** A network cannot be rolled across a major one instance at a time:
+ * the moment one reaches 4.0, every 3.x peer stops syncing data until it is upgraded too. That is the
+ * honest price of a breaking release rather than a defect, and the mitigation is that it is VISIBLE — a
+ * badge on the member row and a refusal naming both versions, instead of records quietly not arriving.
+ * The earlier draft picked 3.1.0 to preserve that rolling upgrade, and the chaining argument is what
+ * makes preserving it the wrong goal.
  *
- * A peer that reports no version is older than the release that started reporting one. That reading is
- * the whole mechanism: taken the other way — absent means "unknown, so allow" — every peer this floor
- * exists to refuse walks straight through, and nothing reports it. `CLAUDE.md` names this shape as the
- * defect class this repo produces most, and it has shipped as an empty allowlist read as "unrestricted"
- * three times already.
+ * **Derived, so it can never go stale.** There is no floor to remember to raise at the next major, and
+ * no second copy of the number to disagree with the manifest. That was the failure mode of the constant
+ * it replaces: `MIN_PEER_VERSION` would still have read 3.1.0 the day 5.0 shipped, and nothing would
+ * have contradicted it.
  *
- * The same goes for a version that will not parse. An unparseable claim is not evidence of being
- * current; it is a peer we cannot reason about, which is the situation the floor exists for.
+ * ## Absent means two different things, and conflating them is an outage
+ *
+ * A peer that ANSWERED and reported no version is older than the release that started reporting one, so
+ * it is below the floor. Read the other way — absent means "unknown, so allow" — every peer this floor
+ * exists to refuse walks straight through, which is the shape `CLAUDE.md` names as this repo's most
+ * common defect and which has shipped three times as an empty allowlist read as "unrestricted".
+ *
+ * **But a peer we have never exchanged with reports nothing for a completely different reason, and the
+ * first version of this refused it too.** CI caught it: a member can legitimately be versionless for
+ * ever. `conflicts.test.js` registers a member under an invented `instanceId` with a token carrying no
+ * `peerInstanceId` — which is not a broken fixture, it is what a manually-provisioned peer and a
+ * single-side-configured network both look like. Gossip can never match that member to a self-record,
+ * so no version can ever arrive, so the data plane stopped for good. Fresh networks were the same
+ * before their first exchange completed.
+ *
+ * So the floor acts on EVIDENCE, and `versionCheckedAt` is the evidence: set on every completed gossip
+ * exchange whether or not a version came with it. Three outcomes rather than two — refuse a version
+ * below the floor; refuse a peer that answered and named none; say NOTHING about a peer we have never
+ * heard from, and let the ordinary failure counter handle a peer that cannot be reached.
+ *
+ * An unparseable version is refused with the first group. A claim we cannot compare is not evidence of
+ * being current — and unlike silence, it only exists because the peer sent it.
+ *
+ * ## What this is NOT
+ *
+ * **It is not a defence against a peer that LIES.** A version is self-reported and unauthenticated by
+ * construction, so a hostile instance can claim any number it likes. The floor exists to stop an OLD
+ * peer from silently mishandling data — a compatibility control, not a security one. Anything that has
+ * to hold against a hostile peer belongs in the governance and signing paths, which authenticate.
  */
 
 import { getConfig } from '../config/loader.js';
+import { SERVER_VERSION } from '../util/server-version.js';
 
-/** The minimum version a peer may run. Raising the floor is this line and nothing else. */
-export const MIN_PEER_VERSION = '3.1.0';
+/**
+ * The minimum version a peer may run: this instance's own MAJOR, at `.0.0`.
+ *
+ * **Fails OPEN if our own version cannot be parsed**, which admits every peer instead of refusing every
+ * peer. That is the right way round for a value that comes from our own manifest: an unparseable
+ * `SERVER_VERSION` is a build defect on THIS side, and answering it by stopping the whole network's data
+ * plane would turn a packaging mistake into an outage at every member. The release gate is what keeps
+ * the manifest well-formed.
+ */
+export const MIN_PEER_VERSION = ((): string => {
+  const major = Number.parseInt(SERVER_VERSION.trim().split(/[-+]/)[0]?.split('.')[0] ?? '', 10);
+  return Number.isFinite(major) ? `${major}.0.0` : '0.0.0';
+})();
 
 /**
  * Compare two version strings numerically. Negative if `a` is older, positive if newer, 0 if equal.
@@ -88,9 +133,19 @@ function parseable(v: string): boolean {
  * makes them come and ask. Naming what they run and what is required makes the refusal actionable
  * without a second conversation.
  */
-export function peerFloorRefusal(version: string | null | undefined): string | null {
+export function peerFloorRefusal(
+  version: string | null | undefined,
+  /**
+   * When a member-gossip exchange with this peer last COMPLETED. Omitted means never, and never means
+   * this function has no evidence and returns `null` — see the module docblock. Passing it is not
+   * optional for a real caller; the default exists so a caller that genuinely has a version in hand and
+   * no member record (a test, a one-off comparison) is not forced to invent a timestamp.
+   */
+  versionCheckedAt?: string | null,
+): string | null {
   const reported = typeof version === 'string' ? version.trim() : '';
   if (!reported) {
+    if (!versionCheckedAt) return null;
     return `Peer reports no version, so it predates ${MIN_PEER_VERSION} — the minimum this network `
       + `requires. Upgrade the peer to ${MIN_PEER_VERSION} or later.`;
   }
@@ -122,9 +177,9 @@ export function peerFloorRefusal(version: string | null | undefined): string | n
  * looking at the network instead of at the version.
  */
 export function assertPeerAtFloor(networkId: string, instanceId: string, reported?: string): void {
-  const current = getConfig().networks
+  const member = getConfig().networks
     .find(n => n.id === networkId)?.members
-    .find(m => m.instanceId === instanceId)?.version ?? reported;
-  const refusal = peerFloorRefusal(current);
+    .find(m => m.instanceId === instanceId);
+  const refusal = peerFloorRefusal(member?.version ?? reported, member?.versionCheckedAt);
   if (refusal) throw new Error(refusal);
 }

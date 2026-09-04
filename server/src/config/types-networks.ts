@@ -68,6 +68,15 @@ export interface NetworkMember {
    *  version predates the release that started reporting one, so the optionality here is a fact about
    *  old peers rather than permission for them — `peerFloorRefusal(undefined)` returns a refusal. */
   version?: string;
+  /** ISO8601 of the last COMPLETED member-gossip exchange with this peer, set whether or not a
+   *  version came back with it.
+   *
+   *  **This is what makes `version` interpretable.** Absent `version` means two completely different
+   *  things: a peer that answered and reported nothing (so it predates version reporting, and is
+   *  below the floor), or a peer we have simply never exchanged with (so we know nothing). Without
+   *  this stamp both look identical, and treating them the same refuses every member of an
+   *  asymmetric or manually-provisioned network for ever. */
+  versionCheckedAt?: string;
 }
 
 export interface VoteCast {

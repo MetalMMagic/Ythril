@@ -139,9 +139,16 @@ syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAut
           url: nextUrl,
           children: incoming.children ?? freshNet.members[idx]!.children,
           version: incoming.version ?? freshNet.members[idx]!.version,
+          /*
+           * Stamped here as well as on the outbound exchange, because an announce IS a completed
+           * exchange — a peer that dials us and names no version has told us it predates version
+           * reporting just as surely as one that answers our call. Stamping only outbound would
+           * leave a pull-only peer permanently unjudgeable.
+           */
+          versionCheckedAt: new Date().toISOString(),
           lastSyncAt: new Date().toISOString(),
         };
-        const belowFloor = peerFloorRefusal(updated.version);
+        const belowFloor = peerFloorRefusal(updated.version, updated.versionCheckedAt);
         if (belowFloor) {
           log.warn(`Member ${incoming.instanceId} on network ${net.id} is below the peer floor: ${belowFloor}`);
         }

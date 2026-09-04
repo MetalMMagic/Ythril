@@ -312,7 +312,7 @@ export const traverseTool: ToolHandler = {
               type: 'string',
               enum: ['outbound', 'inbound', 'both'],
               default: 'outbound',
-              description: 'Follow edges from the node (outbound), to the node (inbound), or both directions. Default: outbound. It narrows STORED EDGES ONLY — a link is an entityIds ARRAY today, carrying one orientation only, so includeChrono/includeMemories/includeFiles reach the records naming this entity whatever direction says. The link-records migration gives a link a from and a to, and revisits this. The traverse expansion inside recall behaves identically.',
+              description: 'Follow edges from the node (outbound), to the node (inbound), or both directions. Default: outbound. It narrows STORED EDGES ONLY. A link is a record with a from and a to since 4.0, but which way it runs is fixed by the KINDS at its ends, not by the data: a memory names entities and entities name nothing, so there is no second direction to choose. includeChrono/includeMemories/includeFiles reach the records naming this entity whatever direction says. The traverse expansion inside recall behaves identically.',
             },
             edgeLabels: {
               type: 'array',

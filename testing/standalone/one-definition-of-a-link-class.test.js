@@ -46,12 +46,32 @@ function serverFiles() {
 }
 
 describe('the declaration answers for every link class', () => {
-  it('names all three, with a collection and a field each', () => {
-    assert.equal(LINK_CLASSES.length, 3, 'chrono, memory and file are the record kinds that link by field');
+  it('names all SIX, with a collection and a field each', () => {
+    /*
+     * Six since 4.0, and the number is asserted as the SET rather than the count — a count of six is
+     * satisfied by any six pairs, including a duplicate and a missing one.
+     *
+     * Three of these had no reader at all until `M-2`: `chrono.memoryIds`, `file.memoryIds` and
+     * `file.chronoIds` were accepted, stored, replicated and documented while nothing walked them. That is
+     * why the class is a `(fromKind, toKind)` PAIR now — keyed on the from kind alone, a caller asking
+     * about `chrono.memoryIds` was silently handed the `chrono.entityIds` class and scanned the wrong
+     * field.
+     */
+    const pairs = LINK_CLASSES.map(c => `${c.kind}.${c.field}`).sort();
+    assert.deepEqual(pairs, [
+      'chrono.entityIds', 'chrono.memoryIds',
+      'file.chronoIds', 'file.entityIds', 'file.memoryIds',
+      'memory.entityIds',
+    ], 'the six link classes are the six public array fields, one class each');
+
     for (const c of LINK_CLASSES) {
       assert.ok(c.collection, `${c.kind} has no collection`);
       assert.ok(c.field, `${c.kind} has no link field`);
+      assert.ok(c.toKind, `${c.kind}.${c.field} does not say what it points AT`);
       assert.ok(Object.keys(c.projection).length > 0, `${c.kind} has no projection`);
+      assert.ok(c.projection[c.field] === 1,
+        `${c.label} does not project its own link field, so a walk cannot tell which frontier node a `
+        + 'record hangs off and every synthetic edge it emits starts from the wrong end');
     }
   });
 
@@ -78,32 +98,61 @@ describe('the declaration answers for every link class', () => {
     }
   });
 
-  it('only the file class excludes chunks, and it does', () => {
-    // The asymmetry is the whole reason this module exists, so it is asserted rather than left implicit — and
-    // asserted in BOTH directions, since giving chrono a chunk predicate would silently return nothing.
-    assert.deepEqual(linkClassFor('file').scope, { parentFileId: { $exists: false } });
-    assert.deepEqual(linkClassFor('chrono').scope, {}, 'a chrono has no chunks');
-    assert.deepEqual(linkClassFor('memory').scope, {}, 'a memory has no chunks');
+  it('only the file classes exclude chunks, and ALL THREE of them do', () => {
+    /*
+     * The asymmetry is the whole reason this module exists, so it is asserted rather than left implicit —
+     * and asserted in BOTH directions, since giving chrono a chunk predicate would silently return nothing.
+     *
+     * **Swept rather than named, because a file now has THREE classes.** Written out as three assertions,
+     * a fourth file class added later would be the one without the predicate, and the symptom is a
+     * forty-passage document arriving as forty nodes carrying passage text.
+     */
+    for (const c of LINK_CLASSES) {
+      const expected = c.kind === 'file' ? { parentFileId: { $exists: false } } : {};
+      assert.deepEqual(c.scope, expected,
+        c.kind === 'file' ? `${c.label} does not exclude chunks` : `a ${c.kind} has no chunks`);
+    }
   });
 
-  it('the file scope reaches both query builders — a rule on one and not the other is the defect again', () => {
-    const cls = linkClassFor('file');
-    assert.match(JSON.stringify(linksToAny('s', cls, ['e1'])), /parentFileId/);
-    assert.match(JSON.stringify(hasAnyLink(cls)), /parentFileId/);
+  it('the file scope reaches both query builders, for every file class', () => {
+    for (const cls of LINK_CLASSES.filter(c => c.kind === 'file')) {
+      assert.match(JSON.stringify(linksToAny('s', cls, ['e1'])), /parentFileId/, `${cls.label} in linksToAny`);
+      assert.match(JSON.stringify(hasAnyLink(cls)), /parentFileId/, `${cls.label} in hasAnyLink`);
+    }
   });
 
   it('linksToAny takes an array even for one id, so both callers share one shape', () => {
     // A frontier scan passes many, a backlink scan passes one. Two query shapes is how the chunk predicate
     // ended up on one of them and not the other in the first place.
     assert.deepEqual(
-      linksToAny('sp', linkClassFor('chrono'), ['a']),
+      linksToAny('sp', linkClassFor('chrono', 'entity'), ['a']),
       { spaceId: 'sp', entityIds: { $in: ['a'] } },
+    );
+    // And it filters on the class's OWN field. Hardcoded `entityIds` here is the bug that would leave the
+    // three new classes looking implemented and answering about the wrong column.
+    assert.deepEqual(
+      linksToAny('sp', linkClassFor('chrono', 'memory'), ['a']),
+      { spaceId: 'sp', memoryIds: { $in: ['a'] } },
     );
   });
 
   it('linkClassFor answers nothing for a kind that links by EDGE rather than by field', () => {
-    assert.equal(linkClassFor('entity'), undefined, 'an entity is the link TARGET, not a linker');
-    assert.equal(linkClassFor('edge'), undefined, 'an edge is a record, not a field-based link');
+    assert.equal(linkClassFor('entity', 'entity'), undefined, 'an entity is the link TARGET, not a linker');
+    assert.equal(linkClassFor('edge', 'entity'), undefined, 'an edge is a record, not a field-based link');
+  });
+
+  it('and nothing for a PAIR that is not a class, which is the half that needed the second argument', () => {
+    /*
+     * `linkClassFor` was keyed on the from kind alone, and `find` returns the FIRST match — so
+     * `linkClassFor('chrono')` answered the `entityIds` class whatever the caller meant. A caller asking
+     * about a chrono entry's memory links got a filter on the wrong column, with no error anywhere and a
+     * plausible empty result.
+     */
+    assert.equal(linkClassFor('memory', 'memory'), undefined, 'a memory names entities and nothing else');
+    assert.equal(linkClassFor('memory', 'chrono'), undefined);
+    assert.equal(linkClassFor('chrono', 'chrono'), undefined, 'a chrono entry does not name chrono entries');
+    assert.equal(linkClassFor('chrono', 'file'), undefined, 'a file names a chrono, never the other way');
+    assert.equal(linkClassFor('chrono', 'memory').field, 'memoryIds', 'and the pair that IS a class resolves');
   });
 });
 
@@ -147,13 +196,16 @@ describe('no reader re-derives a link class', () => {
      * variable. Reading the field is not re-deriving what a link is — deciding which records carry one is,
      * and that decision lives in the filter.
      */
-    const field = linkClassFor('chrono').field;
+    // EVERY link field, not one. Six classes name three distinct fields, and a sweep for `entityIds` alone
+    // would report a reader that filters on `memoryIds` as clean — which is exactly the kind of reader this
+    // gate exists to catch, arriving through the fields that only just gained readers.
+    const fields = [...new Set(LINK_CLASSES.map(c => c.field))];
     const rogue = collectionReads()
       .filter(r => {
         const at = r.stmt.indexOf('.find(');
         if (at === -1) return false;
         const filterArg = argumentsOf(r.stmt, at + '.find'.length, 'the find filter')[0] ?? '';
-        return new RegExp(`\\b${field}\\b`).test(filterArg)
+        return fields.some(f => new RegExp(`\\b${f}\\b`).test(filterArg))
           && !/linksToAny\(|hasAnyLink\(/.test(filterArg);
       })
       .map(r => `${r.file} (${r.suffix})`);

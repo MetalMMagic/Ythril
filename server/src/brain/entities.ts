@@ -19,7 +19,9 @@ import { applyDeleteFields, setUnlessDeleted } from './delete-fields.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep, mergeTagsOrKeep } from './merge-fields.js';
 import { enqueueEmbedJob, retireEmbedJob } from './embed-queue.js';
 import { embeddingSuppressedFor } from './suppress-embeddings.js';
-import { linksToAny, linkClassFor } from './link-adjacency.js';
+import { linksToAny, LINK_CLASSES, usesLinkRecords, linkedFromIds, scopedDocs, type LinkClass }
+  from './link-adjacency.js';
+import type { RefKind } from '../config/types-knowledge.js';
 import { checkDuplicates, type SimilarMatch } from './recall.js';
 import type { DupeCheckOpts } from './write-options.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
@@ -565,26 +567,65 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
  * labels deleted cleanly, and the 409 that exists to say "something still points at this" stayed
  * silent about the one reference class holding biometric data.
  */
-export async function findEntityReferences(spaceId: string, entityId: string): Promise<BacklinkEntry[]> {
+/**
+ * The ids of records of one class that reference `targetId`, through whichever storage shape this space
+ * answers from.
+ *
+ * The fork lives here and nowhere else. `usesLinkRecords` is the one decision; a reader choosing for itself
+ * is how five readers came to follow five different subsets of six fields.
+ */
+async function referencingIds(spaceId: string, cls: LinkClass, targetId: string): Promise<string[]> {
+  if (usesLinkRecords(spaceId)) {
+    // The chunk exclusion cannot ride on the link query — a link row has no `parentFileId` — so the ids come
+    // back and are then narrowed by reading the records themselves.
+    const ids = await linkedFromIds(spaceId, cls, [targetId]);
+    return (await scopedDocs<{ _id: string }>(spaceId, cls, ids)).map(d => d._id);
+  }
+  const rows = await col<{ _id: string }>(`${spaceId}_${cls.collection}`)
+    .find(asFilter<{ _id: string }>(linksToAny(spaceId, cls, [targetId])), { projection: { _id: 1 } })
+    .toArray() as Array<{ _id: string }>;
+  return rows.map(r => r._id);
+}
+
+/**
+ * What still points at a record — the scan that refuses a delete under strict linkage.
+ *
+ * **`targetKind` since 4.0**, defaulting to `entity` because that is every existing caller and the published
+ * `backlinks` contract. A memory, a chrono entry and a file can all be pointed AT now, and until they could
+ * be seen here, deleting one that something named was never refused.
+ */
+export async function findEntityReferences(spaceId: string, targetId: string, targetKind: RefKind = 'entity'): Promise<BacklinkEntry[]> {
   const backlinks: BacklinkEntry[] = [];
 
-  // Edges referencing this entity as from or to
+  // Edges referencing this record as from or to. Edge endpoints carry their own kind since 3.7, so an edge
+  // whose `from` is a memory is found here too — and `fromKind`/`toKind` are absent on a pre-3.7 edge,
+  // which means entity, which is why the kind is matched permissively for that case alone.
+  const kindMatches = (side: string) => targetKind === 'entity'
+    ? { $or: [{ [side]: targetId, [`${side}Kind`]: { $exists: false } }, { [side]: targetId, [`${side}Kind`]: 'entity' }] }
+    : { [side]: targetId, [`${side}Kind`]: targetKind };
   const edges = await col<EdgeDoc>(`${spaceId}_edges`)
-    .find(asFilter<EdgeDoc>({ spaceId, $or: [{ from: entityId }, { to: entityId }] }), { projection: { _id: 1 } })
+    .find(asFilter<EdgeDoc>({ spaceId, $or: [kindMatches('from'), kindMatches('to')] }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const e of edges) backlinks.push({ type: 'edge', _id: e._id });
 
-  // Memories referencing this entity in entityIds
-  const memories = await col<MemoryDoc>(`${spaceId}_memories`)
-    .find(asFilter<MemoryDoc>(linksToAny(spaceId, linkClassFor('memory')!, [entityId])), { projection: { _id: 1 } })
-    .toArray() as Array<{ _id: string }>;
-  for (const m of memories) backlinks.push({ type: 'memory', _id: m._id });
-
-  // Chrono entries referencing this entity in entityIds
-  const chronos = await col<ChronoEntry>(`${spaceId}_chrono`)
-    .find(asFilter<ChronoEntry>(linksToAny(spaceId, linkClassFor('chrono')!, [entityId])), { projection: { _id: 1 } })
-    .toArray() as Array<{ _id: string }>;
-  for (const c of chronos) backlinks.push({ type: 'chrono', _id: c._id });
+  /*
+   * Every class whose TO kind is the kind of thing being deleted — six of them now, where this was three
+   * hand-written blocks that each knew one collection and one field.
+   *
+   * **The three it could not see were the three nobody had written a reader for.** Deleting a memory that a
+   * chrono entry named was never refused, even under strict linkage, because `chrono.memoryIds` had no
+   * scan — and this is the scan that refuses. A class this cannot see is a delete it cannot block, which
+   * makes coverage here a data-safety property rather than a completeness one.
+   *
+   * Derived from `LINK_CLASSES` rather than written out for the same reason: a seventh class added later
+   * gets the block automatically, where a fourth hand-written block would have been forgotten exactly the
+   * way the file one was.
+   */
+  for (const cls of LINK_CLASSES) {
+    if (cls.toKind !== targetKind) continue;
+    const rows = await referencingIds(spaceId, cls, targetId);
+    for (const _id of rows) backlinks.push({ type: cls.kind, _id });
+  }
 
   /*
    * Files that reference this entity in `entityIds` — a modelled reference, exactly like a memory's.
@@ -597,20 +638,19 @@ export async function findEntityReferences(spaceId: string, entityId: string): P
    * It blocks, unlike the face scan. Both doors filter `b.type !== 'face'`, and that exemption is deliberate
    * and narrow: a face label is an annotation the system inferred, while `entityIds` is a link somebody wrote.
    */
-  // Through the shared class, which brings the chunk exclusion this scan never had. A chunk shares the file
-  // collection and is told apart only by `parentFileId`; the pipeline does not write `entityIds` onto one, but
-  // `updateFileMeta` will set it on any filemeta record by id, so the gap was reachable deliberately.
-  const linkedFiles = await col<FileMetaDoc>(`${spaceId}_files`)
-    .find(asFilter<FileMetaDoc>(linksToAny(spaceId, linkClassFor('file')!, [entityId])), { projection: { _id: 1 } })
-    .toArray() as Array<{ _id: string }>;
-  for (const f of linkedFiles) backlinks.push({ type: 'file', _id: f._id });
 
   // Face records labelled with this entity. These live in `${spaceId}_files` as face-chunk filemeta
-  // docs, which is why the other three scans missed them.
-  const faces = await col<FileMetaDoc>(`${spaceId}_files`)
-    .find(asFilter<FileMetaDoc>({ faceEntityId: entityId }), { projection: { _id: 1 } })
-    .toArray() as Array<{ _id: string }>;
-  for (const f of faces) backlinks.push({ type: 'face', _id: f._id });
+  // docs, which is why the class scans above miss them.
+  //
+  // ENTITIES ONLY, and the guard is not defensive tidiness: `faceEntityId` holds an entity id, so running
+  // this for a memory target would compare a memory id against a column of entity ids. It would find
+  // nothing, every time, which is exactly what a silently wrong scan looks like from the outside.
+  if (targetKind === 'entity') {
+    const faces = await col<FileMetaDoc>(`${spaceId}_files`)
+      .find(asFilter<FileMetaDoc>({ faceEntityId: targetId }), { projection: { _id: 1 } })
+      .toArray() as Array<{ _id: string }>;
+    for (const f of faces) backlinks.push({ type: 'face', _id: f._id });
+  }
 
   return backlinks;
 }

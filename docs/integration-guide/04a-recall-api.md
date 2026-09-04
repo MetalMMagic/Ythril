@@ -345,16 +345,19 @@ project, a recurring topic — one unnarrowed hop off such a node returns whiche
 happened to keep, and nothing in the response distinguishes that from a deliberate answer. Narrowing is how you
 ask for the neighbourhood you meant.
 
-**`direction` narrows stored edges only, and never links.** A link is an `entityIds` ARRAY today — the field a memory,
-chrono entry or file carries — and it holds one orientation only: the record names the entity. There is nothing
-for `direction` to select between, so it selects nothing.
+**`direction` narrows stored edges only, and never links.** A link is a **record** with a `from` and a `to` since 4.0 — but which way it runs is fixed by the
+KINDS at its ends rather than by the data. A memory names entities and an entity names nothing, so asking for
+a memory's outbound links and its inbound links is not a choice between two answers; for an entity one of the
+two is always empty. There is nothing for `direction` to select between, so it selects nothing.
 Both walks treat a link as reaching the entity it names, whatever `direction` says: the standalone
 [`POST /traverse`](04b-graph-api.md#traverse-graph) has always done so, and recall's expansion matches it.
 
 The consequence worth knowing, because it surprises: `{"depth": 1, "direction": "inbound", "includeMemories":
 true}` on a matched memory still returns the entities that memory **names**, which is an outbound step from the
-record. Consistency between the two walks is deliberate — honouring `direction` on links would make `inbound`
-hide a memory's own links, which is not what anyone asks for by narrowing. If you want edges in one direction
+record. Consistency between the two walks is deliberate, and so is leaving it this way now that a link has two
+ends: honouring `direction` on links would make the DEFAULT traverse — `outbound` from an entity — return no
+linked records at all, because nothing hangs off an entity. That is a large silent change to the commonest
+call, for a parameter that would still have nothing useful to select between. If you want edges in one direction
 and no links at all, leave the three `include*` flags off; they are off by default.
 
 **`limit` is deliberately not accepted here.** In a standalone traverse the caller sets it; in a recall the node

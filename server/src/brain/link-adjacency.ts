@@ -1,54 +1,70 @@
 /**
- * The link classes, declared ONCE.
+ * The link classes, declared ONCE — and from 4.0 there are SIX of them.
  *
  * ## What a "link class" is
  *
- * An edge is a record. A **link** is not: it is a field on a chrono entry, memory or file naming the entities
- * it concerns (`entityIds`), and four separate places in the server read those fields to answer four different
- * questions — what a graph walk can reach, what blocks a delete, what the ER diagram draws, and what sync
- * checks. Each of them carried its own literal knowledge of the collection name, the field, the synthetic edge
- * label, and the predicate that keeps file CHUNKS out.
+ * An edge is a record that says HOW two things relate. A **link** says only that one record is ABOUT
+ * another, and there are six ways a record can say it: a memory names entities, a chrono entry names
+ * entities and memories, a file names entities, memories and chrono entries.
  *
- * ## The four copies, and what already differed between them
+ * A class is therefore a `(fromKind, toKind)` PAIR. It used to be keyed on the from kind alone, which was
+ * exactly correct while `entityIds` was the only field anybody read and became wrong the moment a kind had
+ * two — a chrono entry has two link fields and a file has three.
  *
- * `traverseGraph` (`edges.ts`) excludes chunks with `parentFileId: { $exists: false }` and says why: chunks
- * live in the same collection as their file and are told apart only by that field, so without it one document
- * split into forty passages arrives as forty nodes carrying passage text. **The other three readers do not
- * exclude them.**
+ * ## The three that had no reader, and what that cost
  *
- * That is latent rather than live, and saying so precisely matters: the conversion pipeline never writes
- * `entityIds` onto a chunk, so today nothing is double-counted. But `updateFileMeta` will set `entityIds` on
- * any filemeta record by id, chunk included — so the divergence is reachable deliberately, and it is the exact
- * shape of "one rule, four implementations, and the weakest wins silently" that this codebase produces most.
- * Extracting it means the rule cannot be present in three readers and absent from a fourth.
+ * `chrono.memoryIds`, `file.memoryIds` and `file.chronoIds` have been accepted, resolvability-checked,
+ * stored, replicated and documented since 3.x. **Nothing walked them.** A traverse from a memory did not
+ * reach the chrono entry that named it; the scan that blocks a delete could not see them either, so deleting
+ * a memory a chrono entry named was never refused, even under strict linkage.
+ *
+ * That was not a policy. It was three fields nobody had written a reader for, and every reader following a
+ * different subset of the six is what `M-2` exists to end.
+ *
+ * ## Two storage shapes, one question, and the SELECTOR is in this file
+ *
+ * A link lives in two places during the transition:
+ *
+ *   - the **array** on the record (`memory.entityIds` and its five siblings) — the 3.x shape, still written,
+ *     still replicated, and the only thing a peer on an older build understands.
+ *   - a **link record** in the space's `links` collection — one small document per connection, indexed both
+ *     ways, which is what makes "what points at this?" one indexed lookup instead of one collection scan per
+ *     class.
+ *
+ * `usesLinkRecords` decides which a space is read through, and it is the ONLY place that decides. A reader
+ * choosing for itself is how five readers came to follow five different subsets in the first place.
+ *
+ * **Both shapes answer all six classes.** The array path was widened rather than frozen, deliberately: it
+ * means the three classes that never had a reader start working on every space immediately, and running the
+ * conversion is a performance and consistency upgrade rather than a correctness prerequisite. An operator who
+ * upgrades and runs nothing gets the fix; an operator who converts gets it faster.
  *
  * ## Deliberately not a migration
  *
- * Nothing here changes what is stored, what is embedded, or what crosses a sync. It is the authoritative
- * enumeration of what a link IS — which is also what any future conversion of links into real edge records
- * would have to be driven from, and nothing in the tree currently plays that part.
+ * Nothing here changes what is stored, what is embedded, or what crosses a sync.
  */
-import type { KnowledgeType } from '../config/types.js';
+import { col, asFilter } from '../db/mongo.js';
+import { getConfig } from '../config/loader.js';
+import type { RefKind } from '../config/types-knowledge.js';
+import type { LinkDoc } from '../config/types.js';
 
-/** One kind of field-based link from a record to the entities it concerns. */
+/** One class of link: a record kind that names another record kind through one array field. */
 export interface LinkClass {
-  /** The record kind holding the link. Matches `TraverseNode.kind`. */
+  /** The record kind HOLDING the link. Matches `TraverseNode.kind`. */
   kind: 'chrono' | 'memory' | 'file';
-  /** Collection suffix: the collection is `${spaceId}_${collection}`. */
+  /** What it names. An entity is only ever a `to`; nothing hangs off an entity. */
+  toKind: RefKind;
+  /** Collection suffix of the FROM record: the collection is `${spaceId}_${collection}`. */
   collection: 'chrono' | 'memories' | 'files';
-  /** The field naming the linked entities. One name today, declared rather than assumed. */
-  field: 'entityIds';
+  /** The array field naming the linked records — the 3.x shape, and still the fallback. */
+  field: 'entityIds' | 'memoryIds' | 'chronoIds';
   /**
-   * The label the synthetic edge for this link carries.
+   * The label the synthetic edge for this link carries — `chrono.memoryIds` and its five siblings.
    *
-   * A real value rather than an empty string, so `edgeLabels` can include or exclude a link like any other
-   * relationship and a reader of a traverse result can tell a modelled relationship from a derived one.
-   *
-   * It used to live in `edges.ts` beside the traversal that emits it, and this docblock argued that folding
-   * the two together *"would make an import cycle for the sake of one string apiece"*. That was true only in
-   * the direction it was tried: `edges.ts` already imports this module, so moving the string HERE costs no
-   * cycle at all. It moved when a second traversal needed the same three labels — one more reader is one
-   * more chance for the copies to disagree, and a label is part of what a link IS.
+   * DERIVED from the two kinds rather than stored, here and in `brain/links.ts` where a link record's id is
+   * computed. Storing it would be a second place for the same string to live, and the label a reader shows
+   * and the id a writer computes have to be the same expression or a link stops being findable by the name
+   * it was created under.
    */
   label: string;
   /**
@@ -56,6 +72,10 @@ export interface LinkClass {
    *
    * Files carry one and the other two do not: chunk records share the file collection and are distinguished
    * only by `parentFileId`, so a scan without this counts a forty-passage document forty times.
+   *
+   * **It still applies when reading link RECORDS**, and that is the half that is easy to lose — a link row
+   * has no `parentFileId`, so the exclusion has to happen where the file is resolved rather than in the link
+   * query. See `scopedIds`.
    */
   scope: Record<string, unknown>;
   /**
@@ -67,53 +87,154 @@ export interface LinkClass {
   projection: Record<string, 1>;
 }
 
-/**
- * Every link class, in the order a traversal emits them.
- */
-export const LINK_CLASSES: readonly LinkClass[] = [
-  {
-    kind: 'chrono',
-    collection: 'chrono',
-    field: 'entityIds',
-    label: 'chrono.entityIds',
-    scope: {},
-    projection: { title: 1, type: 1, entityIds: 1 },
-  },
-  {
-    kind: 'memory',
-    collection: 'memories',
-    field: 'entityIds',
-    label: 'memory.entityIds',
-    scope: {},
-    projection: { fact: 1, type: 1, entityIds: 1 },
-  },
-  {
-    kind: 'file',
-    collection: 'files',
-    field: 'entityIds',
-    label: 'file.entityIds',
-    // See `LinkClass.scope`: chunks share this collection with the files they came from.
-    scope: { parentFileId: { $exists: false } },
-    projection: { path: 1, description: 1, tags: 1, entityIds: 1 },
-  },
-] as const;
+/** The array field a kind is named through — `entity` → `entityIds`. Derived; see `brain/links.ts`. */
+const fieldFor = (toKind: RefKind): LinkClass['field'] => `${toKind}Ids` as LinkClass['field'];
 
-/** The class for one record kind, or `undefined` for a kind that has no field-based links (an entity, an edge). */
-export function linkClassFor(kind: KnowledgeType | 'file'): LinkClass | undefined {
-  return LINK_CLASSES.find(c => c.kind === kind);
+/** The projection each FROM kind needs, whatever it links to. */
+const PROJECTION: Record<LinkClass['kind'], Record<string, 1>> = {
+  chrono: { title: 1, type: 1, entityIds: 1, memoryIds: 1 },
+  memory: { fact: 1, type: 1, entityIds: 1 },
+  file: { path: 1, description: 1, tags: 1, entityIds: 1, memoryIds: 1, chronoIds: 1 },
+};
+
+/** The collection each FROM kind lives in. */
+const COLLECTION: Record<LinkClass['kind'], LinkClass['collection']> = {
+  chrono: 'chrono', memory: 'memories', file: 'files',
+};
+
+/** See `LinkClass.scope`: chunks share the file collection with the files they came from. */
+const SCOPE: Record<LinkClass['kind'], Record<string, unknown>> = {
+  chrono: {}, memory: {}, file: { parentFileId: { $exists: false } },
+};
+
+/**
+ * What each record kind can name — the product fact this whole module is keyed on.
+ *
+ * Written out rather than derived, because it is not derivable: a memory names entities and nothing else, a
+ * chrono entry names entities and memories, a file names all three. The same table drives the write door in
+ * `brain/links.ts`, which reads it from there for the same reason.
+ */
+const NAMES: Record<LinkClass['kind'], readonly RefKind[]> = {
+  chrono: ['entity', 'memory'],
+  memory: ['entity'],
+  file: ['entity', 'memory', 'chrono'],
+};
+
+/**
+ * Every link class, ordered by FROM kind then by TO kind.
+ *
+ * Order matters to one caller: a traversal emits its classes in this sequence, and
+ * `the-link-baseline-3x-answered-db.test.js` pins the label set it produces. `chrono` first keeps the 3.x
+ * ordering of the three classes that already had readers.
+ */
+export const LINK_CLASSES: readonly LinkClass[] =
+  (['chrono', 'memory', 'file'] as const).flatMap(kind =>
+    NAMES[kind].map((toKind): LinkClass => ({
+      kind,
+      toKind,
+      collection: COLLECTION[kind],
+      field: fieldFor(toKind),
+      label: `${kind}.${fieldFor(toKind)}`,
+      scope: SCOPE[kind],
+      projection: PROJECTION[kind],
+    })));
+
+/**
+ * The class for one `(fromKind, toKind)` pair, or `undefined` for a pair that is not a link.
+ *
+ * **BOTH kinds, since 4.0.** Keyed on the from kind alone it silently returned whichever class happened to be
+ * declared first for that kind — the `entityIds` one — so a caller asking about `chrono.memoryIds` was
+ * handed the filter for `chrono.entityIds` and scanned the wrong field with no error anywhere.
+ */
+export function linkClassFor(kind: RefKind | 'edge', toKind: RefKind): LinkClass | undefined {
+  return LINK_CLASSES.find(c => c.kind === kind && c.toKind === toKind);
+}
+
+/** Every class a record of this kind holds — one for a memory, two for a chrono entry, three for a file. */
+export function linkClassesFrom(kind: RefKind | 'edge'): readonly LinkClass[] {
+  return LINK_CLASSES.filter(c => c.kind === kind);
 }
 
 /**
- * The filter matching records of this class that link to ANY of `entityIds`.
+ * Does this space answer adjacency from link RECORDS, or from the arrays?
  *
- * `$in` rather than an equality even for a single id, so a frontier and a single-entity backlink scan use one
+ * The one place that decides, for every reader. `completeLinkage` is set by the conversion script when it has
+ * walked a space with no failures, and it is LOCAL — see `SpaceConfig.completeLinkage` for why a marker about
+ * what has happened on one disk must not be a thing a network votes on.
+ *
+ * A space that has not converted has link records only for what was written since the upgrade, so reading
+ * records alone there would answer about recent data and silently drop the rest. The arrays are complete on
+ * every space, always, which is what makes them the safe side of this branch.
+ */
+export function usesLinkRecords(spaceId: string): boolean {
+  return getConfig().spaces.find(s => s.id === spaceId)?.completeLinkage === true;
+}
+
+/**
+ * The filter matching records of this class that link to ANY of `ids` — the ARRAY shape.
+ *
+ * `$in` rather than an equality even for a single id, so a frontier and a single-record backlink scan use one
  * shape. Callers that want one id pass a one-element array.
  */
-export function linksToAny(spaceId: string, cls: LinkClass, entityIds: readonly string[]): Record<string, unknown> {
-  return { spaceId, [cls.field]: { $in: [...entityIds] }, ...cls.scope };
+export function linksToAny(spaceId: string, cls: LinkClass, ids: readonly string[]): Record<string, unknown> {
+  return { spaceId, [cls.field]: { $in: [...ids] }, ...cls.scope };
 }
 
 /** The filter matching records of this class that have ANY link at all — the ER diagram's scan. */
 export function hasAnyLink(cls: LinkClass): Record<string, unknown> {
   return { [cls.field]: { $exists: true, $ne: [] }, ...cls.scope };
+}
+
+/**
+ * The ids of records of this class that link to ANY of `ids` — the LINK RECORD shape.
+ *
+ * One indexed lookup on `{to, toKind}` in place of a collection scan per class. It returns ids rather than
+ * documents because the caller still has to read the record itself: a link row carries no title, no path and
+ * no `parentFileId`, so the chunk exclusion and the projection both belong to the second read.
+ */
+export async function linkedFromIds(
+  spaceId: string, cls: LinkClass, ids: readonly string[], limit?: number,
+): Promise<string[]> {
+  const cursor = col<LinkDoc>(`${spaceId}_links`)
+    .find(asFilter<LinkDoc>({ to: { $in: [...ids] }, toKind: cls.toKind, fromKind: cls.kind }),
+          { projection: { from: 1 } });
+  if (limit !== undefined) cursor.limit(limit);
+  const rows = await cursor.toArray() as Array<{ from: string }>;
+  return [...new Set(rows.map(r => r.from))];
+}
+
+/**
+ * The ids of records that `ids` NAME, for this class — the link read forwards, in the LINK RECORD shape.
+ *
+ * The mirror of `linkedFromIds` on the `{from, fromKind, …}` index. Returned as pairs rather than a flat set
+ * because the caller needs to know which record named which — a synthetic edge has two ends.
+ */
+export async function linkedToPairs(
+  spaceId: string, cls: LinkClass, ids: readonly string[], limit?: number,
+): Promise<Array<{ from: string; to: string }>> {
+  const cursor = col<LinkDoc>(`${spaceId}_links`)
+    .find(asFilter<LinkDoc>({ from: { $in: [...ids] }, fromKind: cls.kind, toKind: cls.toKind }),
+          { projection: { from: 1, to: 1 } });
+  if (limit !== undefined) cursor.limit(limit);
+  return await cursor.toArray() as Array<{ from: string; to: string }>;
+}
+
+/**
+ * Narrow a set of FROM ids to the ones the class's `scope` admits, by reading the records themselves.
+ *
+ * This is the chunk exclusion after a link-record lookup, and it is the step that is easy to leave out: a
+ * link row has no `parentFileId`, so a file link and a chunk link are indistinguishable in the links
+ * collection. Without this a forty-passage document comes back as forty nodes carrying passage text — the
+ * failure `LinkClass.scope` was written for, arriving through the new path instead of the old one.
+ *
+ * The read is not wasted: the caller wants the documents anyway, so this returns them with the class's
+ * projection already applied.
+ */
+export async function scopedDocs<T extends { _id: string }>(
+  spaceId: string, cls: LinkClass, ids: readonly string[],
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  return await col<T>(`${spaceId}_${cls.collection}`)
+    .find(asFilter<T>({ _id: { $in: [...ids] }, ...cls.scope }), { projection: cls.projection })
+    .toArray() as T[];
 }

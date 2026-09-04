@@ -21,8 +21,18 @@
  * which is two functions wearing one name.
  */
 import { col, asFilter } from '../db/mongo.js';
-import { LINK_CLASSES, linksToAny, type LinkClass } from './link-adjacency.js';
+import { LINK_CLASSES, linksToAny, usesLinkRecords, linkedFromIds, linkedToPairs, scopedDocs, type LinkClass }
+  from './link-adjacency.js';
 import type { ChronoEntry, MemoryDoc, FileMetaDoc } from '../config/types.js';
+
+/**
+ * The shape both scans read a FROM record as: an id plus whichever of the three arrays the class names.
+ *
+ * Indexed rather than three optional fields, because the field is chosen by `cls.field` at run time and a
+ * closed shape here would mean casting at every access — which is how `entityIds` came to be hardcoded in
+ * both scans while five of the six classes are named through something else.
+ */
+type LinkRow = { _id: string } & Record<string, unknown>;
 
 /** A record reached through a link rather than an edge. */
 export interface LinkedRecord {
@@ -119,21 +129,40 @@ export async function linkedRecordsAtFrontier(
       // A budget spent before every class was read leaves whole kinds of record unlooked-at, not merely
       // trimmed — so this is a truncation even though nothing was thrown away here.
       if (remaining === 0) return { records: out, scanCapped: true };
-      const linked = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
-        .find(asFilter<{ _id: string }>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
-        .limit(remaining ?? 0)
-        .toArray();
+
+      /*
+       * Two storage shapes, one question — and the choice is `usesLinkRecords`, never a decision taken here.
+       *
+       * The link-record path is one indexed lookup on `{to, toKind}` and then a read of the records it named.
+       * That second read is not overhead: a link row carries no title, no path and no `parentFileId`, so the
+       * projection and the chunk exclusion both have to happen against the record itself. The array path is
+       * one collection scan, exactly as 3.x did it.
+       */
+      const linked = usesLinkRecords(mid)
+        ? await scopedDocs<LinkRow>(mid, cls, await linkedFromIds(mid, cls, frontier, remaining))
+        : await col<LinkRow>(`${mid}_${cls.collection}`)
+            .find(asFilter<LinkRow>(linksToAny(mid, cls, frontier)), { projection: cls.projection })
+            .limit(remaining ?? 0)
+            .toArray() as LinkRow[];
       // A cursor that came back FULL is the case that hides. The database stopped handing documents over, so
       // there may be more behind it — and that is true however many of these survive the `visited` filter
       // below. Counting what survives instead is exactly the mistake that made the bound silent.
-      if (remaining !== undefined && linked.length === remaining) scanCapped = true;
+      //
+      // On the link-record path the bound is spent on LINK ROWS and `linked` counts RECORDS, which is the
+      // smaller number once two rows name the same record — so the comparison is `>=`, not `===`. Equality
+      // there would under-report the cap on exactly the dense neighbourhoods it exists for.
+      if (remaining !== undefined && linked.length >= remaining) scanCapped = true;
       for (const doc of linked) {
         if (visited.has(doc._id)) continue;
         visited.add(doc._id);
-        // `?? []` for all three: a filemeta record may genuinely have no `entityIds`, and the two readers
-        // that omitted the guard were relying on the `$in` above to have proved the field present. It does —
-        // but a projection is what decides whether the field comes BACK, and that is a different question.
-        const via = (doc.entityIds ?? []).find(id => frontierSet.has(id)) ?? frontier[0];
+        // `cls.field`, not `entityIds`: five of the six classes are named through a different field, and a
+        // hardcoded `entityIds` here would give every chrono-to-memory link a `via` of `frontier[0]` — a
+        // synthetic edge drawn from the wrong node, which reads as a real relationship.
+        //
+        // `?? []` because a projection is what decides whether the field comes BACK, which is a different
+        // question from whether the filter proved it present.
+        const named = (doc[cls.field] as string[] | undefined) ?? [];
+        const via = named.find(id => frontierSet.has(id)) ?? frontier[0];
         out.push({ kind: cls.kind, label: cls.label, doc: doc as unknown as LinkedRecord['doc'], via });
       }
     }
@@ -214,14 +243,35 @@ export async function entitiesLinkedFromRecords(
        */
       const remaining = limit === undefined ? undefined : Math.max(0, limit - out.length);
       if (remaining === 0) return { records: out, scanCapped: true };
-      const docs = await col<{ _id: string; entityIds?: string[] }>(`${mid}_${cls.collection}`)
-        .find(asFilter<{ _id: string }>({ _id: { $in: [...recordIds] }, ...cls.scope }),
-              { projection: { entityIds: 1 } })
+
+      if (usesLinkRecords(mid)) {
+        /*
+         * The `{from, fromKind, toKind}` index answers this directly, and the scope still has to be applied
+         * to the FROM side: a chunk is a filemeta record, so a chunk that names an entity would otherwise be
+         * walked as if it were the file it came from.
+         */
+        const pairs = await linkedToPairs(mid, cls, recordIds, remaining);
+        if (remaining !== undefined && pairs.length >= remaining) scanCapped = true;
+        const froms = [...new Set(pairs.map(p => p.from))];
+        const admitted = new Set((await scopedDocs<{ _id: string }>(mid, cls, froms)).map(d => d._id));
+        for (const p of pairs) {
+          if (admitted.has(p.from)) out.push({ from: p.from, to: p.to, label: cls.label, kind: cls.kind });
+        }
+        continue;
+      }
+
+      const docs = await col<LinkRow>(`${mid}_${cls.collection}`)
+        .find(asFilter<LinkRow>({ _id: { $in: [...recordIds] }, ...cls.scope }),
+              { projection: { [cls.field]: 1 } })
         .limit(remaining ?? 0)
-        .toArray();
+        .toArray() as LinkRow[];
       if (remaining !== undefined && docs.length === remaining) scanCapped = true;
       for (const doc of docs) {
-        for (const to of doc.entityIds ?? []) out.push({ from: doc._id, to, label: cls.label, kind: cls.kind });
+        // `cls.field` again. Reading `entityIds` here for all six classes is the mistake that would leave
+        // `chrono.memoryIds` looking implemented and answering nothing.
+        for (const to of ((doc[cls.field] as string[] | undefined) ?? [])) {
+          out.push({ from: doc._id, to, label: cls.label, kind: cls.kind });
+        }
       }
     }
   }

@@ -17,7 +17,7 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, LinkDoc, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkEntityIdLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
+import { checkEdgeLinkViolations, checkLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -188,7 +188,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       // No local copy — insert directly
       await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
-      checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
+      checkLinkViolations(spaceId, incoming._id, 'memory', incoming, peerInst).catch(() => {});
       res.status(200).json(withSchemaViolations({ status: 'inserted' }, violations));
       return;
     }
@@ -197,7 +197,7 @@ syncDocsRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async
       // Remote is newer — overwrite
       await ingestBrainDoc<MemoryDoc>(spaceId, 'memory', 'memories', incoming);
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
-      checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
+      checkLinkViolations(spaceId, incoming._id, 'memory', incoming, peerInst).catch(() => {});
       res.status(200).json(withSchemaViolations({ status: 'updated' }, violations));
       return;
     }
@@ -449,7 +449,7 @@ syncDocsRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (
 
     // Fire-and-forget: check strict linkage violations after ingest
     const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
-    checkEntityIdLinkViolations(spaceId, incoming._id, 'chrono', incoming.entityIds, peerInst).catch(() => {});
+    checkLinkViolations(spaceId, incoming._id, 'chrono', incoming, peerInst).catch(() => {});
 
     // The violations travel back so the receiving operator can see what arrived out of shape. Absent when
     // there are none, so a clean ingest keeps its existing response byte for byte.

@@ -71,6 +71,27 @@ describe('the working order is gated, not merely written down', () => {
     assert.match(r, /fail\(/, 'a stale or unchecked list must fail the check, not print a note beside it');
   });
 
+  it('and an unticked row is tested for NULL, which is what the reader returns', () => {
+    /*
+     * This crashed instead of failing. `workingOrderRow` returns `null` for a row that is absent or
+     * unticked — never `undefined` — and the tests-row guard read `tests !== undefined`, so `.match` ran on
+     * `null` and killed the process.
+     *
+     * It only reached that line when a row was UNTICKED, which is exactly when the checker has something to
+     * say: the missing-row failure had already been recorded, and the crash then discarded it. So an honest
+     * mid-job run printed a stack trace and no findings, while a fully-ticked one looked fine — a gate that
+     * works only when it has nothing to report.
+     *
+     * Asserted on the source because the crash is in a branch the fixtures cannot reach without a `todo/`
+     * folder, and `todo/` is gitignored and absent in CI.
+     */
+    const code = src;
+    assert.doesNotMatch(code, /workingOrderRow\([^)]*\);\s*if \(\w+ !== undefined\)/,
+      'a row reader returning null is being compared against undefined, which crashes on the unticked case');
+    assert.match(rule(), /tests !== null/,
+      'the tests row must be tested for null — the reader has no undefined case');
+  });
+
   it('an unticked box fails', () => {
     // Matched on the variable rather than on the bracket literal: the source spells it inside a regex, so a
     // grep for `[ ]` finds `[ \]` and misses — a gate looking for the wrong spelling of its own subject.

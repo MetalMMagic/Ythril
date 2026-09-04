@@ -337,6 +337,16 @@ exceeding the bound is a `400` naming the ceiling.
 
 ---
 
+> **A malformed optional field is REFUSED, not dropped (4.0).** Sending `"description": 12345` or
+> `"properties": "not-an-object"` to a create used to answer `201` with the field silently discarded, while
+> the same body on a `PATCH` answered `400`. Both answer `400` now. The `warnings` array still reports only
+> keys the server does not recognise — a known key with a wrong value is an error, not a warning.
+>
+> **`PATCH` enforces every value rule its `POST` enforces.** The 50 000-character limit on `fact`, the
+> array-of-strings rules, the plain-object rule for `properties`, and the 0–1 bound on an edge `weight` and
+> a chrono `confidence` all apply to both doors. What a create still demands and an update does not is that
+> a field be PRESENT.
+
 ### Delete a Memory
 
 ```http

@@ -181,6 +181,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   immediately. Running `npm run links:convert` is a speed and consistency upgrade — one indexed lookup in
   place of a collection scan per class — and never a correctness prerequisite.
 
+### Fixed
+
+- **An update now refuses what its create refuses.** Eight measured defects, all the same shape: the same
+  field, two doors, two rules, and whichever one you happened to use decided what got stored.
+
+  The worst was a timeline entry. Its `PATCH` validated **nothing** it accepted, so one request stored
+  `{"title": 42, "startsAt": {"$gte": "…"}, "tags": "urgent"}` and answered `200` — a database query
+  operator sitting in a date field, in a record whose create door refuses all three and which you are not
+  even allowed to DELETE those fields from, because they are required.
+
+  The one that damaged READS was quieter: a non-array `entityIds` skipped the id check entirely and broke
+  every graph lookup over that field, on a record that looked fine.
+
+  **Also closed:** a memory's 50 000-character limit was enforced on all four create doors and neither
+  update door; a blank name or label got in through whichever door tested it before trimming, and since an
+  edge's identity is DERIVED from its label, the blank one re-keyed the record; an edge `weight` was held
+  to 0–1 by both agent-facing doors and by neither HTTP door, so `47` was a valid weight over one and an
+  error over the other.
+
+- **A create no longer discards a malformed field in silence.** `{"fact": "x", "description": {"note":
+  "hi"}, "properties": "not-an-object"}` used to answer `201` with both fields dropped and nothing said —
+  the warnings list reports keys the server does not KNOW, never known keys whose value was wrong. The
+  same body on the update door was two refusals. It is refused on both now.
+
+- **A memory update checks that an entity EXISTS, not just that its id is well-formed.** Every other
+  memory door resolved the reference; this one tested the shape and stored it. Its sibling's own comment
+  is the argument: *"a syntactically perfect id pointing at nothing stores exactly as silently as a name
+  did, and the dangling link only shows up later as a traversal that comes back empty."*
+
+- **Changing an edge endpoint's KIND re-resolves that endpoint.** `PATCH {"fromKind": "file"}` on an
+  entity-to-entity edge answered `200`, and the edge then claimed its `from` was a file path while holding
+  an entity id — **invisible to every graph read**, because name lookup and traversal both search the
+  collection the kind names and find nothing there.
+
+- **A batch write stopped dropping four things its own documentation promises.** A recurring event created
+  in a batch had no recurrence and no error — the field was never read at all. A caller-supplied id, which
+  makes a retried write land on the same record instead of a second one, was read for entities and ignored
+  for memories and timeline entries, so a batch resent after a timeout duplicated every one of them. And a
+  malformed element inside a list was filtered out silently where the single-record door refuses the list.
+
+  **One table, read by every door.** `brain/write-shape.ts` states what a value must look like, per record
+  type, and both doors read it — so the disagreement is now impossible rather than merely fixed. What a
+  create and an update may still differ about is whether a field is REQUIRED, which is the only difference
+  between them that was ever legitimate.
+
 ### Changed
 
 - **`direction` still narrows stored edges only, and the REASON it gives is now a different one.** Every

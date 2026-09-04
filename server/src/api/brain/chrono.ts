@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { shapeError } from '../../brain/write-shape.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
@@ -150,6 +151,12 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('chrono', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
 
   // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
@@ -260,6 +267,12 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('chrono', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. Chrono is the FOURTH type, and it was missed when the other three were swept:

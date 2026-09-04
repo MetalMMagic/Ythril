@@ -14,6 +14,8 @@
 import { col, asFilter } from '../db/mongo.js';
 import { primitivePropertyError } from './property-values.js';
 import { arrayWriteError } from './array-write-refusal.js';
+import { shapeError } from './write-shape.js';
+import { parseRecurrence } from './chrono.js';
 import { usesLinkRecords } from './link-adjacency.js';
 import { getConfig } from '../config/loader.js';
 import {
@@ -130,6 +132,21 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'memory', index: i, reason: TTL_INVALID_MSG }); continue; }
     const linkArrErr = arrayWriteError(converted, item);
     if (linkArrErr) { errors.push({ type: 'memory', index: i, reason: linkArrErr }); continue; }
+    /*
+     * `W-22`: THE CALLER-SUPPLIED `id`, which bulk ENTITIES read and these two ignored.
+     *
+     * A supplied id makes a create idempotent — a retried write converges on the same record instead of
+     * producing a second one. Every single-record door reads it. These two dropped it, so a batch resent
+     * after a timeout DUPLICATED every memory and chrono entry in it, silently, while the same batch of
+     * entities was correctly idempotent.
+     */
+    const rawId = typeof item['id'] === 'string' ? item['id'].trim() : undefined;
+    if (rawId !== undefined && !UUID_V4_RE.test(rawId)) { errors.push({ type: 'memory', index: i, reason: '`id` must be a valid UUID v4' }); continue; }
+    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
+    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
+    // so a batch stored what the single create refuses and reported nothing.
+    const shapeErr = shapeError('memory', item);
+    if (shapeErr) { errors.push({ type: 'memory', index: i, reason: shapeErr }); continue; }
     // Memory items were the one bulk shape with no reference check at all — edges and chrono both
     // had one. Format only, like the rest of bulk: a payload may legitimately reference an entity
     // created earlier in the SAME payload, so an existence check here would reject valid forward
@@ -143,7 +160,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
       if (schemaFails('memory', i, validateMemory(meta ?? {}, { type, properties }))) continue;
       await remember(spaceId, fact, memEntityIds, strArray(item['tags']),
         typeof item['description'] === 'string' ? item['description'] : undefined, properties, type,
-        undefined, undefined, ttlDays);
+        undefined, undefined, ttlDays, rawId);
       inserted.memories++;
     } catch (err) { errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) }); }
   }
@@ -161,6 +178,11 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const properties = optProps(item['properties']) ?? {};
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'entity', index: i, reason: TTL_INVALID_MSG }); continue; }
+    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
+    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
+    // so a batch stored what the single create refuses and reported nothing.
+    const shapeErr = shapeError('entity', item);
+    if (shapeErr) { errors.push({ type: 'entity', index: i, reason: shapeErr }); continue; }
     try {
       // The MERGED record, not the payload — an id that matches an existing entity makes this an
       // update, and the importer had the merge target in hand two lines later for its own counter.
@@ -221,6 +243,11 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const properties = optProps(item['properties']);
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'edge', index: i, reason: TTL_INVALID_MSG }); continue; }
+    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
+    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
+    // so a batch stored what the single create refuses and reported nothing.
+    const shapeErr = shapeError('edge', item);
+    if (shapeErr) { errors.push({ type: 'edge', index: i, reason: shapeErr }); continue; }
     try {
       /*
        * `upsertEdge` validates too, since 2026-08-29 — this check is kept for REPORTING, not for enforcement.
@@ -272,6 +299,33 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
     const chronoLinkArrErr = arrayWriteError(converted, item);
     if (chronoLinkArrErr) { errors.push({ type: 'chrono', index: i, reason: chronoLinkArrErr }); continue; }
+    /*
+     * `W-22`: THE CALLER-SUPPLIED `id`, which bulk ENTITIES read and these two ignored.
+     *
+     * A supplied id makes a create idempotent — a retried write converges on the same record instead of
+     * producing a second one. Every single-record door reads it. These two dropped it, so a batch resent
+     * after a timeout DUPLICATED every memory and chrono entry in it, silently, while the same batch of
+     * entities was correctly idempotent.
+     */
+    const rawId = typeof item['id'] === 'string' ? item['id'].trim() : undefined;
+    if (rawId !== undefined && !UUID_V4_RE.test(rawId)) { errors.push({ type: 'chrono', index: i, reason: '`id` must be a valid UUID v4' }); continue; }
+    /*
+     * `W-22`: THE RECURRENCE RULE, which this loop never read at all.
+     *
+     * `mcp/tools/bulk.ts` says a bulk chrono item takes the *"same fields as the `create_chrono` tool"*,
+     * twice. It did not: the token `recurrence` appeared nowhere in this file, so a recurring event
+     * created in a batch was accepted, counted as inserted, and had no recurrence — with nothing said.
+     *
+     * Through `parseRecurrence`, the same validator both single-record doors use, so a malformed rule is
+     * reported here rather than stored.
+     */
+    const rec = parseRecurrence(item['recurrence']);
+    if (!rec.ok) { errors.push({ type: 'chrono', index: i, reason: rec.error }); continue; }
+    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
+    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
+    // so a batch stored what the single create refuses and reported nothing.
+    const shapeErr = shapeError('chrono', item);
+    if (shapeErr) { errors.push({ type: 'chrono', index: i, reason: shapeErr }); continue; }
     const entityIds = optStrArray(item['entityIds']);
     const memoryIds = optStrArray(item['memoryIds']);
     if (strict && entityIds && entityIds.some(id => !UUID_V4_RE.test(id))) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }
@@ -290,6 +344,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
         status, confidence: typeof item['confidence'] === 'number' ? item['confidence'] : undefined,
         description: typeof item['description'] === 'string' ? item['description'] : undefined,
         tags: optStrArray(item['tags']), entityIds, memoryIds, properties,
+        recurrence: rec.value, id: rawId,
       }, undefined, ttlDays);
       inserted.chrono++;
     } catch (err) { errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) }); }

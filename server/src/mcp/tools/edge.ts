@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { shapeError } from '../../brain/write-shape.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge, EdgeSchemaViolation } from '../../brain/edges.js';
@@ -84,6 +85,11 @@ export const upsert_edgeTool: ToolHandler = {
       : undefined;
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('edge', a);
+    if (shapeErr) throw new Error(shapeErr);
     const fromKind = edgeEndpointKind(a['fromKind'] as RefKind | undefined);
     const toKind = edgeEndpointKind(a['toKind'] as RefKind | undefined);
     if (isStrictLinkage(wt.target)) {
@@ -251,6 +257,11 @@ export const update_edgeTool: ToolHandler = {
     if (!id) throw new Error('id must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // `W-14`..`W-22`: the same table the REST door reads, so the two cannot disagree about a value. The
+    // dispatcher has already run this tool's own schema; what reaches here is what the schema does not
+    // declare.
+    const shapeErr = shapeError('edge', a);
+    if (shapeErr) throw new Error(shapeErr);
     // Validate deleteFields
     const dfResult = validateDeleteFields(a['deleteFields']);
     if (!dfResult.ok) throw new Error(dfResult.error);

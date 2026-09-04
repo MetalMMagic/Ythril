@@ -1126,21 +1126,31 @@ describe('Brain — memory description and properties fields', () => {
     assert.equal(r.body.properties, undefined);
   });
 
-  it('non-string description is ignored (coerced away)', async () => {
-    // Server strips non-string description — must not crash
+  /*
+   * These two used to be titled *"is ignored (coerced away)"* and accepted `201 || 400`, which is what let
+   * them keep passing through `W-21` while documenting the behaviour that row exists to end.
+   *
+   * A create SILENTLY DISCARDED a malformed optional scalar where its own PATCH answered 400 — three fields
+   * dropped from one body, `201` returned, and nothing said so: the `warnings` array reports UNKNOWN keys
+   * only, never malformed known ones. So the caller's record was missing what they sent and their client
+   * had no way to find out.
+   *
+   * A test that accepts either answer cannot tell the two apart, which is why the assertion is now exact.
+   */
+  it('a non-string description is REFUSED, not dropped', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `BadDesc-${RUN}`,
       description: 12345,
     });
-    assert.ok(r.status === 201 || r.status === 400, `Expected 201 or 400, got ${r.status}`);
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
-  it('non-object properties is ignored (coerced away)', async () => {
+  it('a non-object properties bag is REFUSED, not dropped', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `BadProps-${RUN}`,
       properties: 'not-an-object',
     });
-    assert.ok(r.status === 201 || r.status === 400, `Expected 201 or 400, got ${r.status}`);
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 });
 

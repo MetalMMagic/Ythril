@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { shapeError } from '../../brain/write-shape.js';
 import { assertRefsResolve, edgeEndpointKind, collectionForRefKind, endpointNameField } from '../../brain/entity-refs.js';
 import { REF_KINDS } from '../../config/types-knowledge.js';
 import type { RefKind } from '../../config/types-knowledge.js';
@@ -119,6 +120,12 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
 
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('edge', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
   // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue
   // moments after this returns. Pass true when the caller will search for, scan, or compare what it
@@ -312,6 +319,12 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  // `W-14`..`W-22`: what a VALUE must look like, from the one table this door and its twin both read.
+  // AFTER the checks above, so every refusal this door already made keeps its own wording; this catches
+  // only what used to get through. Requiredness stays above — a create demands its fields, an update
+  // must not.
+  const shapeErr = shapeError('edge', req.body);
+  if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string; suppressEmbeddings?: boolean; fromKind?: RefKind; toKind?: RefKind } = {};
@@ -349,6 +362,37 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
       return;
     }
     updates[field] = value as RefKind;
+  }
+  /*
+   * `W-17`: A CHANGED KIND RE-RESOLVES THE ENDPOINT IT DESCRIBES.
+   *
+   * The create door resolves each end in the collection its kind names. This door checked the kind ENUM
+   * and stored it unresolved — so `PATCH {"fromKind": "file"}` on an entity-to-entity edge answered 200,
+   * and the edge then claimed its `from` was a file path while holding an entity UUID.
+   *
+   * **It is invisible to every graph read**, because name enrichment and `traverse` both look in the
+   * collection the kind names and find nothing there. The block above says it matches the create door
+   * *"with the same refusal text and the same allowed set"*, which was true of the enum and silently not
+   * of the resolution.
+   *
+   * The ENDPOINT comes from the stored edge, because this door does not accept `from`/`to`: an edge whose
+   * end changed is a different relationship, and the way to make one is a delete and an upsert.
+   */
+  if (isStrictLinkage(wt.target) && (updates.fromKind !== undefined || updates.toKind !== undefined)) {
+    const stored = await findFirstAcrossMembers(spaceId, async mid => await getEdgeById(mid, id));
+    if (stored) {
+      try {
+        if (updates.fromKind !== undefined) {
+          await assertRefsResolve(wt.target, 'from', updates.fromKind, [stored.from]);
+        }
+        if (updates.toKind !== undefined) {
+          await assertRefsResolve(wt.target, 'to', updates.toKind, [stored.to]);
+        }
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+    }
   }
   // A boolean, and the ONLY field a caller may send on its own — retiring a record from vector search is a
   // complete edit in itself. It was wired into the update functions and into no PATCH handler, so it

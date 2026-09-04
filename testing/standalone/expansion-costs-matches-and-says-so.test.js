@@ -61,8 +61,29 @@ const TRACKED = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer:
  * would treat the two halves of one bullet as unrelated — and reject a page where the cost is written directly
  * under the promise, in the same bullet, which is exactly where it belongs. A NON-indented paragraph ends the
  * block, so a sentence a screen away still cannot satisfy this.
+ *
+ * ## THE NEWLINES ARE NORMALISED FIRST, AND WITHOUT THAT THIS GATE WAS VACUOUS ON WINDOWS
+ *
+ * It searched for `'\n\n'`. This repo checks out CRLF on Windows, where a blank line is `'\r\n\r\n'` — so
+ * both searches returned -1, `start` fell back to 0, the loop never ran, and the "paragraph" was the WHOLE
+ * FILE. The cost sentence then satisfied a promise anywhere in the same document, which is precisely what
+ * the docblock above says it must not.
+ *
+ * So it passed locally and failed in CI, on the same tree: a gate that is real on Linux and decorative on
+ * the machine it is run on before pushing. It cost a red run on 2026-09-04 for a paragraph I had rewritten
+ * without its price — the defect the gate exists to catch, invisible where I could have caught it.
  */
-function paragraphAround(text, at) {
+function paragraphAround(rawText, at) {
+  /*
+   * Normalising shifts indices, so `at` has to be recomputed rather than reused: it was measured against
+   * the raw text. Taking the match's own offset through the same transform keeps the two in step.
+   */
+  const text = rawText.replace(/\r\n/g, '\n');
+  at = rawText.slice(0, at).replace(/\r\n/g, '\n').length;
+  return paragraphIn(text, at);
+}
+
+function paragraphIn(text, at) {
   const before = text.lastIndexOf('\n\n', at);
   const start = before === -1 ? 0 : before + 2;
   let end = text.indexOf('\n\n', at);

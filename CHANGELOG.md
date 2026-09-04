@@ -253,6 +253,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A third gate was decorative on the machine it runs on before pushing.** The check that every promise
+  of a whole record also states its price found the paragraph around that promise by searching for a blank
+  line as `
+
+`. This repository checks out CRLF on Windows, where a blank line is `
+
+` — so the
+  search missed, the window silently widened to the WHOLE FILE, and a price written anywhere in the
+  document satisfied a promise anywhere else. Exactly what the check's own note says it must not allow.
+
+  So it was real in CI and inert locally, and it caught a defect introduced in this same change: a rewritten
+  paragraph promising whole records with no mention that the graph is what fills the budget. Both fixed, and
+  the window is mutation-tested — removing the price now fails locally, which it could not before.
+
 - **Two gate assertions could not fail, and two more required a description that was false**
   (`Q-1.2`–`Q-1.4`). Found by the guideline audit, and this is the class that matters most, because a
   check that cannot fail is worse than no check: it is counted as protection.

@@ -102,7 +102,8 @@ export const upsert_linkTool: ToolHandler = {
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ ...link, label: linkLabel(link.fromKind, link.toKind) }, null, 2),
+        // Not pretty-printed: indentation is billed to the caller's context and read by nothing.
+        text: JSON.stringify({ ...link, label: linkLabel(link.fromKind, link.toKind) }),
       }],
     };
   },

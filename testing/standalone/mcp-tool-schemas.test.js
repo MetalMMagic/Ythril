@@ -66,7 +66,11 @@ describe('MCP tool schemas — universal invariants', () => {
     // `audit-map.ts` maps them to `link.create` / `link.delete`, both are `mutating: true` and listed among
     // the tools a readOnly token cannot see, and `16-mcp.md` carries a row for each. They ship WITH their
     // REST routes rather than after them, which is the rule the capability map exists to enforce.
-    assert.equal(ALL_TOOLS.length, 46);
+    // 46 -> 47: `entity_cascade_preview` (`F-17`). Prerequisites done — `audit-map.ts` maps it to
+    // `entity.cascade_preview`, it is READ-ONLY and deliberately visible to a readOnly token (it deletes
+    // nothing and answers the same question the 409 already answers), and `16-mcp.md` carries its row in
+    // the tool table, the read-only list and the REST mapping.
+    assert.equal(ALL_TOOLS.length, 47);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

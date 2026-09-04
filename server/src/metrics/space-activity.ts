@@ -181,7 +181,12 @@ export function classifyOperation(operation: string): CallClass | null {
 
   // `er_model` joins this list rather than the suffix pattern gaining a `model$` alternative: it is a READ of
   // what a space contains — type names, edge labels, counts — which is the same demand signal as `stats`.
-  if (/\.(list|get|stats|er_model|traverse|export|search|validate)$/.test(operation)) return 'read';
+  //
+  // `cascade_preview` is here for the same reason and NOT in `NON_USAGE_SUFFIXES`: it is somebody asking
+  // what deleting a record would take with it, which is a real question about the space's contents. It is
+  // also the step before a write, so excluding it would make the cautious path look like less demand than
+  // the reckless one.
+  if (/\.(list|get|stats|er_model|traverse|export|search|validate|cascade_preview)$/.test(operation)) return 'read';
 
   // Anything unrecognised counts as nothing rather than guessing. `space-activity-classes.test.js` enumerates
   // every operation the audit middleware defines and fails on one that lands here undeclared, so a new route

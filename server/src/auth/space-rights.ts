@@ -107,6 +107,10 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'PATCH', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/entities/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
+  // `F-17`: what a cascade delete WOULD remove. `read`, not `write` — it answers the same question the 409
+  // already answers for anyone who tried the delete, and a preview needing write rights would be visible
+  // only to somebody who could already delete.
+  { route: '/api/brain/spaces/:spaceId/entities/:id/cascade-preview', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   // A merge DESTROYS one of the two records, so it is admin even though each half looks like an edit.
   { route: '/api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/edges', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
@@ -258,6 +262,7 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'upsert_entity', area: 'knowledge', needs: 'write' },
   { tool: 'update_entity', area: 'knowledge', needs: 'write' },
   { tool: 'delete_entity', area: 'knowledge', needs: 'write' },
+  { tool: 'entity_cascade_preview', area: 'knowledge', needs: 'read' },
   { tool: 'merge_entities', area: 'knowledge', needs: 'write' },
   { tool: 'find_entities_by_name', area: 'knowledge', needs: 'read' },
   { tool: 'upsert_edge', area: 'knowledge', needs: 'write' },

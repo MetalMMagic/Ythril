@@ -43,6 +43,9 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/entities\/([^/]+)$/, operation: 'entity.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/entities\/([^/]+)$/, operation: 'entity.delete', spaceGroup: 1, entryGroup: 2 },
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/entities$/,   operation: 'entity.delete',  spaceGroup: 1 },
+  // `F-17`: the cascade PREVIEW, before the generic entities GET below it — order matters here, since that
+  // one has no `$` and would swallow this path as a list.
+  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/entities\/([^/]+)\/cascade-preview$/, operation: 'entity.cascade_preview', spaceGroup: 1, entryGroup: 2, read: true },
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/entities/,    operation: 'entity.list',    spaceGroup: 1, read: true },
 
   // ── Edge CRUD ────────────────────────────────────────────────────────────

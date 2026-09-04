@@ -110,6 +110,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Deleting an entity can take its edges with it — behind a preview and a token** (owner's ruling
+  `P-29`). A `DELETE` on an entity is refused while edges still connect it to something. There is a second
+  way out now, and **the refusal itself names it**.
+
+  Call `GET .../entities/:id/cascade-preview`, read exactly what would go, and repeat the `DELETE` with
+  the `cascadeToken` it returns. The `entity_cascade_preview` tool is the same capability for an agent.
+
+  **Not a flag, and the reason is not caution.** An entity is a hub: the records a cascade removes are not
+  visible in the call, there is no undo, and a flag saying *"I checked"* cannot be checked. A token quoted
+  back from a preview can be — it is derived from the exact list you were shown, so **a record created
+  after you looked cannot be deleted by a decision taken before it existed**. Add an edge between the two
+  calls and the delete is refused, with the current list attached so your next call is one and not two.
+
+  **The refusal used to say nothing about any of this.** It has listed the blocking ids since 3.x, and the
+  integrator who asked for this spent four attempts — `?cascade=true`, `?force=true`, `?deleteEdges=true`,
+  `?withEdges=true` — before writing clear-then-delete by hand. The `409` now carries the preview route
+  and the parameter name, so the next step is discoverable from the error rather than from the guide.
+
+  **What it removes:** the edges, and the entity. **Not** what is at the other end of them — a cascade
+  takes the relationships, not the records they join. Not a face label either: the photo survives and is
+  unlabelled, which an ordinary delete already does. And not a memory, timeline entry or file that names
+  the entity: those are records of their own, they still block, and the refusal names them.
+
+  The token never expires and is not a secret, both deliberately. A token that still matches means the
+  list has not moved, which is exactly when your decision is still good — an expiry would refuse a correct
+  decision and accept a stale one whenever the clock happened to agree. And anyone who can compute it
+  already knows the list, because the refusal prints it.
+
 - **A file's METADATA now replicates — its description, tags, properties and the records attached to it**
   (owner's ruling `P-32`).
   The bytes have always travelled. What somebody wrote about a file did not.

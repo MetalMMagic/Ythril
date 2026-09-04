@@ -13,7 +13,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 let toRecallRecord;
 before(async () => { ({ toRecallRecord } = await import('../../server/dist/mcp/tools/shared.js')); });
@@ -127,7 +127,15 @@ describe('includeContent: false returns locations, not passages', () => {
 
 describe('no MCP tool pretty-prints its response', () => {
   it('indentation is billed to the caller and read by nothing', () => {
-    const files = ['bulk', 'chrono', 'edge', 'entity', 'memory', 'search', 'spaces', 'sync'];
+    /*
+     * DERIVED from the tool directory, because the list was hand-written and had gone stale: `link.ts` and
+     * `entity-cascade.ts` both pretty-printed a response and neither was on it. A subset that names the
+     * files somebody remembered is a check on the files least likely to be wrong.
+     */
+    const files = readdirSync('server/src/mcp/tools')
+      .filter(f => f.endsWith('.ts') && !['types.ts', 'index.ts', 'shared.ts'].includes(f))
+      .map(f => f.replace(/\.ts$/, ''));
+    assert.ok(files.length >= 8, `only ${files.length} tool file(s) found — the enumeration is broken`);
     for (const f of files) {
       const src = readFileSync(new URL(`../../server/src/mcp/tools/${f}.ts`, import.meta.url), 'utf8');
       assert.ok(!/JSON\.stringify\([^)]*,\s*null,\s*2\)/.test(src),

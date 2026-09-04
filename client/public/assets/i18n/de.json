@@ -841,7 +841,7 @@
   "networks.dialog.create.type": "Typ",
   "networks.type.closed": "Geschlossen (nur auf Einladung)",
   "networks.type.democratic": "Demokratisch (Mehrheitswahl)",
-  "networks.type.club": "Verein (Supermehrheit)",
+  "networks.type.club": "Verein (der Einladende entscheidet)",
   "networks.type.braintree": "Braintree (hierarchisch)",
   "networks.type.pubsub": "Pub/Sub (Herausgeber → Abonnenten)",
   "networks.dialog.create.spaces": "Räume",

@@ -46,6 +46,16 @@ import { applyProjection, normaliseProjection, type NormalisedProjection } from 
 import { resolveBudget, resolvePaging, budgetedEnvelope, applyBudget, budgetFields, type BudgetRequest } from '../../brain/result-budget.js';
 import { sendReadFailure, statesRetryability } from './_read-failure.js';
 
+/**
+ * The most graph nodes one response may expand to, however large `topK` is.
+ *
+ * The formula `topK * (traverse + 1) * 4` is what shapes a normal answer, and it is shared with recall's
+ * own traverse so the two cannot drift. This constant is the absolute bound beside it, needed since
+ * `P-34` removed the ceiling on `topK`: the byte budget stops an oversized walk being RETURNED, and this
+ * stops it being WALKED.
+ */
+const MAX_GRAPH_NODES = 5000;
+
 export const searchRouter = Router();
 
 /** Guard so only one reindex job runs at a time per process. */
@@ -403,7 +413,25 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     res.status(400).json({ error: 'query must be a non-empty string' });
     return;
   }
-  const safeTopK = typeof topK === 'number' ? Math.min(Math.max(topK, 1), 100) : 10;
+  /*
+   * NO CEILING ON `topK`, AT EITHER DOOR — owner's ruling on `P-34`, 2026-09-04: *"why do we need a cap?
+   * Only thing that matters is we only get full records and it warns when anything is truncated … And yes
+   * same treatment at both doors."*
+   *
+   * Both of those hold and were checked rather than assumed: `applyBudget` emits whole records only, and
+   * `truncated` is on EVERY response whether it bit or not, with `nextSkip` when it did. So the answer was
+   * never what a cap protected.
+   *
+   * This door clamped silently to 100 while MCP declared no maximum, so `topK: 500` returned 100 through
+   * one door and 500 through the other. A clamp is the worst of the three options: the caller is told
+   * nothing and believes they have the top 500.
+   *
+   * What a cap DID bound is WORK, and two internal figures scale off `topK` — the per-type over-fetch and
+   * the traversal node cap. Both now carry their own absolute ceiling, which is where such a bound
+   * belongs: an enormous `topK` costs a bounded amount of work instead of being refused or quietly
+   * rewritten.
+   */
+  const safeTopK = typeof topK === 'number' ? Math.max(topK, 1) : 10;
   const safeTypes = Array.isArray(types) ? types.filter((t: unknown): t is RecallKnowledgeType => typeof t === 'string') : undefined;
   const safeMinScore = typeof minScore === 'number' ? minScore : undefined;
 
@@ -858,7 +886,11 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
     // envelope `recall`'s traverse uses — a caller who can read one response can read the other, and a second
     // copy of the shape is how the two would drift.
     const traverseSpaces = crossSpaceIds ?? [spaceId];
-    const totalCap = topK * (safeTraverse + 1) * 4;
+    // Bounded absolutely as well as by `topK`, which no longer has a ceiling of its own (`P-34`). The
+    // formula is what shapes a NORMAL answer; the constant is what stops an enormous `topK` turning a
+    // graph walk into an unbounded one. `MAX_GRAPH_NODES` is shared with recall's traverse so the two
+    // cannot drift — the comment above says that is the point.
+    const totalCap = Math.min(topK * (safeTraverse + 1) * 4, MAX_GRAPH_NODES);
     const { graph, spill, truncated: graphTruncated } = await buildGraphWithSpill(
       traverseSpaces,
       result.results.map(r => ({ _id: r._id, spaceId: r.spaceId })),

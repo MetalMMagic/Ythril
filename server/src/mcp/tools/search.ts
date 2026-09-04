@@ -77,7 +77,14 @@ export const recallTool: ToolHandler = {
           properties: {
             space: s.optionalSpace,
             query: { type: 'string', minLength: 1, description: 'REQUIRED, non-empty. The natural-language search string. It is EMBEDDED for the vector half and TOKENISED for the BM25 half, so it does double duty — which is why an exact identifier (an article number, a form id) survives a query written as a sentence.' },
-            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap. It is filled from records that SATISFY `filter` — never applied to an already-truncated shortlist — so a filtered recall cannot silently miss a matching record. Large values are slower, and every field of every result is paid for in tokens. Note the response cap, which is BYTES and not a count: the answer is a prefix that fits `maxBytes` (default 25000 on this door), `truncated` says whether it bit, and `nextSkip` is how you continue. So asking for 80 does not return 80 inline — how many it does return depends on how big they are, which is why the old sentence here saying "past roughly 25 results" was wrong from 3.2.0 onward.' },
+            /*
+             * NO MAXIMUM, on EITHER door — owner's ruling on `P-34`. REST used to clamp this to 100
+             * silently while this door accepted anything, so `topK: 500` returned 100 through one and 500
+             * through the other. His question settled it: the byte budget already returns whole records
+             * and reports truncation, so the answer never needed a cap, and the bound belongs on the WORK
+             * instead — see `MAX_PER_TYPE_CANDIDATES` and `MAX_GRAPH_NODES`.
+             */
+            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10, and NO ceiling — the same on both doors since 4.0, where REST used to clamp to 100 silently. What comes back is bounded by the byte budget instead: every record whole, `truncated` on every response, and `nextSkip` when it bit. It is filled from records that SATISFY `filter` — never applied to an already-truncated shortlist — so a filtered recall cannot silently miss a matching record. Large values are slower, and every field of every result is paid for in tokens. Note the response cap, which is BYTES and not a count: the answer is a prefix that fits `maxBytes` (default 25000 on this door), `truncated` says whether it bit, and `nextSkip` is how you continue. So asking for 80 does not return 80 inline — how many it does return depends on how big they are, which is why the old sentence here saying "past roughly 25 results" was wrong from 3.2.0 onward.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only results bearing ALL of these tags are returned (applies to memories, entities, chrono entries, and files).' },
             types: {
               type: 'array',
@@ -87,7 +94,11 @@ export const recallTool: ToolHandler = {
             minPerType: {
               type: 'object',
               description: 'Optional minimum result count per type — a FLOOR. Guarantees at least that many results of each type if available (e.g. {"entity": 2, "edge": 1}). Omit to use pure score ranking. This is the cheap fix for one type crowding out another: memories are numerous and score well, so principles and entities lose slots to them without a floor.',
-              additionalProperties: { type: 'number' },
+              // `minimum: 0` and integers only, matching the `maxPerType` beside it and the REST door,
+              // which answers `400 minPerType.<key> must be a non-negative integer`. This declared a
+              // bare number, so MCP admitted a negative and a fraction where REST refused both — an
+              // omission rather than a policy, one line from the neighbour that got it right.
+              additionalProperties: { type: 'integer', minimum: 0 },
             },
             maxPerType: {
               type: 'object',
@@ -295,7 +306,18 @@ export const recallTool: ToolHandler = {
         : all.slice(0, topK);
       traverseSpaces = memberIds;
     } else {
-      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter, { maxPerType, maxTimeMS: recallMaxTimeMS, degraded });
+      /*
+       * `includeFreshWrites` IS FORWARDED HERE, and it was not — so the one parameter whose entire
+       * purpose is *"find the record I just wrote"* did nothing on this branch, with a 200.
+       *
+       * This is the branch a caller takes by OMITTING `space`, which is the form this tool's own first
+       * paragraph promotes and the form `remember` and `write_file` both point at after a write. So the
+       * documented remedy for "I wrote it and cannot find it" was inert on the idiomatic call, and the
+       * existing test could not see it: it drives REST, where the space is in the path and this branch
+       * cannot be reached.
+       */
+      seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter,
+        { maxPerType, maxTimeMS: recallMaxTimeMS, degraded, includeFreshWrites: a['includeFreshWrites'] === true });
       traverseSpaces = accessibleSpaceIds;
     }
 
@@ -668,7 +690,13 @@ export const queryTool: ToolHandler = {
     const { args: a, callSpace } = ctx;
     const collName = String(a['collection'] ?? '');
     if (!(BRAIN_COLLECTIONS as readonly string[]).includes(collName)) {
-      throw new Error(`collection must be one of: memories, entities, edges, chrono, files`);
+      /*
+       * The MESSAGE is built from the same list the CHECK uses, and it was written out by hand: five
+       * names against an enum that admits six. So a caller who mistyped was handed a list excluding a
+       * legal value — `links` — and the REST door, which builds this sentence from the real list, told
+       * them something different for the same mistake.
+       */
+      throw new Error(`collection must be one of: ${BRAIN_COLLECTIONS.join(', ')}`);
     }
     const filter =
       a['filter'] != null && typeof a['filter'] === 'object'

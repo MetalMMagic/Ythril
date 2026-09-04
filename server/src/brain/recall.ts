@@ -339,7 +339,10 @@ export async function recall(
   // vector search already found, so reranking exactly the results you would have returned anyway buys
   // nothing — the over-fetch is the whole mechanism.
   const reranking = rerankConfigured();
-  const perTypeK = Math.ceil(topK * (reranking ? candidateMultiplier() : 1.5));
+  // Bounded absolutely as well as by `topK`. The over-fetch IS the reranking mechanism, so the multiplier
+  // stays — but `topK` has no ceiling of its own since `P-34`, and a per-type fetch that scales without
+  // one is how an oversized request becomes an oversized query rather than a slow answer.
+  const perTypeK = Math.min(Math.ceil(topK * (reranking ? candidateMultiplier() : 1.5)), MAX_PER_TYPE_CANDIDATES);
   const searches = activeTypes.map(t => recallByType(spaceId, t, embResult.vector, perTypeK, tags, filter, searchDeadline()));
   const allResults = (await settleSearches(searches, noteDegraded)).flat();
 
@@ -1028,6 +1031,20 @@ async function enrichFileChunksWithParent(spaceId: string, results: RecallResult
 }
 
 /** Semantic recall across multiple spaces (parallel) */
+/**
+ * The most candidates one TYPE may be fetched for a single recall, however large `topK` is.
+ *
+ * `topK` has no ceiling of its own since `P-34` — the owner's reasoning being that the byte budget already
+ * returns whole records and reports truncation, so the ANSWER never needed a cap. What still needs one is
+ * the WORK: the per-type over-fetch is the reranking mechanism and scales with `topK`, so without this a
+ * `topK: 100000` becomes a query for a million candidates rather than a slow answer.
+ *
+ * 2000 because the vector search's own `numCandidates` is already bounded at 1000 and its ENN fallback at
+ * 10000, so this sits between them: high enough that no realistic request meets it, low enough that an
+ * unrealistic one is bounded rather than refused.
+ */
+export const MAX_PER_TYPE_CANDIDATES = 2000;
+
 export async function recallGlobal(
   spaceIds: string[],
   query: string,
@@ -1041,6 +1058,13 @@ export async function recallGlobal(
     maxPerType?: Partial<Record<RecallKnowledgeType, number>>;
     maxTimeMS?: number;
     degraded?: string[];
+    /*
+     * The fresh-write scan, which this signature did not declare — so the MCP tool's cross-space branch
+     * had nowhere to put it and the flag was silently inert on the idiomatic call. `recall`'s own options
+     * have always had it; the fan-out spreads `opts` into every per-space call below, so declaring it
+     * here is the whole fix.
+     */
+    includeFreshWrites?: boolean;
   },
 ): Promise<RecallResult[]> {
   // Embed ONCE for the whole fan-out. Every space below searches the same text, so without this the query is

@@ -273,7 +273,17 @@ const FROZEN = {
   // NO DECOMPOSITION: this is the opposite of the growth this list catches — a local duplicate of a shared
   // vocabulary became a reference to it. `recall.ts` is 34 over a ceiling it was already over, and the
   // seed traversal already moved out to its own module.
-  'server/src/brain/recall.ts': 684,
+  // RAISED 684 -> 686 for `P-34`: TWO LINES, and each one closes a defect rather than adding behaviour.
+  // `MAX_PER_TYPE_CANDIDATES` is the absolute bound the per-type over-fetch never had — the owner's
+  // ruling removed the ceiling on `topK`, and a fetch that scales off it without a limit of its own is an
+  // oversized request becoming an oversized query. `includeFreshWrites?: boolean` on `recallGlobal`'s
+  // options is the other: the MCP tool's cross-space branch had nowhere to put that flag, so the one
+  // parameter whose purpose is "find what I just wrote" was silently inert on the idiomatic call.
+  // NO DECOMPOSITION: two declarations, one a constant with its reasoning attached. Splitting a file to
+  // house a number is the make-work this list's own rule warns against, and the real decomposition of this
+  // module already happened — the seed traversal is its own module and the create-shape vocabulary moved
+  // out, which is what took it from 718 down.
+  'server/src/brain/recall.ts': 686,
   // 678 -> 687: two conditional notices on the face card — the enable pin stating what it does NOT reach, and
   // "configured but not in use" for a stored endpoint awaiting acknowledgement. Nine lines of markup, and the
   // first attempt wanted THIRTY because the reasoning was written as HTML comments inside the template. That

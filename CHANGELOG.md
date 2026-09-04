@@ -253,6 +253,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SECURITY: the two peer governance relays authenticate the caller and now also AUTHORISE them**
+  (`Q-1.1`, found by the guideline audit). `POST /api/sync/networks/:id/members` and
+  `POST /api/sync/networks/:id/votes/:roundId` are the calls a peer makes to report its own member record
+  or to pass along a vote. Both carried authentication and a read-only refusal and nothing else — no space
+  scope, no network membership — so **every token that could write anything could drive both**.
+
+  On the members relay that reached any member's address, label and children. On the votes relay it
+  reached a cast attributed to **any instance, on any round**, and the rounds include member removal,
+  space deletion and space wipe — which pass on a single yes with no veto on two of the network types.
+
+  **The signature requirement did not stop it, because the caller's identity DEFAULTED.** The relay
+  resolved the reporting instance as *the peer id on the token, or else the instance named in the body*.
+  A caller with no peer identity therefore became the cast's own author: reporter and voter matched by
+  construction, the own-cast path was taken, and a network configured to require signed votes accepted an
+  unsigned one.
+
+  **Each route stated the rule it did not enforce**, which is why this read as safe. The members route
+  said in as many words that *"tokens without peerInstanceId (admin/local) may update any record"* — a
+  description of who was expected to hold such a token, sitting where a check should have been. One rule,
+  written twice, and the copy in front of the route was the weaker one.
+
+  The question is answered once now, and both relays take the verdict: **a peer token speaking for its own
+  instance, or an instance administrator relaying on a peer's behalf.** Anything else is a `403` naming
+  both ways in, because a relay is wired up once and then debugged from its response.
+
+  **The check also moved ahead of the lookups.** It used to run after the network and round were fetched,
+  so a caller who may not vote was told whether the round existed — an existence oracle over another
+  network's governance, and a `404` where the answer should have been `403`.
+
+  Nothing legitimate changes: a peer syncs as before, and an instance administrator still relays. That
+  half is asserted too — the opposite failure, a guard so narrow it locks out the local administrator,
+  would be found by an operator rather than by a test.
+
 - **A request with no authenticated token can no longer be read as an unrestricted legacy one.** Two
   places in the tokens API check what the caller holds before deciding what a new token may be granted,
   and both fell back to an EMPTY legacy record when there was no token at all.

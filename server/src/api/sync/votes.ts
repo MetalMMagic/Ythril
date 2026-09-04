@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { syncRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, loadConfig, saveConfig } from '../../config/loader.js';
 import { requireAuth, denyReadOnly } from '../../auth/middleware.js';
+import { peerRelayCaller, PEER_RELAY_REFUSAL } from '../../auth/peer-relay.js';
 import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { applyWipeRoundIfPassed } from '../../spaces/apply-wipe-round.js';
@@ -51,6 +52,20 @@ syncVotesRouter.get('/networks/:networkId/votes', syncRateLimit, requireAuth, as
  */
 syncVotesRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
+    /*
+     * WHO before WHAT, and the order is the point.
+     *
+     * This check used to sit below the network and round lookups, so an unauthorised caller learned whether
+     * a given round existed — an existence oracle over another network's governance — and the 404 arrived
+     * before the 403 for every id that did not. Authorising first closes that and makes the refusal
+     * testable without constructing a round to be refused on.
+     */
+    const caller = peerRelayCaller(req.authToken as Parameters<typeof peerRelayCaller>[0]);
+    if (caller.kind === 'refused') {
+      res.status(403).json({ error: PEER_RELAY_REFUSAL });
+      return;
+    }
+
     const body = req.body as { vote: string; instanceId: string; sig?: string; castAt?: string };
     if (!body?.vote || !body?.instanceId || !['yes', 'veto'].includes(body.vote)) {
       res.status(400).json({ error: 'vote (yes|veto) and instanceId required' });
@@ -64,18 +79,29 @@ syncVotesRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requi
     const round = net.pendingRounds.find(r => r.roundId === req.params['roundId'] && !r.concluded);
     if (!round) { res.status(404).json({ error: 'Round not found or concluded' }); return; }
 
-    // Vote forgery prevention. A signed cast is accepted from any reporter (its
-    // signature proves the voter cast it). An unsigned cast is accepted only from
-    // its own voter — a peer token may only relay its own instanceId; admin/local
-    // tokens (no peerInstanceId) may relay any unsigned cast (compat).
-    const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
+    /*
+     * Vote forgery prevention. A signed cast is accepted from any reporter — its signature proves the voter
+     * cast it. An unsigned cast is accepted only from its own voter: a peer token may relay only its own
+     * instanceId, and an instance administrator may relay any unsigned cast.
+     *
+     * **The reporter used to DEFAULT, and that made the check vacuous.** It read
+     * `callerPeerId ?? body.instanceId`, so a caller with no peer id became the cast's own instance: the
+     * reporter and the voter were the same value by construction, `acceptVoteCast` took the own-cast path
+     * every time, and a network with `requireSignedVotes` accepted an unsigned cast attributed to any
+     * instance. On any round — and the rounds include `remove`, `space_deletion` and `space_wipe`, which
+     * pass on a single yes with no veto for `club` and `pubsub`.
+     *
+     * The relay is authorised above, so `admin` is a caller this route has established rather than the
+     * shape of a token it could not identify. `members.ts` asks the same question through the same predicate.
+     */
     const cast = {
       instanceId: body.instanceId,
       vote: body.vote as 'yes' | 'veto',
       castAt: typeof body.castAt === 'string' ? body.castAt : new Date().toISOString(),
       ...(typeof body.sig === 'string' && body.sig ? { sig: body.sig } : {}),
     };
-    const decision = acceptVoteCast(net, round, cast, callerPeerId ?? body.instanceId);
+    const reporter = caller.kind === 'peer' ? caller.peerInstanceId : body.instanceId;
+    const decision = acceptVoteCast(net, round, cast, reporter);
     if (!decision.accept) {
       res.status(403).json({ error: `Vote rejected: ${decision.reason}` });
       return;

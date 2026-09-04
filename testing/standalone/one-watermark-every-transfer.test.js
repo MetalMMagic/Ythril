@@ -142,12 +142,19 @@ describe('every transfer under a shared watermark is passed to the rule', () => 
      * `one-watermark-four-transfers` while the test said FIVE — so the number had already gone stale once, in
      * the name, where nothing checks it. `M-2` added a sixth and it went stale again.
      *
-     * A count somebody typed can only be right about the day it was typed. The transferred collections are
-     * `BRAIN_COLLECTIONS` minus `files` — a file crosses the wire as a blob plus a manifest entry, not as a
-     * document in this loop — so that is what this reads. A new collection now makes this gate DEMAND its
-     * transfer instead of quietly accepting its absence.
+     * A count somebody typed can only be right about the day it was typed, so this reads
+     * `BRAIN_COLLECTIONS`. A new collection now makes this gate DEMAND its transfer instead of quietly
+     * accepting its absence.
+     *
+     * **`files` used to be filtered out of this list, and the reason it gave stopped being true.** It read
+     * *"a file crosses the wire as a blob plus a manifest entry, not as a document in this loop"* — correct
+     * until `P-30` made a file's METADATA replicate like every other record. A filter with a stale reason
+     * beside it is the shape that survives review, because the sentence still reads well.
+     *
+     * The transfer KEY is `filemeta` where the collection is `files`, one word apart on purpose: the route
+     * serves metadata and `/api/files` serves bytes.
      */
-    const expected = [...BRAIN_COLLECTIONS.filter(c => c !== 'files'), 'tombstones'];
+    const expected = [...BRAIN_COLLECTIONS.map(c => (c === 'files' ? 'filemeta' : c)), 'tombstones'];
     assert.ok(expected.length >= 5, `only ${expected.length} expected transfers — BRAIN_COLLECTIONS did not load`);
     const lists = [...src.matchAll(/transfers: \{([^}]*)\}/g)].map(m => m[1]);
     assert.equal(lists.length, 2, `expected two transfer sets, found ${lists.length}`);

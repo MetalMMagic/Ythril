@@ -27,6 +27,7 @@
 import { createHash } from 'node:crypto';
 import { col, asFilter } from '../db/mongo.js';
 import { buildFileManifest } from '../files/manifest.js';
+import { BRAIN_COLLECTIONS } from '../config/types-knowledge.js';
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -131,6 +132,28 @@ export function docLeaf(collType: string, doc: Record<string, unknown>): string 
   return sha256hex(`doc:${collType}:${String(doc['_id'])}:${String(doc['seq'])}:${canonicalDocHash(doc)}`);
 }
 
+const DERIVED_PROJECTION = { embedding: 0, embeddingModel: 0, matchedText: 0, _expireAt: 0, _contentExpireAt: 0 } as const;
+
+/**
+ * What is INCLUDED from a file's metadata — and it is an inclusion projection, unlike every other collection.
+ *
+ * Deliberately the opposite shape, because the risk is the opposite way round. `FileMetaDoc` has thirty-odd
+ * fields and all but a dozen are derived from the local blob: an exclusion list would have to name every
+ * one, and the field somebody forgets is then hashed — so two instances that agree about everything anybody
+ * WROTE diverge for ever over a chunk count.
+ *
+ * Listed inclusively, a field nobody thought about is simply not hashed. That is the safe direction here
+ * precisely because `IncomingFileMetaDoc` is the other half of the rule: a field that REPLICATES and is not
+ * hashed is caught by `a-replicated-field-reaches-its-incoming-schema.test.js`, which compares the two.
+ *
+ * **The two lists must name the same fields.** That gate is what says so.
+ */
+const FILE_HASH_PROJECTION = {
+  _id: 1, spaceId: 1, path: 1, description: 1, descriptionSource: 1, tags: 1,
+  entityIds: 1, memoryIds: 1, chronoIds: 1, properties: 1,
+  suppressEmbeddings: 1, excludeFromVectorSearch: 1,
+  author: 1, createdAt: 1, updatedAt: 1, seq: 1,
+} as const;
 /**
  * Compute the Merkle root for a single space.
  *
@@ -139,33 +162,48 @@ export function docLeaf(collType: string, doc: Record<string, unknown>): string 
  * memory all at once. Embedding vectors are excluded at the projection level, so
  * the biggest field never leaves MongoDB.
  */
+/**
+ * What is EXCLUDED from the hash for the five document collections — the derived five.
+ *
+ * An EXCLUSION projection, which is the right shape here: a new AUTHORED field joins the hash on the commit
+ * that declares it, and a new DERIVED one has to be added here deliberately. The reverse would make every
+ * new field silently unhashed, and an unhashed replicated field is the false negative this module exists to
+ * prevent.
+ */
 export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> {
   const leaves: string[] = [];
 
   /*
    * ── Brain documents ────────────────────────────────────────────────────
    *
-   * NOT ALL BRAIN COLLECTIONS: `files` is missing on purpose and `links` is present on purpose.
+   * ALL SIX COLLECTIONS, and `files` joined the list on the owner's `P-30` ruling — each for the same
+   * reason, stated once: **a replicated document that is not hashed makes two instances holding different
+   * data report themselves IDENTICAL.** `MERKLE_DIVERGENCE` is the only signal that says data really is
+   * missing, and a permanent false NEGATIVE is silent for ever.
    *
-   * A file's bytes are hashed from the manifest below, because the DOCUMENT is meta about a blob and two
-   * instances agreeing on the meta while holding different bytes is the thing that matters. Every other
-   * collection is hashed from its documents.
+   * `links` was added when a link became a record. `files` was excluded while a file's metadata did not
+   * replicate — the comment here said so, and it was right at the time: the bytes were hashed from the
+   * manifest below and the document was meta about a blob. `P-30` made the metadata replicate, so leaving
+   * it out became exactly the false negative the paragraph above describes.
    *
-   * `links` is here because a link record is data. Absent, two instances holding different links would
-   * compute the same root and report themselves IDENTICAL — which is worse than not replicating at all,
-   * because `MERKLE_DIVERGENCE` is the one signal that says data really is missing, and a permanent false
-   * NEGATIVE is silent forever. Links have no embedding to project away, so the projection below reaches
-   * them harmlessly.
+   * **What is hashed for a file is the AUTHORED half only**, and the two halves fail in opposite
+   * directions. Hash `sizeBytes` or the vector and two instances that agree about everything anybody wrote
+   * diverge for ever over a number they each computed from their own copy of the bytes — a permanent false
+   * POSITIVE, which teaches an operator to ignore the warning. Hash nothing and you get the false negative.
    */
-  for (const collType of ['memories', 'entities', 'edges', 'chrono', 'links'] as const) {
+  // DERIVED. This was the sixth place the collection names were written out, and it is no longer a SUBSET
+  // of them: `files` joining the hash means every brain collection is hashed, so the list IS the tuple.
+  for (const collType of BRAIN_COLLECTIONS) {
     const collName = `${spaceId}_${collType}`;
     const cursor = col<Record<string, unknown>>(collName)
-      .find(asFilter({}))
+      // A CHUNK never replicates: it is derived from the blob and the receiver makes its own, with its own
+      // chunker and its own model. Hashed, two correct instances report divergence whenever those differ.
+      .find(asFilter(collType === 'files' ? { parentFileId: { $exists: false } } : {}))
       // The same set as `DERIVED_FIELDS`, and it has to STAY the same set: this one decides what is fetched,
       // that one decides what is skipped while canonicalising. A field in only one of them is either hashed
       // when it must not be, or pulled out of MongoDB for nothing.
       // `a-replicated-field-reaches-its-incoming-schema.test.js` asserts the two agree.
-      .project({ embedding: 0, embeddingModel: 0, matchedText: 0, _expireAt: 0, _contentExpireAt: 0 });
+      .project(collType === 'files' ? FILE_HASH_PROJECTION : DERIVED_PROJECTION);
 
     for await (const doc of cursor) {
       leaves.push(docLeaf(collType, doc as Record<string, unknown>));

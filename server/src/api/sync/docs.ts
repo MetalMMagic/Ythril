@@ -17,7 +17,8 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, LinkDoc, TombstoneDoc } from '../../config/types.js';
-import { checkEdgeLinkViolations, checkLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
+import type { FileMetaDoc } from '../../config/types.js';
+import { checkEdgeLinkViolations, checkLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, IncomingFileMetaDoc, ingestFileMeta, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
 
 export const syncDocsRouter = Router();
 
@@ -45,7 +46,20 @@ export const syncDocsRouter = Router();
  * `full=true` returns whole documents in one pass; without it a page is ids and seqs only. The pull engine
  * always asks for `full`, because the alternative is N per-document fetches over a WAN.
  */
-function pageBySeq<T extends { _id: string; seq: number }>(collection: string, tombstoneType: string) {
+/**
+ * @param tombstoneType the brain tombstone type that rides in this page, or `null` for a collection whose
+ *   deletions travel on their own route. A file is the one: a deleted file has a `FileTombstoneDoc` and
+ *   `/api/sync/file-tombstones` carries it, which is why `TOMBSTONE_TYPES` has no `file` member. Passing a
+ *   type that matches nothing would have been the quiet alternative and it is a lie: it says deletions ride
+ *   here and then carries none.
+ * @param extraFilter narrows what the page serves at all. Files use it to serve PARENTS only — a chunk is
+ *   derived from the blob and the receiver makes its own, with its own chunker and its own model.
+ */
+function pageBySeq<T extends { _id: string; seq: number }>(
+  collection: string,
+  tombstoneType: string | null,
+  extraFilter: Record<string, unknown> = {},
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
@@ -57,7 +71,7 @@ function pageBySeq<T extends { _id: string; seq: number }>(collection: string, t
       const returnFull = fullParam === 'true';
 
       const found = col<T>(`${spaceId}_${collection}`)
-        .find(asFilter<T>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1);
+        .find(asFilter<T>({ seq: { $gt: sinceVal }, ...extraFilter })).sort({ seq: 1 }).limit(pageSize + 1);
       const rawDocs = returnFull
         ? await found.toArray() as T[]
         : await found.project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
@@ -67,7 +81,8 @@ function pageBySeq<T extends { _id: string; seq: number }>(collection: string, t
       const nextCursor = hasMore ? encodeCursor((items[items.length - 1] as { seq: number }).seq) : null;
 
       const pageMaxSeq = items.length > 0 ? (items[items.length - 1] as { seq: number }).seq : sinceVal;
-      const tombstones = await listTombstones(spaceId, sinceVal, pageSize);
+      // No brain tombstones for a collection whose deletions have their own route — see the parameter doc.
+      const tombstones = tombstoneType === null ? [] : await listTombstones(spaceId, sinceVal, pageSize);
       const itemIds = new Set(items.map(i => (i as { _id: string })._id));
       const tombs = tombstones
         .filter(t =>
@@ -130,12 +145,35 @@ syncDocsRouter.get('/entities', syncRateLimit, requireAuth, pageBySeq<EntityDoc>
 syncDocsRouter.get('/edges', syncRateLimit, requireAuth, pageBySeq<EdgeDoc>('edges', 'edge'));
 syncDocsRouter.get('/chrono', syncRateLimit, requireAuth, pageBySeq<ChronoEntry>('chrono', 'chrono'));
 syncDocsRouter.get('/links', syncRateLimit, requireAuth, pageBySeq<LinkDoc>('links', 'link'));
+/*
+ * A file's METADATA — the sixth family, on the owner's `P-30` ruling.
+ *
+ * The BYTES still travel through the manifest and `/api/files`; this carries what somebody wrote about
+ * them. Before it existed, a file linked to an entity on one instance sent the LINK record and not the
+ * array it came from, so the graph on a peer showed the connection and the peer's own Files tab showed
+ * none.
+ *
+ * PARENTS ONLY, and no tombstone rider: a chunk is derived locally, and a deleted file already has its own
+ * tombstone route.
+ */
+syncDocsRouter.get('/filemeta', syncRateLimit, requireAuth,
+  /*
+   * `seq` is OPTIONAL on a file meta record and required by the pager, so the type is narrowed here rather
+   * than made required on the document.
+   *
+   * A record written before 4.0 has none, and the filter is what makes that safe: `seq: { $gt: n }` never
+   * matches a document without one, so an un-stamped record simply does not page to a peer until it is next
+   * written. `npm run links:convert` stamps the ones already stored. Making the field required instead would
+   * have meant a boot migration over synced data, which `_REFERENCE.md` forbids.
+   */
+  pageBySeq<FileMetaDoc & { seq: number }>('files', null, { parentFileId: { $exists: false } }));
 
 syncDocsRouter.get('/memories/:id', syncRateLimit, requireAuth, oneById<MemoryDoc>('memories'));
 syncDocsRouter.get('/entities/:id', syncRateLimit, requireAuth, oneById<EntityDoc>('entities'));
 syncDocsRouter.get('/edges/:id', syncRateLimit, requireAuth, oneById<EdgeDoc>('edges'));
 syncDocsRouter.get('/chrono/:id', syncRateLimit, requireAuth, oneById<ChronoEntry>('chrono'));
 syncDocsRouter.get('/links/:id', syncRateLimit, requireAuth, oneById<LinkDoc>('links'));
+syncDocsRouter.get('/filemeta/:id', syncRateLimit, requireAuth, oneById<FileMetaDoc>('files'));
 
 
 /**
@@ -479,7 +517,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
     if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
-    const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[]; links?: unknown[] };
+    const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[]; links?: unknown[]; filemeta?: unknown[] };
     /*
      * A document the schema rejects is REPORTED, never silently removed.
      *
@@ -513,6 +551,16 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const edgesRaw = parsed<EdgeDoc>(Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [], IncomingEdgeDoc, 'edge');
     const chronoRaw = parsed<ChronoEntry>(Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [], IncomingChronoDoc, 'chrono');
     const linksRaw = parsed<LinkDoc>(Array.isArray(body?.links) ? body.links.slice(0, 500) : [], IncomingLinkDoc, 'link');
+    /*
+     * A file's METADATA — the sixth family (`P-30`).
+     *
+     * A CHUNK sent here is REPORTED by `parsed` rather than stripped, because `IncomingFileMetaDoc` refuses
+     * `parentFileId` outright: zod would otherwise drop the key and the chunk would land as a FILE, carrying
+     * another instance's passage text under an id ending in `#0`.
+     */
+    const fileMetaRaw = parsed<FileMetaDoc & { seq: number }>(
+      Array.isArray(body?.filemeta) ? body.filemeta.slice(0, 500) : [],
+      IncomingFileMetaDoc as never, 'filemeta');
 
     // Drop documents whose seq is too close to the protocol ceiling — one such
     // doc would otherwise drag the counter toward it via the bumpSeq below (see
@@ -533,6 +581,7 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     const edges = plausible(edgesRaw, 'edge');
     const chrono = plausible(chronoRaw, 'chrono');
     const links = plausible(linksRaw, 'link');
+    const fileMeta = plausible(fileMetaRaw, 'filemeta');
 
     // ── Memories ─────────────────────────────────────────────────────────
     // `skipped` = the peer is already current (benign). `forkDepthRefused` = a record was DROPPED. They were
@@ -714,6 +763,31 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
     }
 
     /*
+     * ── A file's metadata ────────────────────────────────────────────────
+     *
+     * Last-writer-wins by seq, like every other family. What is NOT like the others is the write itself:
+     * `ingestFileMeta` sets the authored keys instead of replacing the document, because the receiver
+     * derived `sizeBytes`, `sha256`, the excerpt and the vector from bytes it holds — see that function.
+     *
+     * No tombstone check here. A deleted file has a `FileTombstoneDoc` and `/api/sync/file-tombstones`
+     * carries it, which is why `TOMBSTONE_TYPES` has no `file` member; looking in the brain tombstones for
+     * one would find nothing, every time, and look like a check.
+     */
+    const fileMetaStats = { upserted: 0, skipped: 0 };
+    for (const incoming of fileMeta) {
+      const existing = await col<FileMetaDoc>(`${spaceId}_files`)
+        .findOne(asFilter<FileMetaDoc>({ _id: incoming._id }), { projection: { seq: 1 } }) as { seq?: number } | null;
+      // `?? -1` so a record stamped before 4.0 — which has no seq — is overwritten by anything that arrives,
+      // rather than winning for ever against every peer by comparing `undefined`.
+      if (!existing || incoming.seq > (existing.seq ?? -1)) {
+        await ingestFileMeta(spaceId, incoming as never);
+        fileMetaStats.upserted++;
+      } else {
+        fileMetaStats.skipped++;
+      }
+    }
+
+    /*
      * X-20 instrumentation, the RECEIVER half — and it is the half that matters now.
      *
      * The sender's side is answered: with `DEBUG` on, its log shows it pushing the record and advancing its
@@ -737,7 +811,8 @@ syncDocsRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, a
       + `entities ${JSON.stringify(entStats)} seq ${range(entities)}; `
       + `edges ${JSON.stringify(edgeStats)} seq ${range(edges)}; `
       + `chrono ${JSON.stringify(chronoStats)} seq ${range(chrono)}; `
-      + `links ${JSON.stringify(linkStats)} seq ${range(links)}`);
+      + `links ${JSON.stringify(linkStats)} seq ${range(links)} `
+      + `filemeta ${JSON.stringify(fileMetaStats)} seq ${range(fileMeta)}`);
 
     res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats, chrono: chronoStats, links: linkStats });
 

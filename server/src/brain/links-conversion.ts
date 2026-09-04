@@ -31,6 +31,7 @@
  * network-wide, so a marker there would announce one instance's finished conversion as everybody's.
  */
 import { col, asFilter } from '../db/mongo.js';
+import { nextSeq } from '../util/seq.js';
 import { getConfig } from '../config/loader.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { reconcileLinksForDocument, LINK_BEARING_COLLECTIONS } from './links.js';
@@ -38,6 +39,8 @@ import { log } from '../util/log.js';
 
 /** What one space's conversion did, per collection and in total. */
 export interface ConversionReport {
+  /** Parent file records stamped with a `seq` they did not have — see `stampFileMetaSeqs`. */
+  fileSeqsStamped?: number;
   spaceId: string;
   /** Documents walked, by collection suffix. */
   scanned: Record<string, number>;
@@ -56,8 +59,46 @@ const PAGE = 200;
  * Paged by `_id` rather than by `skip`: a skip-paged walk over a collection being written to at the same
  * time can visit a document twice and miss another entirely, and the one it misses is silent.
  */
+/**
+ * Give every parent file record a `seq`, so a file's metadata written before 4.0 can reach a peer.
+ *
+ * ## Why it is here and not a boot migration
+ *
+ * `P-30` made a file's metadata replicate, and the sync mechanism is seq-ordered: the page cursor is
+ * `seq: { $gt: n }`, which never matches a document without one. So a record stamped before 4.0 simply does
+ * not page to a peer until it is next written — correct, silent, and permanent for a file nobody edits.
+ *
+ * A boot migration over synced data is forbidden (`_REFERENCE.md → migration-strategy`): every instance in
+ * a network would independently decide to stamp the same records at whatever moment it happened to restart,
+ * and each would win the last-writer-wins comparison against the others in turn.
+ *
+ * So it rides in the script an operator already runs once after upgrading, and it is idempotent the same
+ * way: a record that has a seq is left alone.
+ *
+ * **Chunks are skipped**, because a chunk never replicates — it is derived from the blob and the receiver
+ * makes its own.
+ */
+export async function stampFileMetaSeqs(spaceId: string): Promise<number> {
+  let stamped = 0;
+  for (;;) {
+    const doc = await col<{ _id: string }>(`${spaceId}_files`).findOne(
+      asFilter<{ _id: string }>({ seq: { $exists: false }, parentFileId: { $exists: false } }),
+      { projection: { _id: 1 } },
+    ) as { _id: string } | null;
+    if (!doc) break;
+    // One seq PER RECORD. A shared seq at a page boundary would leave the rest of that group unreachable,
+    // because the cursor continues from the last item with `seq > since` and would step straight over them.
+    await col(`${spaceId}_files`).updateOne(
+      asFilter({ _id: doc._id }), { $set: { seq: await nextSeq(spaceId) } } as never,
+    );
+    stamped++;
+  }
+  return stamped;
+}
+
 export async function convertSpaceLinks(spaceId: string): Promise<ConversionReport> {
   const report: ConversionReport = { spaceId, scanned: {}, added: 0, failed: 0 };
+  report.fileSeqsStamped = await stampFileMetaSeqs(spaceId);
 
   for (const [suffix, fromKind] of Object.entries(LINK_BEARING_COLLECTIONS)) {
     if (!fromKind) continue;

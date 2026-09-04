@@ -273,3 +273,20 @@ Beyond the per-collection write events (`memory.created`, `entity.updated`, `fil
 The About page loads once (no auto-refresh) and shows instance information in two cards: an **Instance** card (instance label, instance ID, version, and public URL when set) and a **System** card (MongoDB version, uptime, and disk figures). The disk section shows **Ythril data** — the actual size of Ythril's data directory (cached, refreshed periodically) — separately from **Disk (whole volume)**, the total/used capacity of the filesystem that directory sits on, with a usage bar + health pill (Healthy / High / Critical) tracking how full that volume is. (Previously only the whole-volume figure was shown, which read misleadingly as Ythril's own usage.) If the info fails to load, the page shows the reason and a **Retry** button. It does **not** show the server log — the live server log lives on the [Audit Log](#settings--audit-log) page.
 
 ---
+
+### What a file carries to another instance (4.0)
+
+When a space syncs, a file moves in two parts: the **file itself**, and **what you wrote about it** —
+its description, its tags, and the records you attached to it.
+
+**The second part is new in 4.0.** Before, only the file travelled: a file you had linked to an entity
+arrived on the other instance with the link missing from its row, even though the graph there knew about
+it. The two views disagreed, and which one you believed depended on where you looked.
+
+**What each instance keeps its own copy of** is everything it worked out from the file itself — the size,
+the checksum, the extracted text and the search vector. Those are never overwritten by another instance,
+because each one computed them from its own copy of the bytes.
+
+> **Files uploaded before 4.0 need one command before their descriptions travel.** An administrator runs
+> `npm run links:convert` once; it is the same one-off that converts the connection lists, and running it
+> twice is safe.

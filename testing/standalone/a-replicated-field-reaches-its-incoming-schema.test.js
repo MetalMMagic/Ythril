@@ -86,11 +86,40 @@ function incomingKeys(src, name) {
  * statements of one intention, and a field in only one of them is either hashed when it should not be, or
  * fetched for nothing.
  */
-function merkleExcluded(src) {
+/**
+ * What the hash cannot see, from both of the places `merkle.ts` states it.
+ *
+ * ## Two projection SHAPES, and the second one is the opposite of the first
+ *
+ * The five document collections use an EXCLUSION projection: everything is hashed unless named. That is the
+ * safe direction for them — a new AUTHORED field joins the hash on the commit that declares it.
+ *
+ * A file's metadata uses an INCLUSION projection, and deliberately: `FileMetaDoc` has thirty-odd fields and
+ * all but a dozen are derived from the local blob. An exclusion list would have to name every one, and the
+ * field somebody forgets is then hashed — so two instances that agree about everything anybody WROTE
+ * diverge for ever over a chunk count.
+ *
+ * So the extractor has to read both, and what it returns is the same thing either way: the set of fields
+ * the hash does not see.
+ */
+function merkleExcluded(src, docName) {
   const set = src.match(/const DERIVED_FIELDS = new Set\(\[([^\]]*)\]\)/);
-  const proj = src.match(/\.project\(\{([^}]*)\}\)/);
   const names = s => [...(s ?? '').matchAll(/([a-zA-Z_]\w*)/g)].map(m => m[1]).filter(n => n !== '0');
-  return { fromSet: names(set?.[1]), fromProjection: names(proj?.[1]) };
+  const fromSet = names(set?.[1]);
+
+  /*
+   * A file's list is INCLUSIVE, so 'excluded' is its complement against the document's own fields. Computed
+   * that way rather than read off a second list, because a hand-written complement is a third statement of
+   * one rule and this file exists to stop the second.
+   */
+  if (docName === 'FileMetaDoc') {
+    const inc = src.match(/const FILE_HASH_PROJECTION = \{([\s\S]*?)\}\s*as const;/);
+    const hashed = names(inc?.[1]).filter(n => n !== '1');
+    return { fromSet, fromProjection: hashed, inclusive: true };
+  }
+
+  const proj = src.match(/const DERIVED_PROJECTION = \{([^}]*)\}/);
+  return { fromSet, fromProjection: names(proj?.[1]), inclusive: false };
 }
 
 /**
@@ -139,7 +168,8 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
   const types = readFileSync(TYPES, 'utf8');
   const shared = readFileSync(SHARED, 'utf8');
   const merkle = readFileSync(MERKLE, 'utf8');
-  const { fromSet, fromProjection } = merkleExcluded(merkle);
+  // Per document, because the two projection shapes are read differently — see `merkleExcluded`.
+  const { fromSet, fromProjection } = merkleExcluded(merkle, null);
   const REPLICATED = replicatedPairs(shared);
 
   it('the extractors find what they are looking for (the check itself works)', () => {
@@ -157,7 +187,10 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
       assert.ok((incomingKeys(shared, inc) ?? []).length > 6, `${inc} keys not found — re-anchor`);
     }
     assert.ok(fromSet.length >= 3, 'DERIVED_FIELDS not found in merkle.ts — re-anchor');
-    assert.ok(fromProjection.length >= 3, 'the merkle projection was not found — re-anchor');
+    assert.ok(fromProjection.length >= 3, 'DERIVED_PROJECTION not found in merkle.ts — re-anchor');
+    assert.ok(merkleExcluded(merkle, 'FileMetaDoc').fromProjection.length >= 10,
+      'FILE_HASH_PROJECTION not found in merkle.ts — re-anchor. It is an INCLUSION list, unlike every other '
+      + 'collection, and reading it as an exclusion makes every derived file field look hashed.');
   });
 
   it('the two statements of "the hash does not see this" agree', () => {
@@ -170,8 +203,15 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
     it(`${docName}: every hashed field is declared by ${incName}`, () => {
       const fields = docFields(types, docName);
       const keys = incomingKeys(shared, incName);
+      const view = merkleExcluded(merkle, docName);
+      /*
+       * An INCLUSIVE projection turns the question round: a field is hashed only if it is NAMED, so
+       * everything else is out of the hash and needs no declaration. The rule is unchanged — hashed AND
+       * replicated, or neither — and this is the same rule read off the other shape.
+       */
+      const hashes = f => view.inclusive ? view.fromProjection.includes(f) : !view.fromProjection.includes(f);
       const undeclared = fields.filter(f =>
-        !keys.includes(f) && !fromSet.includes(f) && !(f in HASHED_BUT_NOT_REPLICATED));
+        hashes(f) && !keys.includes(f) && !fromSet.includes(f) && !(f in HASHED_BUT_NOT_REPLICATED));
       assert.deepEqual(undeclared, [],
         `${undeclared.join(', ')} on ${docName} is HASHED by the divergence check and STRIPPED on push. So `
         + `the two peers hash it differently for ever, so a network with merkle:true logs a MERKLE_DIVERGENCE `

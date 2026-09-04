@@ -78,9 +78,26 @@ describe('the link collection joins every set it belongs to', () => {
   });
 
   it('it is HASHED, or two instances that differ report themselves identical', () => {
+    /*
+     * DERIVED, because the walk is. It used to name its five collections and this matched the literal;
+     * `P-30` made a file's metadata replicate, so every brain collection is hashed and the walk reads
+     * `BRAIN_COLLECTIONS` instead of listing them.
+     *
+     * The rule has not moved and the check is stronger for it: a link is in that tuple
+     * (`one-definition-of-the-collections.test.js` holds it there), so a walk over the tuple covers links
+     * by construction. What this now asserts is that the walk really does read the tuple rather than a
+     * list somebody could trim.
+     */
     const src = code('server/src/brain/merkle.ts');
-    assert.match(src, new RegExp(`['"]${LINKS}['"]`),
-      'the merkle walk must cover links, or MERKLE_DIVERGENCE stays silent while data is missing');
+    // Read from source, like every other case in this file — the client mirror is checked the same way, and
+    // importing the tuple here would make this the one case that trusts a build.
+    const tuple = code('server/src/config/types-knowledge.ts');
+    const at = tuple.indexOf('BRAIN_COLLECTIONS');
+    assert.match(tuple.slice(at, tuple.indexOf(';', at)), new RegExp(`['"]${LINKS}['"]`),
+      `${LINKS} is not in BRAIN_COLLECTIONS, so a walk over the tuple would not cover it`);
+    assert.match(src, /for \(const collType of BRAIN_COLLECTIONS\)/,
+      'the merkle walk no longer derives its collections from the one tuple, so a list somebody trims can '
+      + 'drop links and MERKLE_DIVERGENCE stays silent while data is missing');
   });
 
   it('it REPLICATES — the counts, and the push path', () => {

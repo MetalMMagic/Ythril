@@ -184,10 +184,14 @@ describe('a collection list derives from the one tuple, or declares itself a sub
     // An exemption nobody has to justify is a hole. These are the ones the rule exists to protect: a vector
     // index a link must never get, the UI's tabs — which answer a different question entirely — and the four
     // four-member lists that mean "the typed knowledge collections" and route files elsewhere.
+    //
+    // **`merkle.ts` came OFF this list.** It hashed four collections plus links and excluded `files`, which
+    // was a subset and said so. `P-30` made a file's metadata replicate, so every brain collection is now
+    // hashed and the list IS the tuple — it derives from `BRAIN_COLLECTIONS` rather than declaring itself a
+    // subset of it. An exemption whose reason has expired is the thing this file is about.
     for (const f of [
       'server/src/spaces/vector-index.ts',
       'client/src/app/pages/brain/brain-tabs.ts',
-      'server/src/brain/merkle.ts',
       'server/src/sync/engine.ts',
       'server/src/spaces/ensure-query-indexes.ts',
       'server/src/metrics/registry.ts',

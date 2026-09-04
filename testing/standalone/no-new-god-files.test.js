@@ -109,7 +109,18 @@ const FROZEN = {
   // make" moved 65 lines; a THIRD of the file was its inline template and stylesheet, which no store
   // extraction could reach, and taking those out as two components is what ended it.
   'client/src/app/pages/schema-library/schema-library.component.ts': 1112,
-  'server/src/sync/engine.ts': 966,
+  // RAISED 966 -> 975 for `P-30`: a sixth sync family. The push call, the pull call, both watermark
+  // entries, and the two signatures widened to accept it — every line of it is the engine deciding what
+  // crosses the wire, which is what this file is for. The MERGE it needs is already elsewhere:
+  // `applyFileMetaPage` lives in `api/sync/_shared.ts` beside the push path's `ingestFileMeta`, so the two
+  // directions share one implementation instead of this file holding a second.
+  //
+  // **DECOMPOSE: the six families are written out TWICE in this file** — once as `pullType` calls with
+  // their result plumbing, once as `pushCollection` calls — and a
+  // seventh would be six edits. A table of `{ collection, payloadKey, extraFilter }` iterated by both
+  // halves is the shape, and it is a real refactor of the cycle rather than a tidy-up, which is why it is
+  // recorded here rather than smuggled into a change about file metadata.
+  'server/src/sync/engine.ts': 975,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
   // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
   // is 274 lines this file could regrow into without the gate saying a word.
@@ -312,7 +323,15 @@ const FROZEN = {
   // `status=overdue` is what found it.
   // NO DECOMPOSITION: a union type cannot be iterated at run time, which is WHY every door built its own
   // list. The tuple has to live beside the type it derives, and that is here.
-  'server/src/config/types.ts': 582,
+  // RAISED 582 -> 583 for `FileMetaDoc.seq`, one optional field, and it is the same answer as `sha256` and
+  // `LinkDoc` above: a record's fields belong in the file that declares the record.
+  // NO DECOMPOSITION: splitting shared interfaces by size would put a record's fields in a different file
+  // from the record, which is worse to read and worse to keep correct.
+  //
+  // It is the ordering primitive `P-30` needed. A file's metadata did not replicate, so it had no place in
+  // the seq order — and its absence was also the only lost-update race in the brain collections, since two
+  // writers appending to a file's `entityIds` had nothing to order them.
+  'server/src/config/types.ts': 583,
   'client/src/app/pages/settings/data.component.ts': 644,
   // RAISED 646 -> 647 by ONE line: the Q-6 narrowing swapped `resolveMemberSpaces` for `memberSpacesForRequest`,
   // and this file no longer needed the old import, so it gained an import line and lost none. Not growth in any

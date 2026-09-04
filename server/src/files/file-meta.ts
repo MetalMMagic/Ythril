@@ -19,6 +19,7 @@ import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { assertRefsResolve } from '../brain/entity-refs.js';
 import { reconcileLinks, removeLinksFrom } from '../brain/links.js';
+import { nextSeq } from '../util/seq.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
 import { expiryForCreate } from '../brain/ttl.js';
 import { enqueueEmbedJob } from '../brain/embed-queue.js';
@@ -61,7 +62,9 @@ export async function upsertFileMeta(
   // was that a document stopped being findable by its own opening words. Three copies of "what goes into a
   // file's embedding" existed and two of them disagreed; `buildEmbedText` is now the only one.
   if (existing) {
-    const $set: Record<string, unknown> = { updatedAt: now, sizeBytes };
+    // `P-30`: an authored write advances the space counter, which is what pages this record to a peer.
+    // A re-upload can change the description, the tags and the properties, so it is an authored write.
+    const $set: Record<string, unknown> = { updatedAt: now, sizeBytes, seq: await nextSeq(spaceId) };
     if (opts.description !== undefined) $set['description'] = opts.description;
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
@@ -97,6 +100,7 @@ export async function upsertFileMeta(
       sizeBytes,
       ...(opts.sha256 !== undefined ? { sha256: opts.sha256 } : {}),
       author: authorRef(),
+      seq: await nextSeq(spaceId),
       ...(expireAt ? { _expireAt: expireAt } : {}),
     };
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(doc));
@@ -158,7 +162,8 @@ export async function setDerivedDescriptionIfUnset(
       ],
     } as never),
     asUpdate<FileMetaDoc>({
-      $set: { description, updatedAt: new Date().toISOString(), ...(descriptionSource ? { descriptionSource } : {}) },
+      // `P-30`: an authored write, so it advances the space counter and pages to a peer.
+      $set: { description, updatedAt: new Date().toISOString(), seq: await nextSeq(spaceId), ...(descriptionSource ? { descriptionSource } : {}) },
       ...(descriptionSource ? {} : { $unset: { descriptionSource: '' } }),
     }),
   );
@@ -296,6 +301,9 @@ export async function updateFileMeta(
     }
   }
 
+  // `P-30`: the only writer of a file's three link arrays, its tags, its description and its properties —
+  // every one of them authored, so this advances the space counter and pages the record to a peer.
+  $set['seq'] = await nextSeq(spaceId);
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
     asUpdate<FileMetaDoc>(Object.keys($unset).length > 0 ? { $set, $unset } : { $set }),
@@ -418,7 +426,10 @@ export async function markFileMetaDeleted(
   const normalised = toDocId(filePath);
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
-    asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString() } }),
+    // `P-30`: a deletion is an authored change. The file TOMBSTONE carries the removal to a peer; this
+    // seq is what pages the soft-deleted record itself, so a peer sees the flag rather than a record
+    // that simply stopped changing.
+    asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString(), seq: await nextSeq(spaceId) } }),
   );
 }
 

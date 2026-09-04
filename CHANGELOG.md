@@ -110,6 +110,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A file's METADATA now replicates — its description, tags, properties and the records attached to it.**
+  The bytes have always travelled. What somebody wrote about a file did not.
+
+  **That was consistent until link records started replicating.** From then on, a file linked to an entity
+  on one instance sent the LINK and not the list it came from: the graph on a peer showed the connection
+  and the peer's own file list showed none. Two answers to one question, differing by which one you asked.
+
+  **Only the authored half crosses the wire, and the write MERGES rather than replaces.** Each instance
+  keeps what it worked out from its own copy of the bytes — the size, the checksum, the extracted text and
+  the search vector. A whole-document replace would leave the file reporting the SENDER's size and hash
+  with no vector at all, findable by neither its own text nor its own name, with nothing having failed.
+
+  A field the sender omits is **left alone rather than cleared**: a peer on an older build sends fewer
+  fields, and reading absence as deletion would let it erase a description it has never heard of.
+
+  **A file CHUNK is refused rather than stripped.** A chunk is derived from the blob and each instance
+  makes its own, with its own chunker and its own model. Stripped of the field that marks it, it would land
+  as a FILE under an id ending in `#0`, carrying another instance's passage text.
+
+- **The divergence check hashes a file's metadata too, and only the authored half.** Both halves of that
+  sentence are load-bearing, and they fail in opposite directions.
+
+  Hash nothing and two instances holding different descriptions compute the same root and report
+  themselves **identical** — a permanent false negative on the one signal that says data really is missing.
+  Hash the derived fields as well and two instances that agree about everything anybody WROTE diverge for
+  ever over a size in bytes, which teaches an operator to ignore the warning.
+
+  The check is advisory and blocks nothing, so nothing else would ever have contradicted either reading.
+
+- **A file metadata record has a `seq`, which it never had.** It is the ordering primitive replication runs
+  on — the page cursor, the watermark, and last-writer-wins are all seq-based.
+
+  **Its absence was also a live defect with nothing to do with sync**: two writers appending to a file's
+  entity list read, modified and wrote with nothing to order them, so one append could silently drop the
+  other. It was the only lost-update race among the brain collections, and the only one whose record type
+  had no seq.
+
+  Metadata written before 4.0 has none, so it does not reach a peer until the record is next written.
+  `npm run links:convert` stamps what is already stored — the same one-off that converts the link records,
+  idempotent, and safe to run twice.
+
 - **Deleting a memory or a timeline entry can now be REFUSED, and this is the change most likely to reach
   a running script.** In a space with `strictLinkage` on, a timeline entry listing a memory — or a file
   listing either — blocks the delete with a `409` that names what is referring to it.

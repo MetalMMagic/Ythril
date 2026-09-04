@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { col, asFilter, asDoc } from '../../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import { getConfig } from '../../config/loader.js';
 import { reachesSpace } from '../../auth/space-reach.js';
 import { isInstanceAdmin } from '../../auth/instance-admin.js';
@@ -20,6 +20,7 @@ import { log } from '../../util/log.js';
 import { isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import { isStrictLinkage } from '../../spaces/proxy.js';
 import { LINK_CLASSES } from '../../brain/link-adjacency.js';
+import type { FileMetaDoc } from '../../config/types.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, LinkViolationDoc, BrainEmbedRecordType } from '../../config/types.js';
 
@@ -309,6 +310,130 @@ export const IncomingMemoryDoc = z.object({
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
   forkOf: z.string().optional(),
 });
+
+/**
+ * A file's METADATA as a peer sends it — the AUTHORED half, and nothing the receiver can work out itself.
+ *
+ * ## Why this schema is so much narrower than the document
+ *
+ * `FileMetaDoc` holds three different kinds of field and only one of them may cross a wire:
+ *
+  *   - **AUTHORED** — somebody decided these. They are here.
+  *   - **DERIVED FROM THE LOCAL BLOB** — `sizeBytes`, `sha256`, `excerpt`, `embedding`, `chunkCount`,
+  *     `embeddingStatus`, `conversionError`, `convertedFileId`, `mediaType`. The receiver computed these
+  *     from bytes it already holds, and a sender's copy of them is a claim about a different disk.
+  *   - **CHUNK-ONLY** — `parentFileId`, `chunkIndex`, `content`, `faceEntityId`. Those are on records that
+  *     must not travel AT ALL, which is what `parentFileId` refuses below.
+ *
+ * ## `parentFileId` is refused rather than stripped
+ *
+ * Zod strips an undeclared key silently, which is the right behaviour for a field a peer should not have
+ * sent and the wrong one here: a stripped `parentFileId` turns a CHUNK into a file. It would arrive as a
+ * document whose `_id` is `notes/spec.md#0`, carrying another instance's passage text, and every file list
+ * in the product would show it as a file.
+ *
+ * A chunk is derived from the blob and the receiver makes its own. Refusing is the only reading that says
+ * so.
+ */
+export const IncomingFileMetaDoc = z.object({
+  // The path IS the id. Both are carried, as the document does.
+  _id: z.string().min(1),
+  spaceId: z.string().min(1),
+  path: z.string().min(1),
+  description: z.string().optional(),
+  descriptionSource: z.enum(['generated', 'extracted']).optional(),
+  tags: z.array(z.string()).max(100),
+  entityIds: z.array(z.string()).max(500).optional(),
+  memoryIds: z.array(z.string()).max(500).optional(),
+  chronoIds: z.array(z.string()).max(500).optional(),
+  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs to honour it. */
+  suppressEmbeddings: z.boolean().optional(),
+  excludeFromVectorSearch: z.boolean().optional(),
+  author: AuthorRefSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
+  /**
+   * Present on a CHUNK and never on a file, so it is the discriminator — and it is `never()` rather than
+   * absent from the schema, because zod strips what it does not declare and a stripped `parentFileId` turns
+   * a chunk into a file.
+   */
+  parentFileId: z.never().optional(),
+}).strict();
+
+/**
+ * Write an arriving file's metadata — a `$set` of the authored keys, NOT a whole-document replace.
+ *
+ * ## The one collection that cannot be replaced
+ *
+ * Every other brain collection ingests through `ingestBrainDoc`, which replaces the document. A file meta
+ * record cannot: the receiver derived `sizeBytes`, `sha256`, `excerpt`, the vector and the chunk count from
+ * bytes it holds, and a replace would leave the file reporting the SENDER's size and hash with no vector at
+ * all — findable by neither its own text nor its own name, with nothing having failed.
+ *
+ * ## `$set`, never `$unset`
+ *
+ * A key the sender omits is left alone. A peer on an older build sends fewer fields, and reading absence as
+ * deletion would let it erase a description it has never heard of — the same rule the PATCH doors follow,
+ * for the same reason.
+ *
+ * ## Embedding is enqueued only when this instance HAS the bytes
+ *
+ * A file whose metadata arrives before its blob has nothing to embed yet, and queueing it would put a
+ * failed job in front of an operator for every file on a first sync. The file transfer path calls
+ * `upsertFileMeta` when the bytes land, which enqueues — so the work happens either way, once, at the
+ * moment there is something to do.
+ */
+export async function ingestFileMeta(spaceId: string, incoming: z.infer<typeof IncomingFileMetaDoc>): Promise<void> {
+  const $set: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(incoming)) {
+    if (v !== undefined) $set[k] = v;
+  }
+
+  const existing = await col<FileMetaDoc>(`${spaceId}_files`)
+    .findOne(asFilter<FileMetaDoc>({ _id: incoming._id }), { projection: { sha256: 1, sizeBytes: 1 } });
+
+  await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+    asFilter<FileMetaDoc>({ _id: incoming._id }),
+    asUpdate<FileMetaDoc>({ $set }),
+    { upsert: true },
+  );
+
+  // The three link arrays, derived here for the same reason every other arriving record has them derived:
+  // the sender may be on a build with no link records, and nothing else would ever create them.
+  await reconcileLinksForDocument(spaceId, incoming._id, 'file', $set);
+
+  const haveBytes = existing?.sha256 !== undefined || existing?.sizeBytes !== undefined;
+  if (haveBytes) await enqueueIngestedRecord(spaceId, 'file', incoming);
+}
+/**
+ * Apply a whole PAGE of arriving file metadata — the pull side, using the same merge as the push side.
+ *
+ * ## Why the pull path cannot use the engine's bulk write
+ *
+ * Every other collection applies a page as a `bulkWrite` of `replaceOne`. A file meta record cannot: the
+ * receiver derived `sizeBytes`, `sha256`, the excerpt, the vector and the chunk count from bytes it holds,
+ * and a replace would leave the file reporting the SENDER's size and hash with no vector at all — findable
+ * by neither its own text nor its own name, with nothing having failed.
+ *
+ * Here rather than in the engine so PUSH and PULL share one implementation. Two copies of a merge rule with
+ * the weaker winning silently is the shape this codebase produces most, and the weaker one would be
+ * whichever direction nobody tested.
+ *
+ * ## A chunk arriving is skipped, not stored
+ *
+ * One means a peer on a build that sends them, or a corrupt page. Stored, it would appear in every file
+ * list as a FILE — an id ending in `#0`, carrying another instance's passage text.
+ */
+export async function applyFileMetaPage(
+  spaceId: string, docs: readonly (z.infer<typeof IncomingFileMetaDoc> & { parentFileId?: string })[],
+): Promise<void> {
+  for (const doc of docs) {
+    if (doc.parentFileId !== undefined) continue;
+    await ingestFileMeta(spaceId, doc);
+  }
+}
 
 export const IncomingEntityDoc = z.object({
   _id: z.string().min(1),

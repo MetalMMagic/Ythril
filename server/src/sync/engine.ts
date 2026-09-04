@@ -18,6 +18,7 @@
 import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
 import { BRAIN_COLLECTIONS, type LinkDoc } from '../config/types.js';
 import { reconcileLinksForPage } from '../brain/links.js';
+import { applyFileMetaPage } from '../api/sync/_shared.js';
 import { boundedJson } from '../util/bounded-read.js';
 import { reportPushRefusals } from './push-refusals.js';
 import { toSafeRelPath } from '../util/paths.js';
@@ -67,6 +68,7 @@ import { getDataRoot } from '../config/loader.js';
 import { createHash } from 'node:crypto';
 import { resolveSafePath } from '../files/sandbox.js';
 import { deleteFileMeta, upsertFileMeta } from '../files/file-meta.js';
+import type { FileMetaDoc } from '../config/types.js';
 import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey } from '../util/signing.js';
 import { v4 as uuidv4 } from 'uuid';
 import { armedSchedules } from '../util/armed-schedule.js';
@@ -833,7 +835,7 @@ async function pullFromPeer(
    * document on this path. `links` is present — a collection missing here is one a peer never sends us,
    * and nothing reports that, because a peer holding no links hashes none either.
    */
-  async function pullType<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry | LinkDoc>(
+  async function pullType<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry | LinkDoc | (FileMetaDoc & { seq: number })>(
     urlSuffix: string,
   ): Promise<PullResult> {
     let count = 0, highSeq = sinceSeq, maxSeq = 0;
@@ -901,6 +903,9 @@ async function pullFromPeer(
   const edgeR = await pullType<EdgeDoc>('edges');
   const chronoR = await pullType<ChronoEntry>('chrono');
   const linkR = await pullType<LinkDoc>('links');
+  // `P-30`: the sixth family. The URL says `filemeta` and the collection is `_files`, because the route
+  // serves METADATA while `/api/files` serves bytes — one word apart on purpose.
+  const fileMetaR = await pullType<FileMetaDoc & { seq: number }>('filemeta');
 
   pulledMemories = memR.count;
   pulledEntities = entR.count;
@@ -920,8 +925,8 @@ async function pullFromPeer(
   highestSeq = resolveWatermark({
     direction: 'receive', peerLabel: member.label ?? member.instanceId, spaceId,
     from: sinceSeq,
-    candidate: Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq, linkR.highSeq),
-    transfers: { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, links: linkR, tombstones },
+    candidate: Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq, linkR.highSeq, fileMetaR.highSeq),
+    transfers: { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, links: linkR, filemeta: fileMetaR, tombstones },
     warn: log.warn,
   });
   // TOMBSTONES ARE IN THIS MAX, and their absence was a silent record-loss bug rather than an omission.
@@ -1010,9 +1015,15 @@ async function pushToPeer(
    * differ for ever — except that a peer which never RECEIVES a link has nothing to hash either, so both
    * sides agree on a root computed from data only one of them holds.
    */
-  async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry | LinkDoc>(
+  /**
+   * @param extraFilter narrows what is SENT. Files use it for parents only: a chunk is derived from the
+   *   blob and the receiver makes its own, so sending one would ship passage text and a vector from a
+   *   model the receiver may not run.
+   */
+  async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry | LinkDoc | (FileMetaDoc & { seq: number })>(
     collName: string,
-    payloadKey: 'memories' | 'entities' | 'edges' | 'chrono' | 'links',
+    payloadKey: 'memories' | 'entities' | 'edges' | 'chrono' | 'links' | 'filemeta',
+    extraFilter: Record<string, unknown> = {},
   ): Promise<{ pushed: number; maxSeq: number } & TransferOutcome> {
     let pushed = 0;
     let localMaxSeq = lastSeqPushed;
@@ -1020,7 +1031,7 @@ async function pushToPeer(
     let truncated = false;
     while (true) {
       const batch = await col<T>(collName)
-        .find(asFilter<T>({ seq: { $gt: seqCursor }, ...ownedFilter }))
+        .find(asFilter<T>({ seq: { $gt: seqCursor }, ...ownedFilter, ...extraFilter }))
         .sort({ seq: 1 })
         .limit(PUSH_BATCH_SIZE)
         .toArray() as T[];
@@ -1072,6 +1083,10 @@ async function pushToPeer(
   const edgeP = await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
   const chronoP = await pushCollection<ChronoEntry>(`${spaceId}_chrono`, 'chrono');
   const linkP = await pushCollection<LinkDoc>(`${spaceId}_links`, 'links');
+  // PARENTS ONLY. A chunk is derived from the blob and the receiver makes its own, with its own chunker
+  // and its own model — sent, it would carry passage text and a vector another instance cannot rank.
+  const fileMetaP = await pushCollection<FileMetaDoc & { seq: number }>(`${spaceId}_files`, 'filemeta',
+    { parentFileId: { $exists: false } });
 
   pushedMemories = memP.pushed;
   pushedEntities = entP.pushed;
@@ -1083,7 +1098,7 @@ async function pushToPeer(
     direction: 'push', peerLabel: member.label ?? member.instanceId, spaceId,
     from: lastSeqPushed,
     candidate: Math.max(memP.maxSeq, entP.maxSeq, edgeP.maxSeq, chronoP.maxSeq, linkP.maxSeq),
-    transfers: { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, links: linkP, tombstones },
+    transfers: { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, links: linkP, filemeta: fileMetaP, tombstones },
     warn: log.warn,
   });
 
@@ -1368,6 +1383,22 @@ async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
    * are. Only duplicate-key errors are absorbed — any other write fault still throws, because swallowing those
    * would hide genuine corruption, which is the opposite defect.
    */
+  /*
+   * A FILE'S METADATA IS MERGED, NOT REPLACED — the one collection this bulk path may not touch.
+   *
+   * The receiver derived `sizeBytes`, `sha256`, the excerpt, the vector and the chunk count from bytes it
+   * holds. A `replaceOne` would leave the file reporting the SENDER's size and hash with no vector at all.
+   *
+   * The applier lives in `api/sync/_shared.ts` beside `ingestFileMeta`, not here: the PUSH path already
+   * uses that function, and a second merge in the engine would be one rule with two implementations —
+   * the weaker being whichever direction nobody tested. It is also what the god-file ratchet on this file
+   * asks for, and the reason it asks.
+   */
+  if (collName.endsWith('_files')) {
+    await applyFileMetaPage(localSpaceId, toWrite as never);
+    return;
+  }
+
   try {
     await collection.bulkWrite(asBulk<T>(
       toWrite.map(doc => ({ replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true } })),

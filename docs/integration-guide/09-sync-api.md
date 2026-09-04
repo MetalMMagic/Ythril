@@ -89,7 +89,9 @@ Base path: `/api/sync` — used by the sync engine between peers. All endpoints 
 | `/api/sync/chrono` | POST | Upsert one remote chrono doc |
 | `/api/sync/links` | GET | Page link-record changes |
 | `/api/sync/links/:id` | GET | Fetch one full link doc |
-| `/api/sync/batch-upsert` | POST | Bulk upsert memories/entities/edges/chrono/links |
+| `/api/sync/filemeta` | GET | Page a file's METADATA changes — parents only, never chunks |
+| `/api/sync/filemeta/:id` | GET | Fetch one full file metadata doc |
+| `/api/sync/batch-upsert` | POST | Bulk upsert memories/entities/edges/chrono/links/filemeta |
 | `/api/sync/tombstones` | GET | List tombstones by seq |
 | `/api/sync/tombstones` | POST | Apply remote tombstones |
 | `/api/sync/manifest` | GET | File manifest diff |
@@ -107,6 +109,46 @@ field it comes from on the record that holds it — `memory.entityIds`, `chrono.
 `file.entityIds`/`memoryIds`/`chronoIds` — so there is no independent create for a peer to mirror. Link
 records reach a peer through `batch-upsert`, which is what a sync cycle uses for every family anyway; the
 per-family `POST` routes are the older single-record path.
+
+### A file's METADATA replicates; the bytes travel separately (4.0)
+
+```http
+GET /api/sync/filemeta?spaceId=&networkId=&sinceSeq=&limit=&full=true
+GET /api/sync/filemeta/:id
+```
+
+The bytes have always moved through the manifest and `/api/files`. From 4.0 the file's **metadata record**
+moves too — its description, tags, properties, and the three link arrays.
+
+**Before this, a file linked to an entity on one instance sent the LINK record and not the array it came
+from.** So the graph on a peer showed the connection and the peer's own file list showed none: two answers
+to one question, differing by which collection you asked.
+
+**Only the AUTHORED half crosses the wire, and the ingest MERGES rather than replaces.** A file meta record
+holds three different kinds of field:
+
+| | |
+|---|---|
+| **authored** — replicates | `description`, `descriptionSource`, `tags`, `entityIds`, `memoryIds`, `chronoIds`, `properties`, `author`, `createdAt`, `updatedAt`, `seq`, the two suppression spellings |
+| **derived from the local blob** — never sent, never overwritten | `sizeBytes`, `sha256`, `excerpt`, the vector, `chunkCount`, `embeddingStatus`, `conversionError` |
+| **chunk-only** — the whole record is refused | `parentFileId`, `chunkIndex`, `content` |
+
+A whole-document replace would leave the file reporting the SENDER's size and hash with no vector at all —
+findable by neither its own text nor its own name, with nothing having failed. So the write is a `$set` of
+the keys that arrived, and a key the sender omits is **left alone rather than cleared**: a peer on an older
+build sends fewer fields, and reading absence as deletion would let it erase a description it has never
+heard of.
+
+**A chunk sent to `batch-upsert` is REFUSED and reported**, not stripped. A chunk is derived from the blob
+and the receiver makes its own, with its own chunker and its own model; stripped, it would land as a FILE
+under an id ending in `#0`, carrying another instance's passage text.
+
+**Deletions travel on `/api/sync/file-tombstones`**, as they always have — a deleted file has a file
+tombstone rather than a brain one, so the metadata page carries no tombstones of its own.
+
+> **Metadata written before 4.0 has no `seq`, and the page cursor is `seq > n`.** So it does not reach a
+> peer until the record is next written. `npm run links:convert` stamps the ones already stored, and it is
+> the same one-off an operator runs for the link records — idempotent, and safe to run twice.
 
 ### Common Query Parameters
 

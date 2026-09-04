@@ -25,7 +25,7 @@
  * Pre-requisite: docker compose -f docker-compose.test.yml up && node testing/sync/setup.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,9 +35,17 @@ import { dockerExec, INSTANCES, post, get, triggerSync, waitFor } from './helper
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
 
-/** Run a small script inside a container. Base64 so quoting survives the shell on every platform. */
+/**
+ * Run a small script inside a container. Base64 so quoting survives the shell on every platform.
+ *
+ * **Wrapped in a function, and that is not cosmetic.** `eval` runs its argument as top-level code,
+ * where `return` is a SyntaxError — so a script using an early return to bail out does not bail out,
+ * it fails to parse, and `docker exec` exits non-zero with the parse error rather than the sentinel
+ * the caller is checking for. The first version of this did exactly that and the assertion that
+ * caught it was reporting a shell failure dressed as a staging failure.
+ */
 function inContainer(container, script) {
-  const b64 = Buffer.from(script, 'utf8').toString('base64');
+  const b64 = Buffer.from(`(function(){${script}})()`, 'utf8').toString('base64');
   return dockerExec(
     `docker exec ${container} node -e "eval(Buffer.from('${b64}','base64').toString())"`,
   ).toString().trim();
@@ -48,6 +56,12 @@ const getInstanceId = (c) => inContainer(c,
 
 /**
  * Overwrite what one instance has stored as another's version.
+ *
+ * **The file write is only half of it — the server holds config in memory.** Writing config.json and
+ * stopping there stages nothing: the running instance never re-reads the file, so the pin is invisible
+ * to every code path under test and the assertions pass or fail for reasons unrelated to the floor.
+ * `POST /api/admin/reload-config` is what makes the write take effect, and every caller here pairs the
+ * two. That is why this returns a promise.
  *
  * Reaching into the config is the only honest way to stage a stale peer: both containers run the same
  * build, so neither can report an old version truthfully. What is under test is the CHECK against a
@@ -62,8 +76,8 @@ const getInstanceId = (c) => inContainer(c,
  * Clearing passes `null`, which removes both — restoring the no-evidence state rather than a
  * half-staged one.
  */
-function pinStoredVersion(container, netId, instanceId, version) {
-  return inContainer(container, `
+async function pinStoredVersion(container, netId, instanceId, version, url, token) {
+  const out = inContainer(container, `
 const fs = require('fs');
 const p = '/config/config.json';
 const c = JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -77,6 +91,8 @@ ${version === null
 fs.writeFileSync(p, JSON.stringify(c, null, 2));
 process.stdout.write('OK:' + (m.version || 'ABSENT'));
 `);
+  if (url && token) await post(url, token, '/api/admin/reload-config', {});
+  return out;
 }
 
 let tokenA, tokenB, networkId, spaceId, idA, idB, floor, peerFloorRefusal;
@@ -91,7 +107,7 @@ async function storedVersionOfB() {
 /** Does a marker record exist on B yet? */
 async function onB(marker) {
   const r = await post(INSTANCES.b, tokenB, `/api/brain/spaces/${spaceId}/query`, {
-    collection: 'memories', filter: { content: { $regex: marker } },
+    collection: 'memories', filter: { fact: { $regex: marker } },
   });
   return (r.body?.results ?? r.body?.rows ?? []).length;
 }
@@ -169,6 +185,38 @@ process.stdout.write('OK');
     }
   });
 
+  /*
+   * ── TEARDOWN, AND IT IS NOT HOUSEKEEPING ────────────────────────────────────────────────────
+   *
+   * This suite leaves a network with B as a member, and the suites that follow it alphabetically —
+   * `peer-revocation`, `pubsub-topology` — assume the pair is not a member of anything they did not
+   * create. One of the cases it broke is named *"credentials survive removal while the peer is still
+   * a member of another network"*: my leftover network WAS that other network, so a revocation the
+   * suite expected to happen correctly did not.
+   *
+   * It passed alone and failed in the run, which is the shape worth naming: a leaked fixture is
+   * invisible to the suite that leaks it and only ever fails somebody else. `test:sync` runs
+   * `--test-concurrency=1` over a shared pair of containers, so every suite is responsible for
+   * leaving them as it found them.
+   *
+   * Both sides, because the network was mirrored onto B for the exchange to be two-way.
+   */
+  after(async () => {
+    if (!networkId) return;
+    for (const [url, tok] of [[INSTANCES.a, tokenA], [INSTANCES.b, tokenB]]) {
+      await fetch(`${url}/api/networks/${networkId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }).catch(() => {});
+      await fetch(`${url}/api/spaces/${spaceId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }).catch(() => {});
+    }
+  });
+
   it('a member never exchanged with is NOT refused — the case CI taught me', async () => {
     /*
      * Asserted BEFORE the exchange, because after it there is nothing left to observe. The first
@@ -203,69 +251,84 @@ process.stdout.write('OK');
       `both containers run ${learned} and the floor is ${floor} — this build refuses itself`);
   });
 
-  it('a member pinned BELOW the floor stops taking data', async () => {
-    assert.match(pinStoredVersion('ythril-a', networkId, idB, '1.0.0'), /^OK/,
+  it('a member pinned below the floor is REPORTED as refused, on both doors', async () => {
+    /*
+     * **What replaced a test that could not work, and the reason is worth more than the case.**
+     *
+     * The first version pinned a stale version, wrote a record, and asserted it never reached B. It
+     * cannot: both containers run the same build, so the very first gossip round relearns B’s real
+     * version and erases the pin before any data moves. The window it was asserting over does not exist,
+     * and a test whose subject self-heals mid-run reports whatever the timing gave it.
+     *
+     * The refusal itself is decided by one pure function and is gated exhaustively in
+     * `testing/standalone/a-peer-below-the-floor-is-refused.test.js`. What only two running instances can
+     * show is the chain from STORED STATE to REPORTED VERDICT: config holds a version, the API turns it
+     * into a refusal sentence, and both doors say the same thing. That is what this asserts, read before
+     * a sync cycle can repair the pin.
+     */
+    assert.match(await pinStoredVersion('ythril-a', networkId, idB, '1.0.0', INSTANCES.a, tokenA), /^OK/,
       'could not stage a stale peer');
 
-    const marker = `floor-refused-${Date.now()}`;
-    const created = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${spaceId}/memories`, {
-      content: `Written while the peer is below the floor: ${marker}`,
-      type: 'note', tags: [], properties: {},
-    });
-    assert.equal(created.status, 201, JSON.stringify(created.body));
+    // Proven through the API rather than assumed from the file write: without the reload the pin never
+    // reaches the running instance and every assertion below would be about nothing.
+    assert.equal(await storedVersionOfB(), '1.0.0',
+      'the pin did not reach the running instance — config.json was written but never re-read');
 
-    /*
-     * Triggered repeatedly and then checked, rather than waited on. There is no positive signal for
-     * "this will never arrive", so the shape has to be: give it every chance, then assert absence —
-     * and give it more chances than the passing case needs, or the assertion measures our patience.
-     */
-    for (let i = 0; i < 6; i++) {
-      await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
-      await new Promise(r => setTimeout(r, 1_500));
-    }
-    assert.equal(await onB(marker), 0,
-      'the record reached B while A held B below the floor — the outbound half is not enforcing');
+    const net = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    const member = (net.body?.network ?? net.body)?.members?.find(m => m.instanceId === idB);
+    assert.ok(member, 'B is not in the member list');
+    assert.ok(member.belowFloor, 'a member pinned at 1.0.0 is not reported as below the floor');
+    assert.ok(member.belowFloor.includes('1.0.0'),
+      `the refusal does not name what the peer runs: ${JSON.stringify(member.belowFloor)}`);
+    assert.ok(member.belowFloor.includes(floor),
+      `the refusal does not name what is required: ${JSON.stringify(member.belowFloor)}`);
+    assert.equal(member.minPeerVersion, floor,
+      'the member row does not carry this instance\'s floor');
   });
 
-  it('and the refusal names the floor where an operator can read it', async () => {
+  it('THE RECOVERY CASE: one gossip round clears it, with nothing restarted', async () => {
     /*
-     * A cycle that reports a bare failure sends an operator looking at the network. The refusal names
-     * both versions for exactly this moment, so it has to survive into what the API shows.
+     * The failure this proves absent, and it is the one that nearly shipped: check the floor AHEAD of the
+     * gossip that learns a version and a peer refused once can never report that it was upgraded, because
+     * the exchange that would clear it sits behind the refusal.
+     *
+     * B is staged as stale by the previous case and is really running the current build, so this is the
+     * same thing an operator does by upgrading: one exchange, no restart, no button.
      */
-    const r = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
-    const blob = JSON.stringify(r.body ?? {});
-    assert.ok(blob.includes(floor) || /below the minimum/i.test(blob),
-      `nothing an operator can read names the floor, so a refused peer looks like an unreachable one: ${blob.slice(0, 400)}`);
-  });
-
-  it('THE RECOVERY CASE: re-announcing clears the refusal with no restart', async () => {
-    /*
-     * The failure this proves absent: check the floor ahead of the gossip that learns a version, and a
-     * peer refused once can never report that it was upgraded, because the exchange that would clear
-     * it is behind the refusal. B is still running the current build, so one honest announce must undo
-     * the staging above.
-     */
-    const recovered = await waitFor(async () => {
+    const cleared = await waitFor(async () => {
       await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
       const v = await storedVersionOfB();
       return v != null && v !== '1.0.0';
     }, 60_000, 1_500).then(() => true).catch(() => false);
 
-    assert.ok(recovered,
+    assert.ok(cleared,
       'A never re-learned B\'s real version, so a peer refused once stays refused for ever — the floor '
       + 'is being checked ahead of the gossip that feeds it');
 
-    // And data flows again. The stored number changing is not the claim; the refusal being lifted is.
-    const marker = `floor-recovered-${Date.now()}`;
-    await post(INSTANCES.a, tokenA, `/api/brain/spaces/${spaceId}/memories`, {
-      content: `Written after the peer reported a current version: ${marker}`,
+    // And the verdict follows the state, which is the half that proves the refusal was lifted rather
+    // than the stored number merely changing.
+    const net = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    const member = (net.body?.network ?? net.body)?.members?.find(m => m.instanceId === idB);
+    assert.equal(member?.belowFloor ?? null, null,
+      `B reports ${member?.version} and is still refused: ${JSON.stringify(member?.belowFloor)}`);
+  });
+
+  it('and data flows between the pair once nothing is refused', async () => {
+    // The end-to-end half, asserted where it CAN be asserted: on the positive case. A negative — "this
+    // never arrives" — has no positive signal and, with a pin that self-heals, no stable window either.
+    const marker = `floor-flows-${Date.now()}`;
+    const created = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${spaceId}/memories`, {
+      fact: `Written with both instances at or above the floor: ${marker}`,
       type: 'note', tags: [], properties: {},
     });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+
     const arrived = await waitFor(async () => {
       await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
       return (await onB(marker)) > 0;
     }, 60_000, 1_500).then(() => true).catch(() => false);
 
-    assert.ok(arrived, 'the stored version recovered but data never resumed');
+    assert.ok(arrived,
+      'nothing is below the floor and data still did not move — the floor is refusing a pair it admits');
   });
 });

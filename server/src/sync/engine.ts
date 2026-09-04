@@ -607,8 +607,18 @@ async function gossipWithPeer(
                * apart, and conflating them stopped every asymmetric network's data plane.
                */
               if (peerSelf.version && peerSelf.version !== local.version) { local.version = peerSelf.version; changed = true; }
-              local.versionCheckedAt = new Date().toISOString();
-              changed = true;
+              /*
+               * STAMPED ONCE, not every round — and the first draft stamped unconditionally, which is a
+               * defect rather than noise. `changed` drives `saveConfig`, a full atomic rewrite of
+               * config.json that also replaces the in-memory copy; forcing it on every member of every
+               * cycle turned an idle network into a continuous write loop and let a stale snapshot
+               * overwrite a concurrent change. CI found it as four peer-revocation tests timing out.
+               *
+               * Writing it once is also what it MEANS. The question this answers is 'have we ever
+               * completed an exchange with this peer' — a boolean wearing a timestamp — so refreshing
+               * it adds nothing a reader can use and costs a write per member per cycle.
+               */
+              if (!local.versionCheckedAt) { local.versionCheckedAt = new Date().toISOString(); changed = true; }
               if (pinMemberSigningKey(local, peerSelf.signingPublicKey, peerSelf.signingKeyRotation)) changed = true;
               if (changed) {
                 log.info(`Gossip: updated ${member.label} via self-piggyback (${net.id})`);

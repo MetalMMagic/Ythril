@@ -293,6 +293,13 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
                   <span style="font-weight:500; flex:1;">{{ m.label }}</span>
                   <span class="badge badge-gray">{{ m.syncDirection ?? 'both' }}</span>
                   <!-- Sync health at a glance: last successful sync + a failing badge when a run streak is failing. -->
+                  <!-- Without this, a peer refused on version grounds is indistinguishable from a
+                       brand-new one: no failure streak (never dialled) and no timestamp. -->
+                  @if (m.belowFloor) {
+                    <span class="member-failing" [attr.title]="m.belowFloor">
+                      <ph-icon name="warning" [size]="11"/> {{ 'networks.member.belowFloor' | transloco }}
+                    </span>
+                  }
                   @if (m.consecutiveFailures) {
                     <span class="member-failing" [attr.title]="'networks.member.failingTitle' | transloco: { count: m.consecutiveFailures }">
                       <ph-icon name="warning" [size]="11"/> {{ 'networks.member.failing' | transloco: { count: m.consecutiveFailures } }}

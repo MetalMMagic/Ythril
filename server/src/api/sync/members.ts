@@ -12,6 +12,8 @@ import { log } from '../../util/log.js';
 import { reportServerFailure } from '../../util/report-failure.js';
 import { isPeerUrlAllowed } from '../../sync/peer-fetch.js';
 import { getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey, type SigningKeyRotation } from '../../util/signing.js';
+import { SERVER_VERSION } from '../../util/server-version.js';
+import { peerFloorRefusal } from '../../sync/peer-floor.js';
 import type { NetworkMember } from '../../config/types.js';
 
 export const syncMembersRouter = Router();
@@ -120,13 +122,29 @@ syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAut
           if (isPeerUrlAllowed(incoming.url)) nextUrl = incoming.url;
           else log.warn(`Member self-update: rejected unsafe URL from ${incoming.instanceId}: ${incoming.url}`);
         }
+        /*
+         * The announced version is stored here and NOWHERE ELSE, which is why this route is the one
+         * hole in the floor guard: it is how the guard learns what to check. A peer below the floor
+         * may still announce itself — it updates its own label, url and version and nothing else — so
+         * an operator can see what a refused peer runs, and so an UPGRADED peer can tell us it is now
+         * current without needing a route it is currently refused on.
+         *
+         * `?? existing` rather than a bare assignment: an older peer sends no `version` field at all,
+         * and overwriting a known version with `undefined` on every gossip round would make a
+         * previously-reported version disappear.
+         */
         const updated = {
           ...freshNet.members[idx]!,
           label: incoming.label ?? freshNet.members[idx]!.label,
           url: nextUrl,
           children: incoming.children ?? freshNet.members[idx]!.children,
+          version: incoming.version ?? freshNet.members[idx]!.version,
           lastSyncAt: new Date().toISOString(),
         };
+        const belowFloor = peerFloorRefusal(updated.version);
+        if (belowFloor) {
+          log.warn(`Member ${incoming.instanceId} on network ${net.id} is below the peer floor: ${belowFloor}`);
+        }
         // Trust-on-first-use pin; a change to a different key is accepted only
         // with a valid rotation proof carried on the self-record.
         const incomingRotation = (incoming as { signingKeyRotation?: SigningKeyRotation }).signingKeyRotation;
@@ -138,7 +156,17 @@ syncMembersRouter.post('/networks/:networkId/members', syncRateLimit, requireAut
 
     // Piggyback our own identity in the response so the caller can update their record for us
     const selfUrl = process.env['INSTANCE_URL'] ?? '';
-    const selfRecord: Record<string, unknown> = { instanceId: cfg.instanceId, label: cfg.instanceLabel };
+    /*
+     * OUR version goes on the self-record because the exchange is symmetric: the caller announces
+     * itself in the body, we piggyback ourselves in the reply. A floor enforced from one side only is
+     * one instance refusing a peer that has no idea why — and the peer's own operator is the person
+     * who has to act on it.
+     */
+    const selfRecord: Record<string, unknown> = {
+      instanceId: cfg.instanceId,
+      label: cfg.instanceLabel,
+      version: SERVER_VERSION,
+    };
     if (selfUrl) selfRecord['url'] = selfUrl;
     const ownSigningKey = getSigningPublicKey();
     if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;

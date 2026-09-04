@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { syncScheduleRefusal } from '../../sync/schedule.js';
+import { MIN_PEER_VERSION, peerFloorRefusal } from '../../sync/peer-floor.js';
 import { getConfig, saveConfig, getSecrets } from '../../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../../auth/tokens.js';
 import { getSyncHistory } from '../../sync/history.js';
@@ -43,10 +44,19 @@ crudRouter.get('/', globalRateLimit, requireAdmin, (_req, res) => {
   // Strip sensitive fields
   const networks = cfg.networks.map(n => ({
     ...n,
-    members: n.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m),
+    members: n.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
+      ...m,
+      belowFloor: peerFloorRefusal(m.version),
+    })),
     inviteKeyHash: undefined,
   }));
-  res.json({ networks });
+  /*
+   * `minPeerVersion` and `belowFloor` on both network reads AND on `list_peers` — the same two facts
+   * through both doors, which is the first rule in `CLAUDE.md`. `version` already travels because a
+   * member is spread; the verdict does not, and the verdict is the half an operator gets wrong,
+   * because a null version reads as 'unknown, probably fine' and actually means refused.
+   */
+  res.json({ networks, minPeerVersion: MIN_PEER_VERSION });
 });
 
 
@@ -59,8 +69,12 @@ crudRouter.get('/:id', globalRateLimit, requireAdmin, (req, res) => {
 
   const safe = {
     ...net,
-    members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m),
+    members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
+      ...m,
+      belowFloor: peerFloorRefusal(m.version),
+    })),
     inviteKeyHash: undefined,
+    minPeerVersion: MIN_PEER_VERSION,
   };
   res.json(safe);
 });

@@ -450,6 +450,36 @@ Expand a network card and click **Sync History** to see a log of every sync cycl
 
 Each member row in the expanded card also shows its **last successful sync** (or *Never synced*) and, when a peer's recent sync attempts have been failing, a red **Failing (N)** badge counting the consecutive failures since the last success — so you can spot a stuck peer without opening the full history.
 
+**A *Version too old* badge is a different thing from *Failing (N)*, and telling them apart saves an
+afternoon.** *Failing* means the peer was called and did not answer. *Version too old* means it was never
+called: nothing was attempted, so there is no failure to count and no timestamp to show — which is also
+what a brand-new member looks like. See *The version a peer has to be running* below.
+
+### The version a peer has to be running
+
+Every brain on a network has to be recent enough for the others to trust what it sends. From 4.0.0 each
+one tells the others what version it runs, and a brain that is too old is not sent data and is not
+accepted from — its member row shows a red **Version too old** badge, and hovering it gives the two
+numbers: what that peer runs, and what is required.
+
+**A brain that has never said what it runs counts as too old**, and that is deliberate rather than a
+gap. Only versions from 4.0.0 onward report themselves, so "said nothing" and "is older than 4.0.0" are
+the same statement. Read the other way round — unknown, so probably fine — the check would let through
+every brain it exists to stop.
+
+**Nothing needs doing to recover.** Upgrade the old brain and it reports its new version on the next
+sync round; the badge clears and data starts flowing again by itself. There is no button, and no restart
+on your side.
+
+**Why this matters even though it looks like housekeeping.** A record can be marked *never send this to
+an embedding model*. An old brain does not know about that mark, so it drops it, and its copy of the
+record comes back with nothing saying to leave it alone. Nobody is told. Requiring a minimum version is
+how that stops being possible.
+
+**One thing to plan for:** if you run several brains, upgrade them within the same maintenance window
+when the required version rises. A network can be upgraded one brain at a time while the requirement
+stays where it is, but a brain still below it does not sync in the meantime.
+
 ### Voting
 
 When a vote is open (e.g. a member wants to leave), expand the network card and scroll to **Open votes**. Each open vote shows its **Deadline** and a running tally (`N yes · M veto`). Click **✓ Yes** to approve, or **✗ Veto** to block the round — a veto asks you to confirm ("A veto blocks this pending round for the whole network. This cannot be undone.") before it is cast.

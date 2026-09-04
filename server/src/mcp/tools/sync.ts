@@ -1,5 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { getConfig } from '../../config/loader.js';
+import { MIN_PEER_VERSION, peerFloorRefusal } from '../../sync/peer-floor.js';
 
 export const list_peersTool: ToolHandler = {
   name: 'list_peers',
@@ -19,6 +20,13 @@ export const list_peersTool: ToolHandler = {
     + 'number is the signal that a peer is unreachable, and it is the field to check before blaming missing '
     + 'records on anything else), and `skipTlsVerify` (true means certificate checking is off for this peer, '
     + 'which is worth noticing on an audit).\n\n'
+    + 'ALSO PER ROW: `version` (what that peer last reported, `null` if it never has) and `belowFloor` '
+    + '(a sentence when this peer is refused on version grounds, `null` when it is fine). A peer below '
+    + 'the floor does not sync DATA in either direction, so when records are missing and `consecutiveFailures` '
+    + 'is 0 this is the field that says why. The envelope carries `minPeerVersion`, the floor this '
+    + 'instance requires, so a refusal can be read without looking it up. A `null` version is BELOW '
+    + 'the floor rather than exempt from it: a peer that has never reported one predates the release '
+    + 'that started reporting.\n\n'
     + 'An empty list means this instance is in no network, not that syncing failed.',
   admin: true,
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
@@ -38,6 +46,14 @@ export const list_peersTool: ToolHandler = {
         lastSyncAt: m.lastSyncAt ?? null,
         consecutiveFailures: m.consecutiveFailures ?? 0,
         skipTlsVerify: m.skipTlsVerify ?? false,
+        /*
+         * The floor's VERDICT, not only its input. An operator holding a version and a floor still
+         * has to do the comparison, and 'absent means old' is the half they would get wrong — a null
+         * version reads as 'unknown, probably fine' and actually means refused. So the sentence that
+         * would be logged is the sentence reported, from the same function.
+         */
+        version: m.version ?? null,
+        belowFloor: peerFloorRefusal(m.version),
       })),
     );
     return {
@@ -46,7 +62,7 @@ export const list_peersTool: ToolHandler = {
           type: 'text' as const,
           text: peers.length === 0
             ? 'No peers configured.'
-            : JSON.stringify(peers),
+            : JSON.stringify({ minPeerVersion: MIN_PEER_VERSION, peers }),
         },
       ],
     };

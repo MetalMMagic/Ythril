@@ -130,7 +130,16 @@ const FROZEN = {
   // Reclaimed seven of the eleven by formatting and by moving the whole-file transfer budget into
   // `peer-fetch.ts`, where the file that owns each budget's meaning can hold the rule. `A-12` is what
   // pays the rest back: it deletes both enumerations rather than shortening them.
-  'server/src/sync/engine.ts': 979,
+  //
+  // RAISED 979 -> 984 for `N-1`, the peer version floor. Five lines: the import, one call to
+  // `assertPeerAtFloor`, our version on the outbound self-record, and storing the version a peer
+  // piggybacks back. The comparison, the refusal text and the config re-read all live in
+  // `sync/peer-floor.ts` — this file holds only the two lines that say WHERE in the cycle the floor
+  // applies, which is a fact about the cycle and cannot move out of it.
+  //
+  // `A-12` still pays it back and pays back more than this: it deletes both six-family enumerations
+  // rather than shortening them.
+  'server/src/sync/engine.ts': 984,
   // 958 -> 684: the per-type editor body moved into `schema-type-editor.component` so the Brain Overview
   // could open the same editor. Lowered rather than left — a frozen number 274 lines above the real size
   // is 274 lines this file could regrow into without the gate saying a word.
@@ -411,7 +420,18 @@ const FROZEN = {
   // decomposed to well below the line (G-2, 660 -> 571), not a god file. Queueing a split for one field would
   // make the ratchet argue against the very extraction it is here to protect.
   'client/src/app/pages/brain/brain.component.ts': 572,
-  'client/src/app/pages/settings/networks.component.ts': 643,
+  //
+  // RAISED 643 -> 650 for `N-1`: the member row now shows WHY a peer is refused on version grounds.
+  // Seven lines, and they are the difference between a diagnosable state and an invisible one — a
+  // refused peer has no failure streak (nothing was dialled) and no sync timestamp, which is exactly
+  // what a brand-new member looks like, so without this row an operator cannot tell them apart from
+  // this page at all.
+  //
+  // DECOMPOSE: N-2 — the member row is the fourth thing in this template that is really its own
+  // component (the network card, the vote list and the invite panel are the others). A
+  // `network-member-row` component takes this block, the failure badge and the endpoint link out
+  // together, and the page keeps the network-level state it actually owns.
+  'client/src/app/pages/settings/networks.component.ts': 650,
   // FIRST entry for this file: RAISED 650 -> 662 for the re-key branch in `updateEdgeById` — the If-Match
   // check that `writeFilterFor` cannot make on a path with no `findOneAndUpdate`, the call, the deleteFields
   // replay onto the moved document, and the metric.
@@ -524,7 +544,16 @@ const FROZEN = {
   // RAISED 659 -> 660: ONE LINE, `WipeResult.links`. The wipe response gained a key on the server and this
   // is the mirror of it; a mirror that is a field short is the shape that makes a client silently ignore
   // part of a response. There is nowhere else a field of a response type can live.
-  'client/src/app/core/api.types.ts': 660,
+  //
+  // RAISED 660 -> 662 for `N-1`: two fields on `NetworkMember`, `version` and `belowFloor`. This file
+  // is the mirror of the server response shapes, so it grows by exactly what the API grew by — there
+  // is no version of this change that adds a field to a response and not to its type.
+  //
+  // NO DECOMPOSITION for these two lines. The file is one interface per response shape and nothing
+  // else, which is the shape a mirror should have; splitting it by domain would put the halves of a
+  // request/response pair in different files. If it is ever split, the axis is the API section it
+  // mirrors, and that is a move rather than a decomposition.
+  'client/src/app/core/api.types.ts': 662,
 };
 
 describe('no file grows past what we already carry', () => {

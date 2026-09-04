@@ -69,6 +69,44 @@ POST /api/notify/trigger?wait=true&timeoutMs=15000
 
 ## Sync API
 
+### The peer version floor
+
+Every `/api/sync/*` endpoint refuses a caller whose member record carries a version below
+`minPeerVersion`, with **`426 Upgrade Required`** and a body naming both numbers:
+
+```json
+{
+  "error": "Peer runs 3.0.4, below the minimum of 3.1.0 this network requires. Upgrade the peer to 3.1.0 or later.",
+  "minPeerVersion": "3.1.0",
+  "peerVersion": "3.0.4"
+}
+```
+
+**An absent version is below the floor, not exempt from it.** A peer that has never reported one
+predates the release that started reporting, so `null` is the most common way of being too old rather
+than an exception. `peerVersion` is `null` in that case and the message says so in words.
+
+**A version is only ever learned from gossip**, so `POST /api/sync/networks/:networkId/members` is the
+one endpoint the floor does not guard. That is the floor's input rather than a hole in it: refused
+there too, a peer could never report that it had been upgraded. That route lets a below-floor peer
+describe ITSELF — `instanceId`, `label`, `url`, `version` — and already refuses any attempt to write
+another member's record. No brain document moves through it.
+
+**Only a peer token is checked.** An admin or local token carries no `peerInstanceId`, is not another
+instance, and has no version to report — running it through the floor would refuse an operator's own
+tooling for being versionless.
+
+**Both directions.** The floor is also applied outbound: a member below it is skipped for the data
+plane and the cycle records the reason, so it appears in sync history rather than as a silent
+exclusion. Governance is deliberately not gated — a vote round expires on a deadline, and refusing an
+ejection vote about a stale peer because the peer is stale is how a network loses the ability to remove
+it.
+
+**Reading it from either door.** `GET /api/networks` and `GET /api/networks/:id` both carry
+`minPeerVersion` on the envelope, and every member carries `version` plus `belowFloor` — the refusal
+sentence, or `null`. The MCP tool `list_peers` returns the same two fields per row and the same
+`minPeerVersion` on its envelope.
+
 Base path: `/api/sync` — used by the sync engine between peers. All endpoints require auth + sync rate limit.
 
 ### Route Overview

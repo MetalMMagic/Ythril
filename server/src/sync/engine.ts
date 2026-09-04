@@ -72,6 +72,8 @@ import type { FileMetaDoc } from '../config/types.js';
 import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey } from '../util/signing.js';
 import { v4 as uuidv4 } from 'uuid';
 import { armedSchedules } from '../util/armed-schedule.js';
+import { assertPeerAtFloor } from './peer-floor.js';
+import { SERVER_VERSION } from '../util/server-version.js';
 
 // Timeout for every outbound fetch to a peer.
 // Without this, the OS TCP timeout (~75 s on Linux) applies, which means one
@@ -449,6 +451,14 @@ async function runSyncForMember(
     log.warn(`Governance gossip with ${member.label} (${member.instanceId}): ${err}`);
   }
 
+  /*
+   * THE OUTBOUND HALF OF THE PEER FLOOR (`P-33` = B), and it must stay BELOW the gossip above.
+   * Gossip is the only thing that learns a version, so checking first deadlocks: every member on a
+   * fresh network reports nothing, absent is below the floor, and the exchange that would clear it
+   * sits behind the refusal. Governance is deliberately not gated — see `sync/peer-floor.ts`.
+   */
+  assertPeerAtFloor(net.id, member.instanceId, member.version);
+
   // Pre-build reverse spaceMap (local → remote) for O(1) lookup per space
   // instead of the O(n) linear scan inside localToRemote().
   const reverseSpaceMap = new Map(
@@ -546,9 +556,15 @@ async function gossipWithPeer(
     // Determine our own public URL: prefer the INSTANCE_URL env var; fall back to empty
     // string so the peer keeps whatever URL it already has for us.
     const selfUrl = process.env['INSTANCE_URL'] ?? '';
+    /*
+     * `version` is on BOTH self-records — this one and the piggyback in `api/sync/members.ts`. They
+     * are the two directions of one exchange, so a field on only one of them means a peer learns our
+     * version when it calls us and never when we call it: the floor would then depend on who dialled.
+     */
     const selfRecord: Record<string, unknown> = {
       instanceId: cfg.instanceId,
       label: cfg.instanceLabel,
+      version: SERVER_VERSION,
       children: net.members
         .filter(m => m.parentInstanceId === cfg.instanceId)
         .map(m => m.instanceId),
@@ -580,6 +596,10 @@ async function gossipWithPeer(
                 else log.warn(`Gossip: rejected unsafe self-URL from ${member.label} (${member.instanceId}): ${peerSelf.url}`);
               }
               if (peerSelf.label && peerSelf.label !== local.label) { local.label = peerSelf.label; changed = true; }
+              // The floor's input, arriving by the other direction of the exchange. Without this the
+              // version is only ever learned from a peer that dials US, so a leaf that only ever
+              // dials out would stay versionless — and versionless is below the floor.
+              if (peerSelf.version && peerSelf.version !== local.version) { local.version = peerSelf.version; changed = true; }
               if (pinMemberSigningKey(local, peerSelf.signingPublicKey, peerSelf.signingKeyRotation)) changed = true;
               if (changed) {
                 log.info(`Gossip: updated ${member.label} via self-piggyback (${net.id})`);

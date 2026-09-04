@@ -255,7 +255,7 @@ Entities and edges are structural metadata (names, relationships). They use a si
 | Constant | Value | Applied to |
 |----------|-------|------------|
 | `FETCH_TIMEOUT_MS` | 10 s | Tombstone requests, individual per-doc requests (legacy), manifest requests |
-| `PEER_TRANSFER_TIMEOUT_MS` | 10 min | Whole-file bodies: file UPLOADS to a peer |
+| *(whole-file transfer budget)* | 10 min | File UPLOADS to a peer. A source constant with no environment variable — naming it here would invite you to set something that is not settable |
 | `BATCH_FETCH_TIMEOUT_MS` | 60 s | `GET /memories?full=true`, `GET /entities?full=true`, `GET /edges?full=true`, `POST /batch-upsert` |
 
 The separation prevents a single slow 800 KB batch payload from being aborted by the 10 s timeout while also preventing a timed-out offline peer from holding up a sync cycle for more than 10 s per non-batch call.

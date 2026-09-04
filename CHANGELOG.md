@@ -253,6 +253,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The guide pages now say what the code does — about forty corrections across eleven pages** (`Q-4`,
+  the documentation bundle of the guideline audit). No route, parameter or default changed; every
+  correction was checked against the source rather than against another page.
+
+  **The one a peer implementer would have lost data to.** File metadata became the sixth replicated
+  record family, and `docs/sync-protocol.md` documented five: no rows in either endpoint table, absent
+  from both phase blocks, missing from the batch body. A peer built from that page serves no file
+  descriptions, tags or link arrays and drops them on arrival — and because the content hash covers all
+  six collections, its root then disagrees permanently over data that is not different. Links were in the
+  same state, including a missing key on the deletion response, so a link deletion never propagated.
+
+  **Two claims were the exact reverse of the code, and are now written as corrections rather than quietly
+  swapped.** `applied: 0` on a deletion push was documented as proof that the peer already had everything;
+  the receiver counts every element that passes a shape check whether or not it stored anything, and
+  discards the rest silently — so a number short of what you sent means that many were thrown away, and
+  zero means all of them were. The page then told you to prune on it. And `strictLinkage` was documented
+  as OFF by default when an absent setting means ON, which made every example below that note look as
+  though it would work as written.
+
+  **Two capabilities were documented as absent.** The integration guide told an integrator there is no
+  cascade delete and that *"probing for a spelling that works will not find one"* — thirty lines above the
+  section describing it, and it is why the person who asked for the feature tried four spellings before
+  writing the workaround by hand. And `network-types.md` said no mechanism can delete data on another
+  member's instance; the wipe vote is exactly that, and on two of the five network types one member
+  carries it.
+
+  **Two controls an operator can grant were described on no page at all:** **Instance administrator** and
+  **May create new spaces**, both in the token create dialog, which the guide described as asking for
+  three things. The rights matrix has four areas and the guide named three while telling you to *"set all
+  four cells"* — **Data quality** appeared nowhere.
+
+  The rest are screens that had moved on: a permission pill *"colour-coded by privilege"* that is now a
+  bar chart, one pencil where there are two, a cron field in a dialog that has none, a space picker on a
+  toolbar that never had one, eight Brain tabs where there are nine, two About cards where there are four,
+  three media classes where there are four — so turning off the three named left Text running — and five
+  sidebar entries under labels they no longer use, with two missing.
+
+  Where a correction describes a DEFECT rather than a stale sentence, it says so and names the tracker row:
+  the file download does not get the transfer budget it is passed, the batch ingest accepts six families
+  and reports five, and `minScore` is applied after the cut to `topK` rather than before.
+
 - **The rules this codebase states about itself were checked against the code, and thirteen of them were
   false** (`Q-1`, first slice — the audit covers nine surfaces and this is one of them).
 

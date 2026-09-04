@@ -12,7 +12,7 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 1. [Logging in](userguide/01-getting-started.md#logging-in)
 2. [Navigation](userguide/01-getting-started.md#navigation)
 3. [Spaces — what they are](userguide/01-getting-started.md#spaces--what-they-are)
-4. [Brain](userguide/02-brain.md#brain) — tabs: Overview (default landing), [Query](userguide/02-brain.md#query), [Graph](userguide/02-brain.md#graph), [Files](userguide/03-files-and-schemas.md#files), Entities, Edges, Memories, Chrono
+4. [Brain](userguide/02-brain.md#brain) — tabs: Overview (default landing), [Query](userguide/02-brain.md#query), [Graph](userguide/02-brain.md#graph), [Review](userguide/02-brain.md#brain--review-tab), Entities, Edges, Memories, Chrono, [Files](userguide/03-files-and-schemas.md#files)
    - [Memories](userguide/02-brain.md#memories)
    - [Entities](userguide/02-brain.md#entities)
    - [Edges](userguide/02-brain.md#edges)
@@ -35,6 +35,7 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 17. [Settings — Audit Log](userguide/05-storage-data-and-audit.md#settings--audit-log)
 18. [Settings — Webhooks](userguide/05-storage-data-and-audit.md#settings--webhooks)
 19. [Settings — About](userguide/05-storage-data-and-audit.md#settings--about)
-20. [Connecting an AI assistant (MCP)](userguide/06-connecting-an-ai-assistant.md#connecting-an-ai-assistant-mcp)
+20. [Settings — Embedding](userguide/04-settings.md#settings--embedding)
+21. [Connecting an AI assistant (MCP)](userguide/06-connecting-an-ai-assistant.md#connecting-an-ai-assistant-mcp)
 
 ---

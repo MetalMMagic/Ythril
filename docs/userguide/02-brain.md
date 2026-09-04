@@ -6,7 +6,7 @@
 
 ## Brain
 
-The Brain is where all your knowledge lives. It has eight tabs: **Overview**, **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, and **Chrono**.
+The Brain is where all your knowledge lives. It has nine tabs: **Overview**, **Query**, **Graph**, **Review**, **Entities**, **Edges**, **Memories**, **Chrono** and **Files**. This said eight and left out **Review**, which has its own section further down this page.
 
 **Overview** is the **default landing tab** — opening a space lands here first. It is a per-space dashboard assembled from what the Brain already knows: a **Storage** panel (storage used against the space's quota — and when the instance could not read part of that space's file directory the figure is prefixed **≥** with a **partly unreadable** warning beside it, because a number that is silently short reads as a quota nowhere near its limit), an **Indexing** panel (the vector index's state, plus a **Reindex** button — behind a confirmation — when embeddings have gone stale), an **Embedding queue** panel (pending / processing / failed background-embedding job counts, with the file + reason for any failures, and a **Retry all failed** button — behind a confirmation — that re-queues every failed job in the space at once), a **Networks** panel (the networks this space syncs with and its aggregate sync status, or a note when it belongs to none), a **Governance** panel (open votes in this space's networks — subject, deadline, and tally — shown only when there are any), a **Data model** panel (the space’s entity types drawn as a diagram, with each type’s declared properties, how many records it actually holds, and the relationships between types — inferred from the schema AND from the records, so a type that has records but was never declared shows up rather than being silently left out; a record count is a link that opens that type in the Entities tab, and admins get a pencil on each type that opens the schema editor without leaving the page. **Memories, chrono entries and files appear as boxes too** — one per kind, carrying that kind’s total, joined to each entity type they link to with the per-type count on the join. They are drawn dashed and unfilled because they have no schema of their own, and a kind with no links anywhere gets no box rather than an empty one; their counts open the matching tab; **the boxes are drawn at one of three heights and a row of them shares a top and bottom edge**, and **the types that participate in no relationship are laid out along the bottom across the full width of the card** rather than wrapping after four however much room there is — a height per property count meant no horizontal line anywhere in the picture, which is most of what made a diagram of twenty types hard to follow), a **Usage** panel (how often this space was called over the last seven days, how many of those calls were recall, and what share of them actually answered — demand without the answer rate is not usefulness; admins get a **Reset usage** button there, which deletes the recorded history for this space behind a confirmation and is irreversible), and — **for admins only** — a **Token access** panel (which API tokens can reach this space and at what level: admin, read/write, or read-only, with network-peer and all-spaces tokens flagged and any expiry shown).
 
@@ -14,7 +14,7 @@ At the top of the page a row of **space chips** lets you switch space; each chip
 
 At the **far right of the tab strip**, past Files, a **cog** opens the settings for the space you are already
 looking at — the same editor as **Settings → Spaces**, with its Settings, Schema, Duplicates and Danger Zone
-tabs. It is not a ninth tab: it opens a dialog over the page, so nothing you were reading is lost, and closing
+tabs. It is not a tenth tab: it opens a dialog over the page, so nothing you were reading is lost, and closing
 it returns you to the tab you were on. The cog is greyed out until a space is selected.
 
 The admin list at **Settings → Spaces** is unchanged and remains the place to create, reorder and compare
@@ -23,7 +23,7 @@ spaces; the cog is the shortcut for the one you are working in.
 The same state is on both APIs as `needsReindex` on a space's meta, so an agent can check it without watching
 the screen.
 
-If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — the embedding model has changed and this space needs reindexing."* Click **Reindex now** to rebuild it.
+If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — a reindex is recommended."* Click **Reindex** to rebuild it. (Both quotations here were longer than what the screen says.)
 
 > **Reindex and rebuild are different repairs.** *Reindex* re-embeds your content against the current model. It does **not** help when the search index itself is missing or broken — the symptom there is search quietly returning nothing at all, with no error. That one needs **Rebuild search indexes** on the space's **Danger** tab (see below).
 
@@ -262,8 +262,8 @@ Two options sit next to the query box:
 - **topK** — how many results to return (1–100).
 - **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the same thing.
 
-**Nothing is hidden behind a disclosure.** The form is laid out in four groups — **the question**, **ranking**,
-**the graph** and **the answer** — side by side across the width of the page, because a control you cannot see
+**Nothing is hidden behind a disclosure.** The form is laid out in five groups — **the question**, **ranking**,
+**the graph**, **the answer** and **Size and paging** — side by side across the width of the page, because a control you cannot see
 is a capability you do not know you have. Everything the API accepts is on screen, so a search you can
 describe is a search you can run without writing a request by hand:
 
@@ -447,7 +447,7 @@ The Graph view lets you explore how entities relate to each other visually.
 **Getting started:**
 
 1. Open the **Graph** tab in Brain.
-2. Select a space from the tab's toolbar.
+2. Select a space from the **space chips above the tab strip** — not from the tab's own toolbar, which has no space control.
 3. Type an entity name in the search bar and click the result to load its graph.
 
 **Or jump straight there from a table.** The **Entities** and **Edges** tables carry a graph button beside
@@ -469,7 +469,7 @@ entity you want, then open the graph from there.
 | **Search** | Find and load an entity as the root node |
 | **Depth** | How many hops out from the root to show (1–10) |
 | **Direction** | Show outbound edges, inbound edges, or both. It applies to the edges you drew between entities — not to the memories, timeline entries and files that merely MENTION an entity. A mention runs one way, from the record to the entity, so there is no second direction to choose and those are always reached the same way |
-| **Hide labels** | Hide edge labels entirely. By default a label is shown only on the edges of the node you have selected, and on an edge you hover — labelling every edge at once is unreadable on a dense graph, because the labels overlap each other and the nodes |
+| **Labels** | Toggle edge labels. The pill is lit when labels are SHOWN, so switching it off hides them — this row called the control *Hide labels*, which is what it does rather than what it says. By default a label is shown only on the edges of the node you have selected, and on an edge you hover — labelling every edge at once is unreadable on a dense graph, because the labels overlap each other and the nodes |
 | **Fit** | Zoom to fit the whole graph in view |
 | **Reset** | Clear the graph |
 

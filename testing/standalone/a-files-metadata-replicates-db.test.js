@@ -11,7 +11,7 @@
  * LINK and not the array it came from — the graph on a peer showed the connection and the peer's own Files
  * tab showed none. Two answers to one question, differing by which collection you asked.
  *
- * Owner's ruling on `P-30`, 2026-09-04: option A, replicate the metadata like every other record.
+ * Owner's ruling on `P-32`, 2026-09-04: option A, replicate the metadata like every other record.
  *
  * ## Three halves, and the middle one is why this cannot be a `replaceOne`
  *

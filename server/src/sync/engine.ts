@@ -903,7 +903,7 @@ async function pullFromPeer(
   const edgeR = await pullType<EdgeDoc>('edges');
   const chronoR = await pullType<ChronoEntry>('chrono');
   const linkR = await pullType<LinkDoc>('links');
-  // `P-30`: the sixth family. The URL says `filemeta` and the collection is `_files`, because the route
+  // `P-32`: the sixth family. The URL says `filemeta` and the collection is `_files`, because the route
   // serves METADATA while `/api/files` serves bytes — one word apart on purpose.
   const fileMetaR = await pullType<FileMetaDoc & { seq: number }>('filemeta');
 

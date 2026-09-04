@@ -248,7 +248,7 @@ export class BrainApi {
   }
 
   /**
-   * `type` is REQUIRED — owner's ruling `P-29`, 2026-09-04.
+   * `type` is REQUIRED — owner's ruling `P-31`, 2026-09-04.
    *
    * Optional here mirrored a REST create that defaulted it to the empty string while the other three
    * entity doors demanded it. It is what selects the per-type property schema, so a typeless entity is one

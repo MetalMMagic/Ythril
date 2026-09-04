@@ -176,14 +176,14 @@ export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> 
   /*
    * ── Brain documents ────────────────────────────────────────────────────
    *
-   * ALL SIX COLLECTIONS, and `files` joined the list on the owner's `P-30` ruling — each for the same
+   * ALL SIX COLLECTIONS, and `files` joined the list on the owner's `P-32` ruling — each for the same
    * reason, stated once: **a replicated document that is not hashed makes two instances holding different
    * data report themselves IDENTICAL.** `MERKLE_DIVERGENCE` is the only signal that says data really is
    * missing, and a permanent false NEGATIVE is silent for ever.
    *
    * `links` was added when a link became a record. `files` was excluded while a file's metadata did not
    * replicate — the comment here said so, and it was right at the time: the bytes were hashed from the
-   * manifest below and the document was meta about a blob. `P-30` made the metadata replicate, so leaving
+   * manifest below and the document was meta about a blob. `P-32` made the metadata replicate, so leaving
    * it out became exactly the false negative the paragraph above describes.
    *
    * **What is hashed for a file is the AUTHORED half only**, and the two halves fail in opposite

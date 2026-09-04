@@ -80,7 +80,7 @@ describe('the link collection joins every set it belongs to', () => {
   it('it is HASHED, or two instances that differ report themselves identical', () => {
     /*
      * DERIVED, because the walk is. It used to name its five collections and this matched the literal;
-     * `P-30` made a file's metadata replicate, so every brain collection is hashed and the walk reads
+     * `P-32` made a file's metadata replicate, so every brain collection is hashed and the walk reads
      * `BRAIN_COLLECTIONS` instead of listing them.
      *
      * The rule has not moved and the check is stronger for it: a link is in that tuple

@@ -1744,6 +1744,30 @@ export interface FileMetaDoc {
    */
   sha256?: string;
   author: AuthorRef;    // writer: instanceId + instanceLabel
+  /**
+   * The space counter at the last AUTHORED write — the ordering primitive replication runs on.
+   *
+   * ## Why it did not exist before, and what its absence cost
+   *
+   * A file's metadata did not replicate, so it needed no place in the seq order. `P-30` made it replicate,
+   * and every part of the sync mechanism is seq-based: the page cursor, the watermark, and last-writer-wins.
+   *
+   * Its absence was also a live defect independent of sync. Two writers appending to a file's `entityIds`
+   * read, modified and wrote with nothing to order them, so one append could silently drop the other — the
+   * only lost-update race in the brain collections, and the only one whose record type had no seq.
+   *
+   * ## OPTIONAL, and only an AUTHORED write bumps it
+   *
+   * Optional because a boot migration over synced data is forbidden — see `_REFERENCE.md →
+   * migration-strategy`. A record written before 4.0 has none, so it does not page to a peer until it is
+   * next written, and `npm run links:convert` stamps the ones already stored.
+   *
+   * **Derived writes must NOT bump it.** The embedding status, the chunk count, the conversion result and
+   * the face labels are computed from the local blob and are neither hashed nor replicated. Bumping on
+   * those would page a record to every peer each time one instance finished embedding it, carrying nothing
+   * that had changed for them.
+   */
+  seq?: number;
   /** Set when the file was deleted while `softDeleteFileMeta` is enabled: ISO8601
    *  timestamp of the deletion. The record is retained (still listed/searchable, shown
    *  as "deleted" in the UI) until purged. Absent for live files. */

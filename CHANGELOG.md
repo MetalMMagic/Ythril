@@ -4031,6 +4031,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The GitHub Release for a big version is now abridged rather than refused.** Found the expensive way,
+  cutting this one: the tag was pushed, both registries took the image, and the very last step — the one
+  that creates the Release page a person reads — failed outright, because GitHub caps a release body at
+  125 000 characters and these notes are 335 002.
+
+  **Every release before this fitted**, so nothing had ever tested the other end. The script had a check for
+  notes that are too SHORT — a version announced with nothing said about it — and none for too long. A major
+  is where that breaks, because a major carries everything since the last one.
+
+  The Release now shows as much as fits, **cut between entries and never inside one**, and says so at the top
+  as well as the bottom: how many entries of how many, and a link to the full notes in the changelog at that
+  exact tag. Told only at the bottom, a reader who stopped halfway would take a window onto the notes for all
+  of them.
+
 - **A comment that told a future reader to change a documented parameter, on a reason that was wrong.**
   Nothing an operator or integrator can observe has changed — no route, tool, parameter, default or
   stored shape — and the line is here because a source change with no user-facing effect still earns one.

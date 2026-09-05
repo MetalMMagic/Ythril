@@ -32,7 +32,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 
 let tokenReachesSpace;
@@ -116,9 +116,27 @@ describe('the legacy allowlist is not consulted, and no matrix reaches nothing',
 
 describe('no sync route reconstructs the rule for itself', () => {
   it('every call site passes the token, not the legacy array', () => {
-    // 19 copies of one line is what made this hole survive: it was never reviewed as one decision.
-    for (const f of ['server/src/api/sync/docs.ts', 'server/src/api/sync/manifest.ts',
-      'server/src/api/sync/tombstones.ts']) {
+    /*
+     * 19 copies of one line is what made this hole survive: it was never reviewed as one decision.
+     *
+     * ## The list is DERIVED, and it was hard-coded at three (`Q-5`)
+     *
+     * This named `docs.ts`, `manifest.ts` and `tombstones.ts` under a describe reading *"no sync route
+     * reconstructs the rule for itself"*. There are eight files in that directory and `index.ts` is a fourth
+     * caller of `spaceAllowed` — so the claim was about every route and the loop was about three of them,
+     * which is the shape `CLAUDE.md` now has a section for.
+     *
+     * Reading the directory instead means a NINTH router is covered on the day it is added, which is
+     * precisely when a copy of this rule would be written: somebody adding a sync route copies the nearest
+     * one, and the nearest one used to carry the allowlist read.
+     */
+    const dir = 'server/src/api/sync';
+    const files = readdirSync(dir).filter(f => f.endsWith('.ts')).map(f => `${dir}/${f}`);
+    assert.ok(files.length >= 6,
+      `only ${files.length} sync router sources found — re-anchor this gate rather than trusting a sweep `
+      + 'over almost nothing');
+
+    for (const f of files) {
       const src = stripComments(readFileSync(f, 'utf8'));
       assert.doesNotMatch(src, /spaceAllowed\([^)]*authToken\?\.spaces/,
         `${f} still hands spaceAllowed the legacy allowlist`);

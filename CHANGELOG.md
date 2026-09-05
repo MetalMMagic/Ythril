@@ -1898,6 +1898,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two more safety checks were looking at part of what their titles claimed** (`Q-5`), found by turning the
+  rule the previous change added into a search rather than waiting to trip over the next one. Nothing an
+  operator can observe changes; the code both check is correct.
+
+  One says *"every per-type count is reported back"* and looked at four of the six kinds of record a sync
+  carries. The two it skipped **should** be skipped — the count is about a record breaking the rules its
+  type declares, and neither of those two has a type to break rules from. That was right and unwritten, so it
+  read as an oversight rather than as a decision, and nothing would have noticed if it stopped being true.
+
+  The other says *no route reinvents the permission rule for itself* and read three files out of eight in
+  that folder — including none of the three added most recently. It now reads the folder, so the next route
+  somebody adds is covered on the day it appears, which is exactly when a copy of that rule would be written:
+  whoever adds one copies the nearest existing route.
+
 - **A comment told the next developer to remove a search option that must never be removed** (`Q-5`).
   Nothing an operator or an integrator can observe changed — but of everything this audit has turned up,
   this is the one that was pointing at a future defect rather than describing a past one.

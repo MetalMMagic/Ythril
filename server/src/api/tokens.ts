@@ -261,7 +261,11 @@ tokensRouter.get('/', requireAdminOrSpaceAdmin, (req, res) => {
   //
   // Unrestricted admins are unaffected. A `schemaLibrary` token has no space access, so it is inside every scope.
   //
-  // Scope comes from `editorScopeFor`, which reads the RIGHTS MATRIX and falls back to the legacy allowlist.
+  // Scope comes from `editorScopeFor`, which reads the RIGHTS MATRIX and nothing else — it answers `[]` for
+  // a token with no matrix rather than falling back to anything. This line said *"and falls back to the
+  // legacy allowlist"*, which was true until 4.0 removed the fallback and is now the opposite of what the
+  // function does.
+  //
   // Reading `spaces` directly here meant a token minted with a matrix and no allowlist — every token minted
   // since 2.6 — answered `undefined` and was treated as an unrestricted instance administrator.
   const callerSpaces = editorScopeFor(req.authToken);

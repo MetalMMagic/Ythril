@@ -64,8 +64,11 @@ import { effectiveRung } from './mint-cap.js';
  *  - **A floor with any rung above `none`.** A floor applies to every space *including ones created later*,
  *    so it cannot be enumerated. This is the same reasoning that makes the guard below refuse a floor rather
  *    than cap it: however modest the rungs look, the reach is instance-wide.
- *  - **No matrix at all** — an OIDC session, or a record that predates the backfill. The legacy allowlist
- *    answers instead, with absent and empty kept apart deliberately.
+ * **A record with NO MATRIX is not one of them, and this bullet used to say it was.** It read *"an OIDC
+ * session, or a record that predates the backfill — the legacy allowlist answers instead"*, which is the
+ * exact branch the body twenty lines below removed: no matrix now answers `[]`, meaning NO spaces, and
+ * `[]` and `undefined` mean opposite things here. Neither of the two shapes it named produces one anyway —
+ * an OIDC session derives a matrix per request, and a pre-backfill record gets one on every boot.
  *
  * Otherwise the scope is the spaces with something in them: any area above `none`. A row of four `none`s is
  * not scope, it is a row somebody emptied, and counting it would let a token administer a space it holds

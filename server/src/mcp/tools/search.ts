@@ -34,10 +34,17 @@ import {
 /**
  * Space scope for find_similar — mirrors recall's omit-space idiom (F1 consistency).
  *
- * - `space` given (and not the deprecated `crossSpace`): locate the source in that proxy-resolved space
- *   and search only there (searchIds `undefined` → findSimilar searches just the base space).
- * - `space` omitted, or legacy `crossSpace: true`: locate the source across ALL accessible spaces (first
- *   base that holds the entry wins) and search across all of them.
+ * - `space` given, without `crossSpace`: locate the source in that proxy-resolved space and search only
+ *   there (searchIds `undefined` → findSimilar searches just the base space).
+ * - `space` omitted, or `crossSpace: true`: locate the source across ALL accessible spaces (first base that
+ *   holds the entry wins) and search across all of them.
+ *
+ * **`crossSpace` is NOT deprecated, and this docblock called it that in both bullets** — the word was
+ * removed from the tool's own schema description on purpose, and left standing here. It looked like a pure
+ * duplicate of omitting `space`, and removing it from the tool turned the MCP/REST parity gate's
+ * `find-similar ↔ find_similar` case red: **the REST route takes the space in its PATH**, so *"omit the
+ * space"* is not expressible there and `crossSpace: true` is REST's only route to the same capability.
+ * Dropping it on one door alone is exactly the parameter-level divergence that gate exists to catch.
  *
  * Pure (proxy resolver injected) so the scope logic is unit-testable without a database.
  */

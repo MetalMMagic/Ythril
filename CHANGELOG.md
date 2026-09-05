@@ -1898,6 +1898,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A comment told the next developer to remove a search option that must never be removed** (`Q-5`).
+  Nothing an operator or an integrator can observe changed — but of everything this audit has turned up,
+  this is the one that was pointing at a future defect rather than describing a past one.
+
+  `find_similar` takes an option that widens the search to every space you can reach. On the agent API it
+  looks redundant, because leaving the space out does the same thing. On the web API it is not: **that route
+  takes the space in its address**, so *"leave it out"* cannot be said at all, and the option is the only way
+  to ask for the same thing. Removing it would leave the two APIs able to do different things, which the
+  check that compares them exists to prevent.
+
+  That was worked out once, and the option's own description was corrected to say it is not going away — so
+  that nobody plans around a removal that will never happen. **Two comments in the code that implements it
+  kept the old wording**, and one of them said the removal was still coming. A stale sentence misinforms; a
+  stale instruction gets followed.
+
+  A new check now holds it: any option whose description claims permanence may not be called deprecated by
+  the code implementing it. Written as a rule rather than about this one option, so the next option kept for
+  the same reason is covered without anybody remembering to add it.
+
 - **A troubleshooting answer explained itself with a mechanism that has since gained a second case** (`Q-5`).
   The integration guide answers *"my filtered search returned fewer results than I asked for"* — and the
   answer it gives is right, but the reason it gives is now only half true.

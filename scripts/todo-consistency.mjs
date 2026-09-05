@@ -104,15 +104,6 @@ const MANUAL_VERIFY = new Map([
   // express — and it shipped, so the exemption went with it. The rule below is what made that happen rather
   // than leaving a stale row behind, which is exactly how `_PARKED-DECISIONS.md` accumulated resolved history
   // for weeks.
-  ['Q-1', {
-    by: '2026-12-20',
-    why: 'Owner-directed 2026-09-01: a full guideline audit, every stated rule verified against the code that '
-      + 'is supposed to obey it. There is no `grep -c` for it and that is the POINT — what a grep can check is '
-      + 'whether a name exists, which `docs-name-real-identifiers` now asks of CLAUDE.md too. What this item '
-      + 'exists for is the other kind: a claim that is FALSE rather than absent, like a fixed defect still '
-      + 'described as current. Dated inside the bound because it gates the release tag, so it is done or the '
-      + 'tag is not cut.',
-  }],
   ['F-19', {
     by: '2026-12-20',
     why: 'Owner-directed 2026-09-02: EXPLORE whether Ythril wants deterministic reasoning over the graph — '

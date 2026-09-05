@@ -60,16 +60,47 @@ describe('sync reports a schema mismatch and refuses nonsense', () => {
     }
   });
 
-  it('every per-type stat carries the count back', () => {
+  it('every per-type stat that CAN carry a violation count does', () => {
     /*
      * Named per stat rather than counted. A first version asserted "at least five mentions of
      * schemaViolations" and SURVIVED its own mutant — deleting the single-record route's report left four,
      * which still cleared the bar. A total says nothing about which one went missing.
+     *
+     * ## And the list was hard-coded at four when there are six (`Q-5`)
+     *
+     * This read `['memStats', 'entStats', 'edgeStats', 'chronoStats']` under the title *"every per-type
+     * stat"*. `linkStats` and `fileMetaStats` exist and were in neither, so the title was a claim about the
+     * whole set made by a loop over two thirds of it — the shape `CLAUDE.md` now has a section for.
+     *
+     * **Both omissions are correct, and that is exactly why they have to be stated.** A schema violation is
+     * measured against a type schema, and neither of those two records has a type to look one up by: a link
+     * is a pair of ids and a label, and a FILE has no `type` at all, which is the same fact that gives a
+     * file two suppression tiers rather than three. Absent from a hand-written list that reads as an
+     * oversight; declared as an exemption it reads as the decision it is — and the day either gains a type,
+     * this goes red instead of staying silent.
      */
-    for (const stat of ['memStats', 'entStats', 'edgeStats', 'chronoStats']) {
+    const NO_TYPE_SCHEMA = new Set([
+      // A link is a pair of ids and a label. There is no type to validate against.
+      'linkStats',
+      // A file has no `type` field, so there is no per-type schema for it to violate.
+      'fileMetaStats',
+    ]);
+
+    const found = [...docs.matchAll(/const ([a-zA-Z]+Stats) = \{/g)].map(m => m[1]);
+    assert.ok(found.length >= 6,
+      `only ${found.length} per-type stat objects found in the ingest router (${found.join(', ') || 'none'}) — `
+      + 're-anchor this gate rather than trusting the sweep below');
+
+    for (const stat of found) {
       const at = docs.indexOf(`const ${stat} = {`);
-      assert.notEqual(at, -1, `${stat} is gone — re-point this gate`);
       const decl = docs.slice(at, docs.indexOf('\n', at));
+      if (NO_TYPE_SCHEMA.has(stat)) {
+        assert.doesNotMatch(decl, /schemaViolations/,
+          `${stat} now carries a violation count, but its record type has no type schema to violate. Either `
+          + 'that changed — in which case remove it from NO_TYPE_SCHEMA — or the field is a counter that can '
+          + 'only ever read zero.');
+        continue;
+      }
       assert.match(
         decl, /schemaViolations/,
         `${stat} does not carry a violation count, so what it skipped never reaches the caller`,

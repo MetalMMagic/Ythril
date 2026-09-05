@@ -41,10 +41,30 @@ describe('the changelog holds one major, and the archives are frozen', () => {
   const archives = readdirSync(ARCHIVE_DIR).filter(f => /^CHANGELOG-\d+\.x\.md$/.test(f));
 
   it('finds releases to check at all (the check itself works)', () => {
-    // A regex that stopped matching would make every assertion below pass by examining nothing — the shape
-    // this repo has shipped more than once.
-    assert.ok(majorsIn(current).length >= 2, `expected several releases in ${CURRENT}`);
+    /*
+     * A regex that stopped matching would make every assertion below pass by examining nothing — the shape
+     * this repo has shipped more than once.
+     *
+     * ## The floor on the CURRENT file is one, and it was two
+     *
+     * Two was chosen when the current file always held several releases, and it made this guard fail at the
+     * exact moment the gate beside it exists for: **the first release of a new major**, when the current
+     * file legitimately holds one section and everything else has just been archived — which is the state
+     * the failure message below it instructs you to create.
+     *
+     * Found cutting 4.0.0: the archive split was done as instructed, the two real assertions went green, and
+     * this one went red. A check that cannot be satisfied at the only moment it matters is not a stricter
+     * check, it is a broken one.
+     *
+     * **One match proves what this is for.** The guard asks whether `majorsIn` still recognises a release
+     * heading; a single heading answers that. The stronger floor lives on the ARCHIVES, which hold many and
+     * are frozen, so nothing here weakens with the current file's size.
+     */
+    assert.ok(majorsIn(current).length >= 1, `expected at least one release in ${CURRENT}`);
     assert.ok(archives.length >= 2, `expected archived majors in ${ARCHIVE_DIR}/`);
+    const archived = archives.flatMap(f => majorsIn(readFileSync(`${ARCHIVE_DIR}/${f}`, 'utf8')));
+    assert.ok(archived.length >= 10,
+      `expected many archived releases, found ${archived.length} — the heading regex has stopped matching`);
   });
 
   it('the current file carries exactly one major, and it is the one package.json is on', () => {

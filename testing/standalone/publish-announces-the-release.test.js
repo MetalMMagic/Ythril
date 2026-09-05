@@ -30,22 +30,41 @@ import { changelogSection, sectionContentLines, releaseBody } from '../../script
 const wf = readFileSync('.github/workflows/publish.yml', 'utf8');
 const changelog = readFileSync('CHANGELOG.md', 'utf8');
 
+/**
+ * The release this gate exercises the extraction against, READ OUT OF THE FILE.
+ *
+ * It named `3.1.0` — the release being cut when the gate was written, which lived in `CHANGELOG.md` and was
+ * going to stay there. It did not: `CHANGELOG.md` holds ONE major series, so cutting 4.0.0 archived every
+ * 3.x section and three of this file's cases went red against a version that had simply moved.
+ *
+ * A gate anchored to a specific version is only as durable as that version's residence. The newest release
+ * is the honest anchor: there is always exactly one, it is always in this file, and it is the one whose
+ * notes the next publish will actually ship.
+ */
+const NEWEST = /^## \[(\d+\.\d+\.\d+)\] /m.exec(changelog)?.[1];
+const PREVIOUS = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\] /gm)][1]?.[1] ?? null;
+
 describe('the section extraction is one implementation, and it is bounded structurally', () => {
   it('finds a real release and stops at the next heading', () => {
-    const s = changelogSection(changelog, '3.1.0');
-    assert.ok(s, 'no 3.1.0 section — this gate is measuring nothing');
-    assert.match(s, /^## \[3\.1\.0\]/, 'starts at its own heading');
+    assert.ok(NEWEST, 'no dated release in CHANGELOG.md — this gate is measuring nothing');
+    const s = changelogSection(changelog, NEWEST);
+    assert.ok(s, `no ${NEWEST} section — this gate is measuring nothing`);
+    assert.ok(s.startsWith(`## [${NEWEST}]`), 'starts at its own heading');
     assert.equal((s.match(/^## \[/gm) ?? []).length, 1,
       'the section swallowed a later release — it must stop at the next `## [` heading');
-    assert.doesNotMatch(s, /^## \[3\.0\.1\]/m, 'and specifically not reach the previous release');
+    // Only meaningful once there IS a previous release in this file. At the FIRST release of a new major
+    // there is not, and asserting against one would fail on exactly the state the archive split creates.
+    if (PREVIOUS) {
+      assert.ok(!s.includes(`## [${PREVIOUS}]`), 'and specifically not reach the previous release');
+    }
   });
 
   it('the body drops the heading and keeps everything else', () => {
-    const s = changelogSection(changelog, '3.1.0');
+    const s = changelogSection(changelog, NEWEST);
     const body = releaseBody(s);
-    assert.doesNotMatch(body, /^## \[3\.1\.0\]/, 'the heading is the Release title, not part of its notes');
+    assert.ok(!body.startsWith(`## [${NEWEST}]`), 'the heading is the Release title, not part of its notes');
     assert.ok(body.length > 1000,
-      `the 3.1.0 notes came out ${body.length} chars. A truncating extraction ships notes that read as `
+      `the ${NEWEST} notes came out ${body.length} chars. A truncating extraction ships notes that read as `
       + 'complete, which is the failure a character-bounded slice would produce and nobody would proof-read.');
   });
 
@@ -53,7 +72,7 @@ describe('the section extraction is one implementation, and it is bounded struct
     // The failure that matters: a tag pushed without closing `[Unreleased]`. Returning the NEXT section
     // would publish another release's notes under this version's name.
     assert.equal(changelogSection(changelog, '99.99.99'), null);
-    assert.equal(changelogSection('## [Unreleased]\n\n### Fixed\n\n- a thing\n', '3.1.0'), null,
+    assert.equal(changelogSection('## [Unreleased]\n\n### Fixed\n\n- a thing\n', NEWEST), null,
       'an undated [Unreleased] is not a release section');
   });
 
@@ -61,7 +80,7 @@ describe('the section extraction is one implementation, and it is bounded struct
     const empty = '## [9.9.9] — 2026-01-01\n\n### Fixed\n\n### Changed\n';
     assert.equal(sectionContentLines(empty).length, 0,
       'a section holding only headings claims something changed and names none of it');
-    assert.ok(sectionContentLines(changelogSection(changelog, '3.1.0')).length >= 3);
+    assert.ok(sectionContentLines(changelogSection(changelog, NEWEST)).length >= 3);
   });
 });
 

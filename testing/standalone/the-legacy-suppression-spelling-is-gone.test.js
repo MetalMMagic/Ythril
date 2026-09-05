@@ -65,7 +65,7 @@ describe('the legacy spelling is gone from the server', () => {
     assert.deepEqual(offenders, [],
       `${offenders.join(', ')} still names \`${LEGACY}\`. Both halves go together: the input alias and the `
       + 'stored key, including its declaration on the record types, its row in the merkle projection, its '
-      + 'reindex projections and its five ingest schemas.');
+      + 'reindex projections and its six ingest schemas.');
   });
 });
 

@@ -3,16 +3,23 @@
  *
  * ## Why this lands before the code moves
  *
- * `reindex` is the last row of `REST_ONLY_CAPABILITIES`. It is the one capability that could not be given a tool by
- * wrapping something, because there is nothing to wrap: the re-embedding work is written INLINE in the route handler
- * as five near-identical batch loops — memories, entities, edges, chrono, files — each with its own projection, its
- * own `*EmbedText` builder and its own per-record error tolerance. Their own workaround measures the gap: they
+ * **This paragraph is kept in the past tense on purpose, because the extraction it describes HAS SINCE HAPPENED**
+ * and the file still earns its place as the net that made it safe. It read *"`reindex` is the last row of
+ * `REST_ONLY_CAPABILITIES`"* — the list is now EMPTY, the re-embedding loop lives in `brain/reindex.ts`, and
+ * `reindexTool` calls it. A docblock describing a future that arrived is the same defect as a stale sentence in a
+ * schema description: nobody reports a capability they were told did not exist.
+ *
+ * `reindex` WAS the last row. It was the one capability that could not be given a tool by wrapping something,
+ * because there was nothing to wrap: the re-embedding work was written INLINE in the route handler as five
+ * near-identical batch loops — memories, entities, edges, chrono, files — each with its own projection, its own
+ * `*EmbedText` builder and its own per-record error tolerance. Their own workaround measured the gap: they
  * reindexed 14 spaces plus 5 personal ones by curl in a shell loop, because the agent that planned their embedder
  * migration could not run it.
  *
- * So the loop has to come out, and that is a refactor of code with weak coverage. This is the net under it, landing
- * against the unmoved route for the reason the two earlier pairs had: a characterization test written in the same
- * commit as the change it guards cannot show which behaviour it was describing.
+ * So the loop had to come out, and that was a refactor of code with weak coverage. This is the net under it,
+ * landed against the unmoved route for the reason the two earlier pairs had: a characterization test written in
+ * the same commit as the change it guards cannot show which behaviour it was describing. **It goes on running
+ * against the extracted code**, which is the whole point of writing it first.
  *
  * ## What is pinned at RUNTIME, and the one thing that cannot be
  *

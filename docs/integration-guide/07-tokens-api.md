@@ -229,8 +229,20 @@ those three fields, and a check holds that derivation to never granting more tha
 would tell you that you are wrong without telling you what to do, on the endpoint most integrations meet
 first.
 
-**Existing tokens are untouched.** The old fields are still stored on tokens that carry them and are
-still honoured. This is about what the create endpoint accepts.
+**Existing tokens keep working, and the reason is not the one this paragraph used to give.** It said the
+old fields *"are still honoured"*. They are not read at all. `spaces`, `admin` and `readOnly` left the token
+record in 3.1, and 4.0 removed the last place anything fell back to them: **a token that reaches this
+instance with no rights matrix now reaches nothing.** There is no legacy path left to be honoured.
+
+What keeps a pre-matrix token working is that it never arrives without a matrix. One is derived from those
+three fields **in memory, on every start**, and every other way a token comes into being carries one
+already — a personal access token gets one when it is created, and an OIDC session carries one per request
+from its claim mapping. The fields may still sit in `config.json`; nothing enforces from them.
+
+**Why the fallback went rather than staying as a safety net.** It read an ABSENT allowlist as *unrestricted*,
+so a token carrying neither a matrix nor an allowlist would have been handed every space on the instance.
+Nothing could reach that branch — which is the worse of the two ways to be unreachable, because nothing
+exercises it and anything that ever did would be given everything.
 
 **One behaviour changed with them, and it was a defect rather than a policy.** A space-restricted
 administrator minting a token was refused unless the body carried a `spaces` array — so a matrix-only
@@ -238,10 +250,13 @@ request, which is what this product's own interface sends, was read as unrestric
 message about being unrestricted. The mint route now decides *outside your scope* with the same function
 the edit routes use.
 
-> **`readOnly` is no longer STORED on a token — 3.1. Nothing you send or read changes.** Sending it still
-> does exactly what it always did: the token is created with `read` in every area of every space it reaches.
-> The token responses still carry it. What changed is where the answer comes from — the rights matrix rather
-> than a separate boolean on the record.
+> **`readOnly` is no longer STORED on a token — 3.1 — and 4.0 stopped accepting it as INPUT.** Two changes,
+> a release apart, and only the second one is visible to you: **sending `readOnly` to `POST /api/tokens` is
+> now a `400`**, as the table above says. Write `rights.floor` with read rungs instead. This note said
+> *"nothing you send or read changes"*, which was true of the 3.1 half alone.
+>
+> **What you READ is unchanged.** The token responses still carry `readOnly`. What changed there is where
+> the answer comes from — the rights matrix rather than a separate boolean on the record.
 >
 > Nothing had decided on that boolean since 3.0, because every write check reads the matrix. Keeping it
 > stored alongside meant two spellings of one fact, with the older one free to drift.
@@ -251,13 +266,14 @@ the edit routes use.
 > the stored boolean could not express and answered `false` for. Tokens created before 3.1 keep their scope:
 > the load-time migration still reads the stored flag to derive their matrix.
 >
-> `spaces` is unchanged for now and follows separately.
+> `spaces` said *"unchanged for now, and follows separately"* here. It followed: 4.0 refuses it on this
+> route with the other two.
 
 <!-- markdownlint-disable-next-line MD028 -->
 
-> **`admin` is no longer STORED either — 3.1, and again nothing you send or read changes.** Sending it still
-> does what it always did: the token gets `instanceAdmin`, `createSpaces`, and the admin rung in every space
-> it reaches. Responses still carry it, derived from `rights.instanceAdmin`.
+> **`admin` is no longer STORED either — 3.1 — and 4.0 stopped accepting it as input, exactly as `readOnly`
+> did.** Sending it to `POST /api/tokens` is a `400`; write `rights.instanceAdmin: true` instead. Responses
+> still carry `admin`, derived from `rights.instanceAdmin`, so what you READ is unchanged.
 >
 > **If you branch on it, read `rights.instanceAdmin`.** And note what it is *not*: holding the `admin` rung
 > in every space is a different thing. That grants those spaces, and says nothing about spaces created

@@ -655,7 +655,11 @@ export function peerMemberNetworks(peerInstanceId: string) {
  * (`isNonPeerSyncWrite` admits only peers and instance admins), so this was a read gap, and it is the exact
  * defect class this repo produces most: one rule, two implementations, and the weaker one silently reachable.
  *
- * ## Why the legacy fallback stays for now
+ * ## Why the legacy fallback is GONE
+ *
+ * The heading here read *"why the legacy fallback stays for now"* while everything under it explained that
+ * it does not — the sentence that was true when the branch existed, left standing over the paragraph that
+ * removed it. A reader skimming headings got the opposite of the behaviour.
  *
  * **NO MATRIX MEANS NO REACH.** Owner, 2026-09-05: *"no matrix = refuse - no fallback no backwards
  * compatibility anymore"*.

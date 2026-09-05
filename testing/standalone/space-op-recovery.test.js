@@ -26,7 +26,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, delWithBody } from '../sync/helpers.js';
+import { INSTANCES, post, get, delWithBody, waitFor } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CANDIDATE_CONFIGS = [
@@ -60,16 +60,46 @@ function writeConfig(cfg) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
 }
 
-/** Persist a pending-op marker into config.json and reload so the server picks it up. */
+/**
+ * Persist a pending-op marker into config.json and reload until the server has actually CONSUMED it.
+ *
+ * ## Why this waits on the marker rather than on a clock
+ *
+ * This slept 600ms for the bind-mount to propagate and then reloaded once, on the reasoning in the comment
+ * it replaced: *"otherwise the container may read the pre-write file"*. That hazard is real and 600ms is a
+ * guess about somebody else's filesystem — it held here and failed in CI, where the delete test reported
+ * `deleted space should be gone, got 200`.
+ *
+ * **The cause is named rather than assumed.** `POST /api/admin/reload-config` awaits `applyConfigFromDisk()`,
+ * which awaits `reconcilePendingSpaceOp()`, before it answers — so a `200` from the reload means the
+ * reconcile has already finished. It cannot be a reconcile still in flight. What is left is the hazard the
+ * old comment named: the server read a config with no marker in it, so there was nothing to reconcile, and
+ * "it ran and did nothing" is indistinguishable from "it never ran" at the assertion that failed.
+ *
+ * So the wait is on the OBSERVABLE thing instead: the server clears `pendingSpaceOp` only once the op has
+ * committed, which makes an absent marker the server's own statement that it finished. Reloading again
+ * while it is still there costs nothing — reconcile is idempotent by design, which is the whole point of a
+ * write-ahead marker — and it turns a propagation delay into a slower pass rather than a red build.
+ *
+ * **A timeout here names which half went wrong**, which the fixed sleep could not: the marker still present
+ * means no reload ever saw it.
+ */
 async function injectMarkerAndReload(mutate) {
   const cfg = readConfig();
   mutate(cfg);
   writeConfig(cfg);
-  // Let the Docker Desktop bind-mount propagate before triggering the reload,
-  // otherwise the container may read the pre-write file (see reload-config.test.js).
-  await new Promise(r => setTimeout(r, 600));
-  const reload = await post(INSTANCES.a, token, '/api/admin/reload-config', {});
-  assert.equal(reload.status, 200, `reload-config failed: ${JSON.stringify(reload.body)}`);
+
+  await waitFor(
+    async () => {
+      const reload = await post(INSTANCES.a, token, '/api/admin/reload-config', {});
+      assert.equal(reload.status, 200, `reload-config failed: ${JSON.stringify(reload.body)}`);
+      return readConfig().pendingSpaceOp === undefined;
+    },
+    20_000,
+    600,
+    () => 'the pending-op marker is still in config.json after repeated reloads, so no reload ever saw it — '
+      + 'the write has not reached the container, rather than the reconcile having failed',
+  );
 }
 
 describe('Space op crash recovery (A5)', () => {
@@ -151,7 +181,9 @@ describe('Space op crash recovery (A5)', () => {
     assert.ok(oldR.status === 403 || oldR.status === 404, `old id should be gone, got ${oldR.status}`);
 
     const cfg = readConfig();
-    assert.equal(cfg.pendingSpaceOp, undefined, 'marker should be cleared after reconcile');
+    // The marker is what `injectMarkerAndReload` now WAITS on, so re-asserting it here would be a check
+    // that cannot fail — the shape this repo has had to delete before. What is still worth asserting is
+    // everything below: that clearing the marker meant the physical work was actually done.
     assert.ok(cfg.spaces.some(s => s.id === newId), 'config should list the space under the new id');
     assert.ok(!cfg.spaces.some(s => s.id === oldId), 'config should no longer list the old id');
   });
@@ -176,7 +208,9 @@ describe('Space op crash recovery (A5)', () => {
     assert.ok(listedR.status === 403 || listedR.status === 404, `deleted space should be gone, got ${listedR.status}`);
 
     const cfg = readConfig();
-    assert.equal(cfg.pendingSpaceOp, undefined, 'marker should be cleared after reconcile');
+    // The marker is what `injectMarkerAndReload` now WAITS on, so re-asserting it here would be a check
+    // that cannot fail — the shape this repo has had to delete before. What is still worth asserting is
+    // everything below: that clearing the marker meant the physical work was actually done.
     assert.ok(!cfg.spaces.some(s => s.id === spaceId), 'config should no longer list the deleted space');
   });
 });

@@ -49,6 +49,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { incomingSchemas } from '../_shared/incoming-sync-schemas.mjs';
 
 const { IncomingMemoryDoc } = await import('../../server/dist/api/sync/_shared.js');
 
@@ -103,18 +104,32 @@ describe('a memory with no vector survives the push door', () => {
     assert.equal(r.data.embeddingModel, undefined, 'the sending model name was stored beside no vector');
   });
 
-  it('NO incoming schema declares a vector — all four alike', async () => {
+  it('NO incoming schema declares a vector — every one of them alike', async () => {
     /*
      * Widened from three to four by the ruling. It was three because memories were the exception, and the
      * exception was the bug: a vector that crosses the wire is derived data computed by somebody else's model,
      * and a mixed-model network cannot rank it against its own.
      *
      * Both fields, because they are set and unset together and either one alone is a lie about the other.
+     *
+     * ## And then widened from four to ALL of them, which is not the same kind of change (`Q-5`)
+     *
+     * This case was titled "NO incoming schema" and looped over a hard-coded four. Six exist. The title was
+     * the claim a reader took away and the loop was two thirds of it — so `IncomingFileMetaDoc` could have
+     * gained a vector field with this gate green, and file metadata is the one collection whose ingest
+     * MERGES rather than replaces, which is exactly where a foreign vector would be hardest to notice.
+     *
+     * The list is now read out of the module. Not corrected to six — DERIVED — because a corrected list is
+     * the same defect with a later expiry date, and `CLAUDE.md` says so in as many words about this very
+     * family of schemas: "Never count them here — the file is the list."
+     *
+     * The link schema is included here and not excluded as it is in the suppression gate: having nothing to
+     * embed is a reason to carry no FLAG, and it is an even better reason to carry no VECTOR.
      */
     const shared = await import('../../server/dist/api/sync/_shared.js');
-    for (const name of ['IncomingMemoryDoc', 'IncomingEntityDoc', 'IncomingEdgeDoc', 'IncomingChronoDoc']) {
-      const shape = shared[name]?.shape ?? {};
-      assert.ok(Object.keys(shape).length > 5, `${name} not found — re-anchor this gate`);
+    for (const [name, schema] of incomingSchemas(shared)) {
+      const shape = schema.shape ?? {};
+      assert.ok(Object.keys(shape).length > 3, `${name} not found — re-anchor this gate`);
       for (const field of ['embedding', 'embeddingModel']) {
         assert.equal(
           Object.prototype.hasOwnProperty.call(shape, field), false,

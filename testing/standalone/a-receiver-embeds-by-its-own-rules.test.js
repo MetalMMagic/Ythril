@@ -47,6 +47,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf } from './_structural-window.mjs';
+import { embeddableIncomingSchemas } from '../_shared/incoming-sync-schemas.mjs';
 
 const DOCS = 'server/src/api/sync/docs.ts';
 const QUEUE = 'server/src/brain/embed-queue.js';
@@ -158,7 +159,7 @@ describe('and the receiver decides whether to embed it', () => {
 });
 
 describe('the record tier of suppression reaches the receiver', () => {
-  it('all four ingest schemas declare the flag — and only the current spelling', async () => {
+  it('every ingest schema that can embed declares the flag — and only the current spelling', async () => {
     /*
      * A field missing from an `Incoming*` schema is STRIPPED on push, so a record whose author marked it
      * "never embed" arrives unmarked and the receiver embeds it — a record deliberately kept out of
@@ -169,10 +170,22 @@ describe('the record tier of suppression reaches the receiver', () => {
      * so no sender can be using the old name. The ABSENCE is asserted as well, because a stray
      * re-declaration would accept a field nothing reads — a push answered 200 for a mark that is then
      * never applied.
+     *
+     * ## This said "all four" and looped over four of six (`Q-5`)
+     *
+     * `CLAUDE.md` records the same failure being paid for once already: a gate's hand-written list of four
+     * missed `LinkDoc`, "so every assertion ran over the old four and reported clean about a document
+     * nobody had checked". This was the identical bug in a different file, and its title made the wider
+     * claim while the loop did not.
+     *
+     * The one it skipped that MATTERS is `IncomingFileMetaDoc`. A file has no `type`, so it has two
+     * suppression tiers rather than three — its own record flag or the space setting, nothing in between —
+     * which makes the record flag the only per-file switch there is. It declares the flag today, so
+     * widening this changed nothing; what changed is that losing it would now be caught.
      */
     const shared = await import('../../server/dist/api/sync/_shared.js');
-    for (const name of ['IncomingMemoryDoc', 'IncomingEntityDoc', 'IncomingEdgeDoc', 'IncomingChronoDoc']) {
-      const shape = shared[name]?.shape ?? {};
+    for (const [name, schema] of embeddableIncomingSchemas(shared)) {
+      const shape = schema.shape ?? {};
       assert.ok(Object.keys(shape).length > 5, `${name} not found — re-anchor this gate`);
       assert.ok(Object.prototype.hasOwnProperty.call(shape, 'suppressEmbeddings'),
         `${name} does not declare 'suppressEmbeddings', so it is stripped on push and the receiver embeds `
@@ -180,6 +193,25 @@ describe('the record tier of suppression reaches the receiver', () => {
       assert.ok(!Object.prototype.hasOwnProperty.call(shape, 'excludeFromVectorSearch'),
         `${name} still declares the pre-3.1.0 spelling, removed in 4.0 — it would be accepted and never read`);
     }
+  });
+
+  it('and the schema that is EXEMPT is exempt for a reason, not by omission', async () => {
+    /*
+     * The exclusion is the half a hand-written list cannot express. `IncomingLinkDoc` legitimately has no
+     * suppression flag — a link is a pair of ids and a label, so there is nothing to embed, and
+     * `ingestBrainDoc` is told so out loud: links pass `null` as the record type, which means "this kind
+     * has nothing to embed". A missing embed job on an arriving link is correct rather than a bug.
+     *
+     * Asserted rather than assumed, because the day a link gains embeddable text the exemption becomes the
+     * defect above, and nothing else would say so.
+     */
+    const shared = await import('../../server/dist/api/sync/_shared.js');
+    const shape = shared.IncomingLinkDoc?.shape ?? {};
+    assert.ok(Object.keys(shape).length > 3, 'IncomingLinkDoc not found — re-anchor this gate');
+    assert.ok(!Object.prototype.hasOwnProperty.call(shape, 'suppressEmbeddings'),
+      'IncomingLinkDoc declares a suppression flag. Either a link now carries text worth embedding — in '
+      + 'which case it belongs in the loop above and `ingestBrainDoc` must stop passing `null` for it — or '
+      + 'the field is a switch for something that never happens.');
   });
 
   it('and the flag is optional, because absent means included', async () => {

@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { matchIndexReference } from './todo-index-match.mjs';
 import {
-  openItems, orderedHomeRows, itemIdIn, isNamedIn, workingOrderRow,
+  openItems, orderedHomeRows, itemIdIn, itemIdsIn, isNamedIn, workingOrderRow,
   statedStructureCount, checklistBoxCount,
 } from './todo-open-items.mjs';
 import { verifyLineOf, parseVerifyLine, evaluateClause } from './verify-line.mjs';
@@ -509,6 +509,21 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
    * The check that catches it without needing network: **it must not name a PR that is already merged into main.**
    * A plan is about work ahead; a merged PR number in it is a plan describing the past. Context references belong
    * in `_REFERENCE.md`, which is exempt from this for that reason.
+   *
+   * ## That is ONE spelling of "describes the past", and it was the rarer one (`Q-5`)
+   *
+   * The version of the plan replaced on 2026-09-05 named no pull-request number at all. It described
+   * `W-14..W-22`, which had shipped about twenty pull requests earlier — and this rule printed its green tick
+   * every run in between. **A plan is written in tracker ids, not in PR numbers**, so the ids were the thing to
+   * read and the numbers were the thing that happened to be checked. A gate matching an adjacent spelling is
+   * green for exactly as long as nobody uses the other one.
+   *
+   * So the second half asks the question the first half was standing in for: **does this plan name any work
+   * the queue still holds?** Not *"are any of its ids closed"* — a plan legitimately cites finished work as
+   * evidence, and `itemIdsIn` over-matches anything shaped like an id, so a rule about closed ids would be
+   * wrong twice over. One OPEN id is the floor, and `owner-directed` is the escape for work that arrived by
+   * message and has not been filed yet — the same escape the working-order plan row already has, for the same
+   * reason.
    */
   const PLAN = '_NEXT-PR-PLAN.md';
   if (files.includes(PLAN)) {
@@ -538,9 +553,26 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
       fail(`${PLAN} names PR(s) already merged into main: ${merged.map(n => `#${n}`).join(', ')}. A plan is about `
         + 'work ahead — a merged number in it means the file describes the past. Rewrite it to the current state, '
         + 'or move the context to `_REFERENCE.md`.');
+    }
+
+    // The half the PR-number check was standing in for. `orderedHomeRows` is what the queue still holds, so an
+    // id of the plan's that appears there is work ahead; anything else the plan names is context.
+    const ordered = readFileSync(join(TODO, ORDERED), 'utf8');
+    const openIds = new Set(orderedHomeRows(ordered).map(r => r.id));
+    const named = itemIdsIn(src);
+    const stillOpen = named.filter(id => openIds.has(id));
+    if (!stillOpen.length && !/owner-directed/i.test(src)) {
+      fail(`${PLAN} names no item that ${ORDERED} still holds — ${named.length ? `it names ${named.slice(0, 8).join(', ')}` : 'it names no item id at all'}. `
+        + 'A plan is about work ahead, and a plan naming only finished ids is the shape this rule exists for: '
+        + `\`W-14..W-22\` sat here for about twenty pull requests after shipping, with no PR number to catch it. `
+        + 'Name the open row this serves, or say `owner-directed` if it came by message and is not filed yet.');
+    }
+
+    if (merged.length || (!stillOpen.length && !/owner-directed/i.test(src))) {
       console.log(`${RED}  ✗${R} ${PLAN} describes work that has already shipped`);
     } else {
-      console.log(`${GREEN}  ✓${R} ${PLAN} describes work that is still ahead`);
+      console.log(`${GREEN}  ✓${R} ${PLAN} describes work that is still ahead`
+        + `${stillOpen.length ? `  ${DIM}(${stillOpen.join(', ')})${R}` : ''}`);
     }
   }
 }

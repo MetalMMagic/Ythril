@@ -108,6 +108,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   siblings are still lifted onto `vision.*` / `stt.*` and deleted, because a file the product owns can be
   fixed rather than refused. An operator's manifest is not their config.json.
 
+### Internal
+
+- **A comment that told a future reader to change a documented parameter, on a reason that was wrong.**
+  Nothing an operator or integrator can observe has changed — no route, tool, parameter, default or
+  stored shape — and the line is here because a source change with no user-facing effect still earns one.
+
+  `direction` narrows stored edges and never links. Two places in the source explained that by saying a
+  link is an array holding one orientation, and that the link-records migration would give links two ends
+  and force the question to be decided again — *"a scan gaining a direction parameter is the migration
+  arriving, not a regression"*.
+
+  Both halves were wrong. Links are already records on a converted space, and the array shape expresses
+  both readings anyway — the traversal implements both, either way round. So the storage was never what
+  made `direction` meaningless. What does is the reason the guide and both tool schemas already gave: the
+  two ends of a link are different KINDS of thing, so its direction is implied by where you started.
+
+  The stale half was an instruction rather than a description, which is why it is worth an entry: it
+  pre-authorised a change to a documented parameter and told the reader to distrust the check that would
+  have stopped it.
 ### Fixed
 
 - **An administrator restricted to certain spaces could not create a token at all** — through this

@@ -3,40 +3,40 @@
  *
  * ## The behaviour, and why it is right
  *
- * A link is an `entityIds` ARRAY today: the field a memory, chrono entry or file carries, holding ONE
- * orientation — the record names the entity. So there is nothing for a direction to select between. Neither
- * link scan even ACCEPTS a direction — `linkedRecordsAtFrontier` and `entitiesLinkedFromRecords` take an
- * inclusion and edge labels — so the standalone `traverse` tool and recall's expansion agree, and always have.
+ * **A link's direction is fixed by the KINDS at its ends, not by how it is stored.** A memory names
+ * entities; an entity names nothing. So from any starting point there is only one way a link can run and
+ * there is nothing for a direction to select between. Neither link scan even ACCEPTS one —
+ * `linkedRecordsAtFrontier` and `entitiesLinkedFromRecords` take an inclusion and edge labels — so the
+ * standalone `traverse` tool and recall's expansion agree, and always have.
  *
- * Honouring direction on links today would be worse: `inbound` would then hide a memory's own links, which is
- * not what anyone asks for by narrowing.
+ * Honouring direction on links would be worse than useless: `inbound` would then hide a memory's own
+ * links, which is not what anyone asks for by narrowing.
  *
- * ## M-2 IS EXPECTED TO BREAK THIS GATE, and that is the design
+ * ## THIS FILE USED TO SAY M-2 WOULD BREAK IT. That was wrong, corrected 2026-09-05
  *
- * The link-records migration turns each link into a record with a `from` and a `to`. A link then HAS two ends
- * and `direction` genuinely selects between them — from an entity, an inbound link record reaches the memory
- * that named it and an outbound one reaches nothing. The rule below is therefore true of the ARRAY
- * representation, not of links in principle.
+ * The claim was that a link *"is an `entityIds` ARRAY today … carrying ONE orientation"* and that the
+ * link-records migration would give it two ends, so a scan gaining a `direction` parameter would be
+ * "M-2 arriving, not a regression — and the signal to rewrite these sentences rather than make the gate
+ * agree."
  *
- * So the two halves are asserted separately on purpose. The first fires when a surface drops the statement,
- * which is drift. The second fires when a link scan gains a `direction` parameter — which is M-2 arriving, and
- * is the signal to REWRITE these six sentences rather than to make the gate agree with the code.
+ * **That instruction would have changed a documented parameter on a false basis**, which is worse than a
+ * stale sentence: it pre-authorised the change and told the next reader not to trust the gate.
  *
- * ## So the defect was never the behaviour
+ *  - Links are ALREADY records on a converted space — `usesLinkRecords` decides per space, and
+ *    `links-conversion.ts` sets it. M-2's machinery shipped; this gate stayed green throughout.
+ *  - **The ARRAY expresses both readings too, and `link-frontier.ts` implements both.** `linksToAny`
+ *    finds records whose array names an id (inbound); reading a record's own `cls.field` gives what it
+ *    names (outbound). The record shape has the same pair in `linksPointingAt` / `linksStartingFrom`. So
+ *    the representation was never what made `direction` meaningless, and the migration decides nothing
+ *    here.
  *
- * A-6, found by review 2026-08-30: **nothing said it.** A caller sending
- * `{depth: 1, direction: 'inbound', includeMemories: true}` gets the entities their matched memory NAMES —
- * an outbound step from the record — and neither door's description nor the guide mentioned that
- * `direction` governs stored edges alone. An undocumented rule that surprises is the same defect as a wrong
- * one, because the caller designs around what they were told.
+ * The rule was right; the REASON was a mechanism, and a mechanism has to be revisited every time it gains
+ * a case. `docs/integration-guide/04a-recall-api.md` already gave the durable version — the ends are of
+ * different kinds — and the source did not. That is the `CLAUDE.md` lesson about schema descriptions,
+ * arriving in a test docblock instead: write the guarantee, not the mechanism.
  *
- * ## Why a gate rather than four edits
- *
- * `CLAUDE.md`: a capability lives in five places and each is somebody's authoritative source. This statement
- * has to hold on the MCP schema a caller reads while constructing arguments, on the two guide pages, and in
- * the operator's own words — and the failure mode is one of them being corrected while the others are not.
- *
- * Run: node --test testing/standalone/direction-narrows-stored-edges-only.test.js
+ * So a link scan gaining a `direction` parameter is a REGRESSION again, and this gate should be believed
+ * rather than argued with. Making it meaningful is a product decision, unrelated to how links are stored.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

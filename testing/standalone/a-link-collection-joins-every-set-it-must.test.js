@@ -105,8 +105,10 @@ describe('the link collection joins every set it belongs to', () => {
     // no payload key counts a push that never happens.
     assert.match(code('server/src/sync/history.ts'), new RegExp(`\\b${LINKS}\\s*:\\s*number`),
       'SyncCounts needs a links count');
-    assert.match(code('server/src/sync/engine.ts'), new RegExp(`['"]${LINKS}['"]`),
-      'the engine must push the links collection');
+    // The engine's two enumerations became one table in `sync/replicated-families.ts` (`A-12`), so the
+    // family list is where a missing collection now hides — and it is the only place, which is the point.
+    assert.match(code('server/src/sync/replicated-families.ts'), new RegExp(`['"]${LINKS}['"]`),
+      'the replicated-family list must carry the links collection, or neither direction moves it');
   });
 
   it('the ingest schema DECLARES the document, or a pushed link is silently truncated', () => {

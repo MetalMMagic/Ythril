@@ -167,14 +167,23 @@ describe('every transfer under a shared watermark is passed to the rule', () => 
      * are now `alsoCheck` — bounding the advance without raising it, which is what they always did and
      * what an exclusion list said less clearly.
      */
+    /*
+     * READ FROM THE FAMILY LIST, not from two object literals. `A-12` replaced the inline
+     * `const pulled = { … }` / `const pushed = { … }` with a loop over `REPLICATED_FAMILIES`, so each
+     * direction's transfer set is now the list BY CONSTRUCTION — which is strictly stronger than two
+     * literals that happened to agree, and is why this reads the list instead.
+     *
+     * The pair of literals is what this used to check, and it is exactly the shape it existed to
+     * prevent: two hand-written lists of one thing.
+     */
     const expected = BRAIN_COLLECTIONS.map(c => (c === 'files' ? 'filemeta' : c));
     assert.ok(expected.length >= 5, `only ${expected.length} expected transfers — BRAIN_COLLECTIONS did not load`);
-    const sets = [...src.matchAll(/const (?:pulled|pushed) = \{([^}]*)\}/g)].map(m => m[1]);
-    assert.equal(sets.length, 2, `expected a transfer set per direction, found ${sets.length}`);
-    for (const list of sets) {
-      const keys = list.split(',').map(x => x.split(':')[0].trim()).filter(Boolean);
+    const families = readFileSync('server/src/sync/replicated-families.ts', 'utf8');
+    const table = families.slice(families.indexOf('REPLICATED_FAMILIES'), families.indexOf('] as const'));
+    const keys = [...table.matchAll(/payloadKey: '([a-z]+)'/g)].map(m => m[1]);
+    {
       assert.deepEqual([...keys].sort(), [...expected].sort(),
-        `a cycle's transfer set is not every replicated collection: ${list.trim()}`);
+        `the replicated-family list is not every replicated collection: ${keys.join(', ')}`);
     }
     assert.equal([...src.matchAll(/alsoCheck: \{ tombstones \}/g)].length, 2,
       'tombstones must bound BOTH directions — an omitted transfer places no ceiling, which makes it the '

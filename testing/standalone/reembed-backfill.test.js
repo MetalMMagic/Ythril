@@ -180,8 +180,11 @@ describe('suppression is expressible as a query, which is what makes the sweep t
     const { query } = suppressionExclusion(undefined, 'memory');
     assert.deepEqual(query['suppressEmbeddings'], { $ne: true },
       '$exists:false would also exclude a record that carries the flag as FALSE — an explicit opt-in');
-    assert.deepEqual(query['excludeFromVectorSearch'], { $ne: true },
-      'and the pre-3.1.0 spelling, or the sweep re-embeds every record suppressed before the rename');
+    // The pre-3.1.0 spelling was asserted here too and went with `D-6` in 4.0. Its ABSENCE is asserted
+    // instead: a leftover clause would filter on a key nothing writes, which silently narrows a sweep
+    // that is supposed to reach everything.
+    assert.equal(query['excludeFromVectorSearch'], undefined,
+      'the retired spelling is still in the exclusion, narrowing the sweep on a key nothing writes');
   });
 
   it('excludes suppressed TYPE NAMES, on the right field per kind', async () => {
@@ -225,7 +228,10 @@ describe('suppression is expressible as a query, which is what makes the sweep t
     const { suppressionExclusion } = await import('../../server/dist/brain/reembed.js');
     const meta = { typeSchemas: { memory: { task: { suppressEmbeddings: true } } } };
     const { query } = suppressionExclusion(meta, 'file');
-    assert.deepEqual(Object.keys(query).sort(), ['excludeFromVectorSearch', 'suppressEmbeddings'],
+    // One key since `D-6` retired the pre-3.1.0 spelling. A WHOLE-object comparison rather than a
+    // presence check, deliberately: the property is that a file's exclusion has the record tier and
+    // NOTHING else, and only comparing the full key list catches a type clause appearing.
+    assert.deepEqual(Object.keys(query).sort(), ['suppressEmbeddings'],
       'indexing typeSchemas with "file" would miss every time and silently exclude nothing');
   });
 

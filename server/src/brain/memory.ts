@@ -31,7 +31,6 @@ import { SimilarMatch, checkDuplicates } from './recall.js';
 import type { DupeCheckOpts } from './write-options.js';
 import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
-import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { NEVER_RETURNED_PROJECTION, withoutVector } from './read-projection.js';
 import { wipeSpaceCollection } from './bulk-wipe.js';
 
@@ -368,7 +367,6 @@ export async function updateMemory(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'memory', existing: existing as unknown as Record<string, unknown> }); // F10
-  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // findOneAndUpdate, not updateOne, so the PRE-image comes back in the same round trip.

@@ -27,7 +27,6 @@ import { embeddingSuppressedFor } from './suppress-embeddings.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
-import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { wipeSpaceCollection } from './bulk-wipe.js';
 
 // Re-exported so existing importers (and the C5 tests) keep reaching it here; it lives in its own leaf
@@ -324,11 +323,12 @@ export async function updateChrono(
       recurrence: updates.recurrence !== undefined ? updates.recurrence : existing.recurrence,
       endsAt: updates.endsAt !== undefined ? updates.endsAt : existing.endsAt,
       confidence: updates.confidence !== undefined ? updates.confidence : existing.confidence,
-      // The STORED value of either spelling, not the resolved tier: `false` is a real stored value here and
-      // `recordSuppression` deliberately reports it as "not stated", which would turn a delete into a no-op.
+      // The STORED value, not the resolved tier: `false` is a real stored value here and
+      // `recordSuppression` deliberately reports it as "not stated", which would turn a delete into a
+      // no-op. One spelling since `D-6`.
       suppressEmbeddings: updates.suppressEmbeddings !== undefined
         ? updates.suppressEmbeddings
-        : (existing.suppressEmbeddings ?? existing.excludeFromVectorSearch),
+        : existing.suppressEmbeddings,
     };
     applyDeleteFields(merged, deleteFieldsPaths);
 
@@ -370,7 +370,6 @@ export async function updateChrono(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'chrono', existing: existing as unknown as Record<string, unknown> }); // F10
-  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

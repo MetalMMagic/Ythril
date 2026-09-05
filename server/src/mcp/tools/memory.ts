@@ -22,7 +22,7 @@ import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { resolveMetaRefs } from '../../spaces/schema-validation.js';
 import { type UpdateValidation } from '../../brain/write-validation.js';
-import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
+import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 
@@ -67,7 +67,6 @@ export const rememberTool: ToolHandler = {
             checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing memories that CONTRADICT this one — a near-neighbour that sets the same single-valued property to a different value (e.g. status="active" vs status="retired"). Different question from checkDuplicates: "is this redundant?" vs "does this conflict with what we already believe?". Deterministic only (no model call, no added latency). The memory is still stored regardless — if you are correcting an outdated fact, that is expected; consider updating or superseding the record named in the warning.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
-            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'fact'],
@@ -257,7 +256,6 @@ export const update_memoryTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
-            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the memory (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,

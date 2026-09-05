@@ -1,6 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { shapeError } from '../../brain/write-shape.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { deleteEdge, getEdgeById, traverseGraph, updateEdgeById, upsertEdge, EdgeSchemaViolation } from '../../brain/edges.js';
 // The shared write gate, imported rather than reimplemented — see the note in memory.ts.
@@ -62,7 +62,6 @@ export const upsert_edgeTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
-            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'from', 'to', 'label'],
@@ -243,7 +242,6 @@ export const update_edgeTool: ToolHandler = {
             fromKind: edgeEndpointKindSchema('from'),
             toKind: edgeEndpointKindSchema('to'),
             suppressEmbeddings: SUPPRESS_EMBEDDINGS_SCHEMA,
-            excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA,
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the edge (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,

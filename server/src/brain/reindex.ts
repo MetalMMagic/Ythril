@@ -162,7 +162,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: MemoryDoc[] = await col<MemoryDoc>(`${mid}_memories`)
-                  .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1, type: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
+                  .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1, type: 1, suppressEmbeddings: 1,} })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as MemoryDoc[];
@@ -189,7 +189,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: EntityDoc[] = await col<EntityDoc>(`${mid}_entities`)
-                  .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
+                  .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1,} })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as EntityDoc[];
@@ -216,7 +216,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
-                  .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
+                  .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1, suppressEmbeddings: 1,} })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as EdgeDoc[];
@@ -246,7 +246,7 @@ export function startReindex(plan: ReindexPlan): void {
               while (true) {
                 const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
                 const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-                  .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
+                  .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1, suppressEmbeddings: 1,} })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as ChronoEntry[];
@@ -276,7 +276,7 @@ export function startReindex(plan: ReindexPlan): void {
                   ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
                   : { parentFileId: { $exists: false } };
                 const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-                  .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1, suppressEmbeddings: 1, excludeFromVectorSearch: 1 } })
+                  .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1, suppressEmbeddings: 1,} })
                   .sort({ _id: 1 })
                   .limit(BATCH)
                   .toArray() as FileMetaDoc[];

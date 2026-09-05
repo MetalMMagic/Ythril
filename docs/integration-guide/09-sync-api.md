@@ -336,8 +336,9 @@ last type that carried theirs; now none do.
 against the receiving instance's own model, at the moment it is written. Nothing has to ask for this and there
 is no flag for it.
 
-**Send the suppression mark, and it will be honoured.** `suppressEmbeddings` — and its pre-3.1 spelling
-`excludeFromVectorSearch` — now replicate, on all four types. Suppression resolves `record > schema > space`:
+**Send the suppression mark, and it will be honoured.** `suppressEmbeddings` replicates, on all four
+types. Its pre-3.1 spelling `excludeFromVectorSearch` replicated too until 4.0 removed it; an ingest
+schema no longer declares it, so it is stripped on push like any other unknown field. Suppression resolves `record > schema > space`:
 the schema and space tiers are the receiver's own configuration, and the record tier is the mark on the
 document. Strip it and the ruling inverts on that record: an entry its author kept out of meaning-ranked
 search would enter one on every peer. Absent means "not stated" and falls through to the tiers below, so

@@ -402,7 +402,8 @@ these three levels before treating it as a fault.
 > **Reindex** control on the Overview tab, or re-save an individual record.
 >
 > The per-record setting is API-only today — there is no checkbox for it in the UI. It was called
-> `excludeFromVectorSearch` before version 3.1.0.
+> `excludeFromVectorSearch` before version 3.1.0, and 4.0 removed that old name: a script still
+> sending it is now refused rather than quietly accepted, so nothing is left half-working.
 
 **In a network, each instance searches with its own model, and from 3.7 that is explicit.** A record that
 arrives from another instance is prepared for search **here**, using this instance's own model — the sending

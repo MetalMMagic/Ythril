@@ -43,7 +43,7 @@
 import { col, asFilter } from '../db/mongo.js';
 import { log } from '../util/log.js';
 import { TYPE_FIELD } from './ttl.js';
-import { recordNotSuppressedFilter, RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD } from './suppress-embeddings.js';
+import { recordNotSuppressedFilter, RECORD_SUPPRESS_FIELD } from './suppress-embeddings.js';
 import type { KnowledgeType, SpaceMeta } from '../config/types.js';
 
 /** The collection suffix for each record kind, in the one place that has to agree with the schema keys. */
@@ -74,10 +74,9 @@ export function suppressedWithVectorFilter(meta: SpaceMeta, kind: KnowledgeType)
   }
 
   const or: Record<string, unknown>[] = [
-    // Record tier. Both spellings, because the legacy one is still written for mixed-version networks and is
-    // the only one a pre-3.1.0 suppression carries — reading one name would miss half the population.
+    // Record tier. One spelling since `D-6`: the pre-3.1.0 name is gone, and the peer floor excludes the
+    // builds that could still have written it.
     { [RECORD_SUPPRESS_FIELD]: true },
-    { [LEGACY_RECORD_SUPPRESS_FIELD]: true },
     // Schema tier, where a type states `true` outright.
     { [field]: { $in: statedTrue }, ...recordNotSuppressedFilter() },
   ];

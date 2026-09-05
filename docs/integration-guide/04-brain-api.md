@@ -135,7 +135,7 @@ anyway. `{"fact": "...", "totallyMadeUpField": "xyzzy"}` returns `201` with:
   {
     "field": "totallyMadeUpField",
     "value": "xyzzy",
-    "reason": "unknown field — ignored. This route accepts: checkContradictions, checkDuplicates, description, dupeThreshold, entityIds, excludeFromVectorSearch, fact, id, properties, suppressEmbeddings, tags, ttlDays, type, waitForEmbedding"
+    "reason": "unknown field — ignored. This route accepts: checkContradictions, checkDuplicates, description, dupeThreshold, entityIds, fact, id, properties, suppressEmbeddings, tags, ttlDays, type, waitForEmbedding"
   }
 ]
 ```

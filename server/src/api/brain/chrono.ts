@@ -28,7 +28,7 @@ import { SchemaViolationError, type UpdateValidation } from '../../brain/write-v
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import {
-  parseRecordSuppression, RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD,
+  parseRecordSuppression, RECORD_SUPPRESS_FIELD,
 } from '../../brain/suppress-embeddings.js';
 import { withoutListDiagnostics } from '../../brain/read-projection.js';
 import { listDiagnosticsAsked } from './_shared.js';
@@ -300,7 +300,7 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const PATCHABLE_FIELDS = [
     'title', 'type', 'startsAt', 'endsAt', 'status', 'confidence', 'tags', 'entityIds', 'memoryIds',
     'description', 'properties', 'recurrence', 'ttlDays', 'deleteFields',
-    RECORD_SUPPRESS_FIELD, LEGACY_RECORD_SUPPRESS_FIELD,
+    RECORD_SUPPRESS_FIELD,
   ];
   const body = req.body != null && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
   if (!PATCHABLE_FIELDS.some(f => f in body)) {

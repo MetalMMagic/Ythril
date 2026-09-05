@@ -58,6 +58,39 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
  * after publish), while the CHANGELOG heading and the git tag come from elsewhere. A disagreement means the
  * artefact and its notes describe different releases, and the pull that proves the release is fine passes anyway.
  */
+/**
+ * A stored shape that only a 4.x peer understands may not ship under a 3.x version.
+ *
+ * `D-6` removed the legacy `excludeFromVectorSearch` spelling of the per-record never-embed mark. A peer
+ * below 3.1.0 does not know the current spelling, strips it on ingest, and replicates its unsuppressed
+ * copy onward — so content an author marked never-embed reaches an embedding model and returns to ranked
+ * search, silently, on every instance.
+ *
+ * The peer floor is this instance's own MAJOR, so a 4.x build refuses every 3.x peer and the hazard
+ * cannot occur. A 3.x build's floor is 3.0.0, which admits exactly the peer that strips it.
+ *
+ * ## Why this lives at the TAG and not in the test suite
+ *
+ * It was an always-on gate first, and that was wrong: it made the development tree — 3.4.0 with the key
+ * removed — permanently red, for a hazard that needs a RELEASE to reach anybody. Owner, 2026-09-05:
+ * *"no it does not need a second bound. there will not be a release before 4.0 so it doesnt matter"*.
+ *
+ * He is right, and the check belongs where the assumption is actually tested: the moment a tag is cut. A
+ * gate that fires during development for a risk that only exists at release teaches people to weaken it.
+ */
+function checkStoredShapeMatchesMajor(version) {
+  if (!version) return;
+  const suppression = read('server/src/brain/suppress-embeddings.ts');
+  const legacyGone = !suppression.includes('excludeFromVectorSearch');
+  const major = Number.parseInt(String(version).split('.')[0], 10);
+  if (legacyGone && Number.isFinite(major) && major < 4) {
+    fail('stored shape',
+      `the legacy suppression key is removed but this release is ${version}. The peer floor is the running `
+      + `major, so a ${major}.x build admits a pre-3.1.0 peer — which does not know the current spelling, `
+      + 'strips the never-embed mark on ingest, and replicates the unsuppressed copy back. Release this as '
+      + '4.0.0 or later, or restore the key.');
+  }
+}
 function checkVersion() {
   const manifests = ['package.json', 'server/package.json', 'client/package.json'];
   const versions = new Map();
@@ -236,6 +269,7 @@ console.log(`  version: ${version ?? '(inconsistent)'}   mode: ${mode}\n`);
 
 console.log(`${YELLOW}CHANGELOG carries the release${R}`);
 checkChangelog(version);
+checkStoredShapeMatchesMajor(version);
 if (!failures.some(f => f.gate === 'changelog')) {
   // Say what was CHECKED, which is not the same in both modes. This line used to claim "[Unreleased] is
   // empty" unconditionally — five lines after printing "mid-cycle — [Unreleased] may hold entries", and

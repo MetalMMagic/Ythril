@@ -12,6 +12,22 @@
 
 Open **Settings → Spaces** to manage all spaces on this instance. A summary above the list shows the total number of spaces, the storage in use across all of them, and how many are still building (or have failed to build) their search index. If a space's index is still preparing, its row is flagged so you know recall may be incomplete for it.
 
+### Finding a space, and ordering the list
+
+**A search box sits above the table** (*Search spaces…*) and filters the list as you type. On an instance with more than a screenful of spaces it is the fastest way to the one you want.
+
+Beside it are **seven sort buttons**, and the last two are the reason to know they exist — they answer questions the table cannot otherwise be read for:
+
+| Button | Orders by |
+|---|---|
+| **⠿** | Your own custom order — drag rows to arrange them |
+| **A→Z** / **Z→A** | Name |
+| **↓ GiB** / **↑ GiB** | Storage used, most or least first |
+| **↓ calls** | Busiest first — most calls in the last 7 days |
+| **↑ answered** | **Worst answer rate first** — the spaces being asked questions they cannot answer |
+
+That last one is a diagnosis rather than a sort: a space near the top is one people are querying and not getting answers from, which usually means it is missing content rather than misconfigured.
+
 ### Creating a space
 
 Click **Create New Space**. Fill in:
@@ -22,6 +38,7 @@ Click **Create New Space**. Fill in:
 - **Purpose** — optional description of what this space is for. Visible to AI assistants.
 - **Proxy for** — optionally mark this as a proxy space standing in for one or more other spaces (tick individual spaces or "all").
 - **Validation mode** — the schema-validation posture for the new space: `off`, `warn`, or `strict`.
+- **Strict linkage** — a tickbox, on by default. While it is on, the space refuses to delete a record that another record still points at, and refuses a link to something that is not there. Untick it to allow both. This is the seventh field and the note below is about it as much as about validation.
 
 > **New spaces start strict.** A freshly created space now defaults to **`strict` validation** *and*
 > **strict linkage** — it enforces its schema and referential integrity from day one. You can relax
@@ -518,7 +535,9 @@ Click **Leave network** at the bottom of the network card. Your local data in th
 
 ## Settings — Media Processing
 
-**Settings → Media Processing** (the page is titled **Models & Media**; admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
+**Settings → Media Processing** (admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
+
+The page has **no heading of its own** — the left-hand navigation and the tab strip already tell you where you are, so there is nothing to look for at the top. This guide used to say the page was titled *Models & Media*, which was wrong twice over: there is no title, and the name it gave was not the one in the navigation.
 
 By default, Ythril ships with a bundled vision service (Ollama running `moondream`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
 

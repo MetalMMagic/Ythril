@@ -2646,6 +2646,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statement — or if a link scan gains a `direction` parameter, which is the only thing that could make it
   untrue.
 
+### Removed
+
+- **`excludeFromVectorSearch` is gone** (breaking). It was the name of the *never send this record to an
+  embedding model* switch until 3.1.0, when it was renamed to `suppressEmbeddings` because the old name
+  read as *removed from search* — which it never was. The switch itself is unchanged; only the old name
+  has been retired.
+
+  **Both halves went at once, and that was the point.** It survived as a name you could still SEND, and
+  as a field written into every record beside the current one. Removing one and keeping the other is
+  worse than keeping both: drop the stored field and a caller is told their write succeeded for something
+  nothing reads; drop the name and records already carrying the field keep working while nobody can set
+  it.
+
+  **Nothing needs migrating.** Every write since 3.1.0 has set the current name, so a record that carries
+  only the old one predates 3.1.0 — and the peer version floor already keeps such an instance off the
+  network.
+
+  **What changes for you:** a request or a tool call sending `excludeFromVectorSearch` is now refused
+  instead of accepted. Send `suppressEmbeddings`. Both doors behaved identically before and behave
+  identically now.
+
+  **Why it could not go sooner.** A brain older than 3.1.0 does not know the current name, so it drops it
+  when it stores a record — and its copy comes back with nothing saying *leave this one alone*. Content
+  someone marked never-embed would reach a model and return to search results, silently, everywhere. The
+  peer version floor added in this release is what makes that impossible, and the release checks refuse a
+  tag below 4.0 while this field is absent.
 ### Internal
 
 - **The client's spec project type-checks, and nothing had been checking it.** `vitest` transpiles without

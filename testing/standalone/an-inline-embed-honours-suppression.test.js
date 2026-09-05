@@ -89,8 +89,10 @@ describe('the three-tier resolution has exactly one implementation', () => {
      * completely reasonable in review: three lines of `??` in a creator.
      *
      * Asserted on the RESOLVER's call sites rather than by pattern-matching a fallback chain. A pattern
-     * flagged `chrono.ts` and `edges.ts`, whose `?? existing.excludeFromVectorSearch` is the LEGACY FIELD
-     * MIRROR and not this rule at all — a gate that fires on correct code twice is one that gets deleted.
+     * flagged `chrono.ts` and `edges.ts`, whose `??` chain was the legacy-spelling mirror and not this
+     * rule at all — a gate that fires on correct code twice is one that gets deleted. That mirror went
+     * with `D-6` in 4.0, so the example is history; the reason to assert on call sites is not, because
+     * any `??` fallback near a suppression read will look like this one to a pattern.
      */
     const callers = brainFiles().filter(f =>
       !f.endsWith('/suppress-embeddings.ts')

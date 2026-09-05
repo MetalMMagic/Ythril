@@ -34,7 +34,6 @@ import type { EdgeDoc, EntityDoc, TombstoneDoc, ChronoEntry, MemoryDoc, FileMeta
 import type { RefKind } from '../config/types-knowledge.js';
 import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { writeFilterFor, writeOutcome } from './write-precondition.js';
-import { mirrorLegacySuppression } from './suppress-embeddings.js';
 
 export interface TraverseNode {
   _id: string;
@@ -545,7 +544,6 @@ export async function updateEdgeById(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'edge', existing: existing as unknown as Record<string, unknown> }); // F10
-  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
 
   /*
    * A LABEL CHANGE IS AN IDENTITY CHANGE, so the edge moves onto the id its identity derives.

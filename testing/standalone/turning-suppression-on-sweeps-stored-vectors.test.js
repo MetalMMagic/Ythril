@@ -98,10 +98,17 @@ describe('the record tier overrides the space, and only `true` counts as stated'
     assert.equal(swept({}, 'memory', withVector({ type: 'note', suppressEmbeddings: true })), true);
   });
 
-  it('the legacy spelling counts — a sweep reading one name misses half', () => {
-    // `excludeFromVectorSearch` is still written by every update path for mixed-version networks, so records
-    // carrying only that spelling are real and are exactly the ones an operator suppressed before 3.1.0.
-    assert.equal(swept({}, 'memory', withVector({ type: 'note', excludeFromVectorSearch: true })), true);
+  it('and the retired spelling does NOT count — it is a field like any other now', () => {
+    /*
+     * This asserted the opposite while `excludeFromVectorSearch` was written beside the current name for
+     * mixed-version networks. `D-6` retired it in 4.0, and the peer floor is what made that safe: a 4.x
+     * build refuses every pre-3.1.0 peer, so no record arriving on the wire can carry only the old key.
+     *
+     * Asserted rather than deleted, because the sweep reading a key nothing writes is not harmless — it
+     * would strip vectors from records nobody suppressed, on a field left over from an old document.
+     */
+    assert.equal(swept({}, 'memory', withVector({ type: 'note', excludeFromVectorSearch: true })), false,
+      'the sweep still honours the retired spelling, so a stale key strips a vector nobody asked to remove');
   });
 
   it('a record flagged FALSE still follows the space, because false means "not stated"', () => {

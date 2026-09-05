@@ -120,12 +120,27 @@ describe('the guard REFUSES and ALLOWS — behaviourally, not by reading the sou
     assert.equal(toolRightsRefusal('write_file', r, 'general'), null);
   });
 
-  it('does nothing for a token with no matrix, or a tool with no row', () => {
-    // Both are deliberate pass-throughs, and both would be a silent authorisation hole if they were not
-    // stated: OIDC records carry no matrix, and instance-level tools are governed by `instanceAdmin`.
-    assert.equal(toolRightsRefusal('delete_memory', undefined, 'general'), null);
-    assert.equal(toolRightsRefusal('list_spaces', rights({ floor: 'none' }), 'general'), null);
-    assert.equal(toolRightsRefusal('delete_memory', rights({ floor: 'none' }), ''), null);
+  it('does nothing for a tool with no row — and REFUSES a token with no matrix', () => {
+    /*
+     * HALF INVERTED by `Q-5`. This asserted both as *"deliberate pass-throughs"*, on the grounds that
+     * *"OIDC records carry no matrix, and instance-level tools are governed by `instanceAdmin`"*. The second
+     * clause is still true. The first stopped being true two releases ago — an OIDC session carries `rights`
+     * as a REQUIRED field, derived per request from its claim mapping — so what it was describing as
+     * deliberate had become the absent-means-permission hole the owner ruled out on 2026-09-05: *"no matrix
+     * = refuse - no fallback no backwards compatibility anymore."*
+     *
+     * The two halves are kept in one case on purpose, because the ORDER between them is the whole fix: the
+     * row lookup has to come first. Refusing on an absent matrix before it would have 403'd every
+     * instance-level tool, which is the same mistake pointing the other way.
+     */
+    assert.ok(toolRightsRefusal('delete_memory', undefined, 'general'),
+      'an MCP tool call with no rights matrix was allowed');
+    assert.equal(toolRightsRefusal('list_spaces', rights({ floor: 'none' }), 'general'), null,
+      'an instance-level tool has no rights row and is governed by `instanceAdmin` — still a pass-through');
+    assert.equal(toolRightsRefusal('list_spaces', undefined, ''), null,
+      'the row lookup must run BEFORE the matrix check, or every instance-level tool is refused');
+    assert.ok(toolRightsRefusal('delete_memory', rights({ floor: 'none' }), ''),
+      'a tool that needs an area rung cannot be checked without a space, and cannot-be-checked is not passes');
   });
 
   it('the dispatcher RETURNS the refusal rather than computing and dropping it', () => {

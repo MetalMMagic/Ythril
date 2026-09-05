@@ -100,9 +100,35 @@ describe('the area check', () => {
       'an iterating route would be judged as though it named one space');
   });
 
-  it('records with no rights are left to reach alone', () => {
-    // OIDC tokens never pass the config backfill. Refusing them here would be a lockout.
-    assert.match(body('enforceAreaRung'), /if \(!rights\) return true;/);
+  it('a record with no rights matrix is REFUSED, not left to reach alone', () => {
+    /*
+     * INVERTED by `Q-5`, and the reason it held is written here rather than deleted with it.
+     *
+     * It read *"OIDC tokens never pass the config backfill. Refusing them here would be a lockout"* and
+     * asserted `if (!rights) return true;` — allow. That was true when it was written and stopped being
+     * true two releases ago: an OIDC session carries `rights` as a REQUIRED field, derived per request by
+     * `migrateToken` from its claim mapping, which is asserted three cases into
+     * `no-matrix-reaches-nothing-not-everything.test.js`. There is no token shape left that this refuses,
+     * so there is no lockout to trade against.
+     *
+     * The owner ruled on the general case the same day: *"no matrix = refuse - no fallback no backwards
+     * compatibility anymore."* That swept two sites; this was the fourth and `toolRightsRefusal` the third.
+     *
+     * **The POSITION is asserted as well as the refusal**, because getting it wrong breaks the opposite
+     * thing. The check has to run after the `NOT_AREA_SCOPED` and unclassified verdicts: those are decided
+     * exemptions and reach-enforced-with-a-warning respectively, and refusing them for want of a matrix
+     * would area-scope routes the design says are not.
+     */
+    const b = body('enforceAreaRung');
+    assert.doesNotMatch(b, /if \(!rights\) return true;/,
+      'the area check allows a caller with no rights matrix — the absent-means-permission shape again');
+    assert.match(b, /if \(!rights\) \{[\s\S]*?403/,
+      'the absent-matrix case must refuse with a 403');
+    const refusalAt = b.indexOf('if (!rights) {');
+    const scopeAt = b.indexOf("need.scope !== 'path'");
+    assert.ok(refusalAt > scopeAt && scopeAt > 0,
+      'the matrix refusal runs BEFORE the verdict is known, so a NOT_AREA_SCOPED or unclassified route is '
+      + 'now area-scoped for want of a matrix — the opposite of the decision recorded in each `why`');
   });
 
   it('both checks resolve the target spaces the SAME way', () => {

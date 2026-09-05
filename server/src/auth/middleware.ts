@@ -396,7 +396,6 @@ function enforceAreaRung(
   targets: string[],
 ): boolean {
   const rights = (record as { rights?: Parameters<typeof effectiveRung>[0] }).rights;
-  if (!rights) return true;                    // OIDC records: reach already answered for them
 
   const routePath = `${req.baseUrl ?? ''}${(req.route as { path?: string } | undefined)?.path ?? ''}`;
   const verdict = rungFor(req.method, routePath);
@@ -412,6 +411,31 @@ function enforceAreaRung(
   }
   const need = verdict;
   if (need.scope !== 'path') return true;      // iterating routes gate their LOOP, not the call
+
+  /*
+   * NO MATRIX, NO AREA — and the position of this check is the fix rather than the check itself.
+   *
+   * It stood at the top of the function as `if (!rights) return true;  // OIDC records: reach already
+   * answered for them`, which allowed the call past the AREA check entirely. Both halves of that comment had
+   * expired: an OIDC session carries `rights` as a REQUIRED field derived per request from its claim
+   * mapping, and the reach guard answers a different question — which spaces, not which areas within one.
+   *
+   * It is here rather than at the top because everything above decides whether an area rung is the question
+   * at all. A route on `NOT_AREA_SCOPED` is a DECIDED exemption, and an unclassified one is reach-enforced
+   * with a warning — refusing those for want of a matrix would area-scope routes the design says are not,
+   * which is the opposite of the recorded decision.
+   *
+   * Owner, 2026-09-05: *"no matrix = refuse - no fallback no backwards compatibility anymore."* That swept
+   * `tokenReachesSpace` and `editorScopeFor`; this was the fourth copy and `toolRightsRefusal` the third.
+   * `spaceTargets`, forty lines above, was swept then and says so in its own comment — so this file held
+   * both answers to one question, adjacent.
+   */
+  if (!rights) {
+    res.status(403).json({
+      error: `Token needs '${need.needs}' on ${need.area}, and presented no rights matrix`,
+    });
+    return false;
+  }
 
   for (const sid of targets) {
     if (!satisfies(effectiveRung(rights, sid, need.area), need.needs)) {

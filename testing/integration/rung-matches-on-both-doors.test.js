@@ -16,7 +16,9 @@
  * now ask for `write`. The collection WIPES still ask for `admin`, matching `wipe_space`.
  *
  * The second defect: a token minted with no `rights` at all skipped the rung check entirely, because
- * `enforceAreaRung` returns early without a matrix. Minting now always derives one — *"only matrix from now on"*.
+ * `enforceAreaRung` used to return early without a matrix. Minting always derives one — *"only matrix from
+ * now on"* — and `Q-5` closed the other end too: the early return is gone, so an absent matrix is now a 403
+ * rather than a skipped check. Two independent reasons where there had been one, which is the point.
  *
  * Run: node --test testing/integration/rung-matches-on-both-doors.test.js
  */

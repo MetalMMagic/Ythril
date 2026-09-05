@@ -1898,6 +1898,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"A token with no permissions reaches nothing" was true in two places out of four** (`Q-5`). The rule was
+  settled in 4.0 and applied to the two places anyone had looked at. The other two were the check that decides
+  which *area* of a space a call may touch — and it has a copy on each door, so both the web API and the agent
+  API let such a caller past it.
+
+  **Nothing could get in through either, and that is the reason nobody found them.** A caller with no
+  permissions is given an empty list of spaces before any of this runs, and every one of these calls needs a
+  space. So the gap was unreachable in exactly the way the two already-fixed copies were — which is the
+  dangerous kind: nothing exercises it, so nothing reports it, and anything that ever did reach it would have
+  been let through.
+
+  **Both files already held the answer, twenty and forty lines away.** In each one, a neighbouring check
+  refuses a caller with no permissions, with a comment explaining why. The two that did not carried a comment
+  explaining why they need not — a reason that stopped being true two releases ago, when the login path
+  started building permissions for every session.
+
+  **The check that guards this is now about the rule rather than about one function.** It had been written
+  against the first place the problem was found, which is why the sweep it belonged to stopped there. It now
+  asks every check that can be handed a caller with no permissions, and asks it by calling the check rather
+  than reading its source.
+
 - **Three safety checks were passing while looking at part of what their own titles claimed** (`Q-5`). None
   of them was wrong about the code it did check, and the code they all guard turned out to be correct — so
   nothing here changes what the product does. What changes is that these three would now notice.

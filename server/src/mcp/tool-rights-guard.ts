@@ -21,14 +21,35 @@ import type { TokenRights } from '../config/rights-shape.js';
  * `DELETE /api/brain/spaces/general/memories/:id` with a 403, and the identical delete through
  * `delete_memory` answered "Memory deleted".
  *
- * ## The two ways it deliberately does nothing
+ * ## The ONE way it deliberately does nothing, and the one it used to
  *
- * - **No rights matrix.** Every token created since 2.9 carries one and a boot migration backfills the
- *   rest, so in practice this is the OIDC path, where the record is built per request from the identity
- *   and legitimately has none. Those are still governed by `readOnly` and the `admin` flag.
  * - **No row for the tool.** It is instance-level — `list_spaces`, `create_space`, `list_tokens`,
  *   `list_peers`, `sync_now`, `wipe_space`, `help` — and governed by the tool's `admin` flag against
- *   `instanceAdmin`, because the capability is not scoped to a space at all.
+ *   `instanceAdmin`, because the capability is not scoped to a space at all. This one stays: the absence
+ *   of a row means *not my question*, not *permitted*.
+ * - **No rights matrix — REMOVED.** This said: *"Every token created since 2.9 carries one and a boot
+ *   migration backfills the rest, so in practice this is the OIDC path, where the record is built per
+ *   request from the identity and legitimately has none. Those are still governed by `readOnly` and the
+ *   `admin` flag."* Every clause of that had stopped being true. Nothing reads `readOnly` or `admin` —
+ *   `tool-visibility.ts` says so in as many words — and an OIDC session carries `rights` as a REQUIRED
+ *   field, derived per request from its claim mapping. It was a fallback described as a safety net, with
+ *   nothing behind either half.
+ *
+ * ## Why that mattered even though nothing could reach it
+ *
+ * Owner, 2026-09-05: *"no matrix = refuse - no fallback no backwards compatibility anymore."* That swept
+ * `tokenReachesSpace` and `editorScopeFor`. **This was the third copy and it was missed**, which is the
+ * defect class `CLAUDE.md` names as this repo's commonest — and it appeared at the shortest distance yet,
+ * because `spaceAdminRefusal` twenty lines above already refuses an absent matrix. One file, both answers.
+ *
+ * It could not reach data: `mcp/router.ts` resolves a connection's accessible spaces as
+ * `rights ? reachesSpace(rights, s.id) : false`, so a matrixless connection reaches no space and every
+ * brain tool needs one. That is unreachable in exactly the way the two swept branches were — *"the worse
+ * of the two ways to be unreachable: nothing exercises it, and anything that ever did would be handed the
+ * whole instance."*
+ *
+ * `no-matrix-means-refuse-everywhere.test.js` asserts all four guards alike rather than each by name, so a
+ * fifth written tomorrow is the case it exists for.
  *
  * The space is the one the CALLER named. For a proxy that is the proxy's own id, which is where an operator
  * grants access to a proxy; narrowing to members happens inside the tools. Checking a member here would let
@@ -66,9 +87,33 @@ export function toolRightsRefusal(
   rights: TokenRights | undefined,
   space: string,
 ): string | null {
-  if (!rights || !space) return null;
+  /*
+   * THE ROW IS LOOKED UP FIRST, and the order is the whole fix rather than a tidy-up.
+   *
+   * This opened `if (!rights || !space) return null` — absent matrix, so allow — which is the third copy of
+   * the shape the owner ruled out on 2026-09-05: *"no matrix = refuse - no fallback no backwards
+   * compatibility anymore"*. The other two, `tokenReachesSpace` and `editorScopeFor`, were swept then; this
+   * one is on the MCP door and was not.
+   *
+   * Refusing on `!rights` BEFORE finding the row would have broken every instance-level tool instead — they
+   * legitimately have no `TOOL_RIGHTS` row, because the capability is not scoped to a space at all, and
+   * `list_spaces` refusing a matrixless caller here would be the same mistake pointing the other way. So the
+   * absence of a row still means *not my question*; the absence of a MATRIX, for a tool that has one, is now
+   * a refusal.
+   *
+   * `!space` joins it. An area-scoped tool with no space named cannot be checked against an area rung, and
+   * *cannot be checked* is not *passes*.
+   */
   const need = TOOL_RIGHTS.find(r => r.tool === toolName);
   if (!need) return null;
+
+  if (!rights) {
+    return `Error: tool '${toolName}' needs ${need.area}: ${need.needs} on space '${space}', and this `
+      + 'connection presented no rights matrix. A token with no matrix reaches nothing.';
+  }
+  if (!space) {
+    return `Error: tool '${toolName}' needs ${need.area}: ${need.needs} on a space, and this call named none.`;
+  }
 
   const held = effectiveRung(rights, space, need.area);
   if (satisfies(held, need.needs)) return null;

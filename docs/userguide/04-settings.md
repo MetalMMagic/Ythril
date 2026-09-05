@@ -117,7 +117,32 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **From File** — import a schema from a previously exported JSON file.
 - **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
 
-The toolbar at the top of the tab has whole-space actions: **Export JSON** / **Import JSON** download or load the entire space's type schemas as one file, and **Export to library** copies the *whole* space schema into the Schema Library in one step — one reusable entry per type, grouped under a name you choose (defaulting to the space's), so you can later apply the whole set to another space. Types already linked to the library (`From Lib`) are skipped. Save any pending edits first — it exports the last saved version.
+The toolbar at the top of the tab has **four** whole-space actions, and this guide listed three. **Export JSON** / **Import JSON** download or load the entire space's type schemas as one file. **Import library** pulls type definitions in from the instance's Schema Library — the reverse of the button beside it, and the one that was missing here. **Export to library** copies the *whole* space schema into the Schema Library in one step — one reusable entry per type, grouped under a name you choose (defaulting to the space's), so you can later apply the whole set to another space. Types already linked to the library (`From Lib`) are skipped. Save any pending edits first — it exports the last saved version.
+
+**Duplicates tab:** The fourth tab, and the one this guide has never mentioned. It decides what this
+space does when the background scanner finds two records that look like the same thing.
+
+With no rules, a likely duplicate is simply **flagged for review** and waits for you on the Duplicates
+page. A rule raises that: give it a **minimum score** and an **action**, and any pair scoring at or above
+it gets that action instead.
+
+| Action | What happens |
+|---|---|
+| **Flag for review** | The default. The pair waits for a person |
+| **Notify (webhook)** | Posts to your webhook subscriptions, or to a URL you override here |
+| **Auto-merge (entities)** | **Merges the pair unattended and permanently.** Entities only |
+
+Auto-merge asks you to confirm when you switch it on, and it is worth reading: one record of every
+matching pair is absorbed with no review. **Merge survivor** decides which one is kept — older by default,
+or newer.
+
+**Evaluate rules in real time (on insert)** is off by default and is the setting most worth understanding.
+Left off, rules run only during the scheduled scan. Switched on, they also run the moment a record is
+written — **including bulk inserts**, so an import of ten thousand records evaluates ten thousand times.
+Turn it on when duplicates must not exist even briefly; leave it off when writes come in batches.
+
+Rules are evaluated highest-threshold first, and these settings are local: they apply at once and are
+never put to a network vote.
 
 **Danger tab:** Set the space-wide retention window, rebuild search indexes, rename the space ID, wipe all data, or delete the space entirely.
 

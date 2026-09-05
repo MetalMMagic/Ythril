@@ -169,7 +169,9 @@ describe('every durable config migration is still wired at boot', () => {
     assert.deepEqual(unknown, [],
       `loadConfig calls ${unknown.join(', ')}, which this gate does not know about. Add a row to DURABLE `
       + 'with the one line of reasoning for what deleting it would do, or say here why it needs no pin. '
-      + '(`migrateTokenRightsOnBoot` is IN MEMORY only by design and `migrateProviderApiKeysOnBoot` carries '
+      + '(`migrateTokenRightsOnBoot` is IN MEMORY only by design AND by construction since 2026-09-05 — it '
+      + 'has no save path at all, which is what makes this exemption true rather than merely stated; and '
+      + '`migrateProviderApiKeysOnBoot` carries '
       + 'a secret and is tracked separately — both are exempt on purpose, with their reasons in the loader.)');
   });
 });

@@ -64,7 +64,31 @@ function rollbackSection() {
   return DOC.slice(at, end < 0 ? DOC.length : end);
 }
 
+/*
+ * Boot migrations that deliberately write NOTHING, and therefore have nothing for a rollback to undo.
+ *
+ * At module scope because BOTH suites below need it — the persistence count and the field map. Two
+ * copies of one exemption is how they drift apart, and the half that still exempts is the half that
+ * wins silently. `CLAUDE.md` names it as the defect this repo produces most.
+ *
+ * Named individually with a reason rather than pattern-matched: an exemption a future migration could
+ * fall into by accident is the hole this whole gate exists to prevent.
+ */
+const IN_MEMORY_ONLY = {
+  migrateTokenRightsOnBoot:
+    'derives a rights matrix in memory and writes nothing — deliberately, because enforcement still '
+    + 'reads the legacy fields, so persisting a derivation before it has been compared against the '
+    + 'behaviour it reproduces would make any defect in it durable (see loadConfig, and `D-2`)',
+};
+
 describe('the sweep works before it is trusted', () => {
+  it('every exemption names a migration that still runs, and gives a reason', () => {
+    // An exemption for a migration that no longer exists is a hole with a name in front of it.
+    for (const [name, why] of Object.entries(IN_MEMORY_ONLY)) {
+      assert.ok(bootMigrations().includes(name), `${name} is exempted here and no longer runs at boot`);
+      assert.ok(why.length > 40, `${name} is exempted without a real reason`);
+    }
+  });
   it('finds the boot migrations', () => {
     const found = bootMigrations();
     assert.ok(found.length >= 3, `expected the boot migrations, found ${JSON.stringify(found)}`);
@@ -93,7 +117,19 @@ describe('the sweep works before it is trusted', () => {
       .join('\n');
     const saves = [...body.matchAll(/saveConfig\(_config\)/g)].length
       + [...delegated.matchAll(/persist\(config\)|saveConfig\(config\)/g)].length;
-    const migrations = bootMigrations().length;
+    /*
+     * IN-MEMORY MIGRATIONS ARE EXCLUDED, and the rule this gate already states is why: *"a migration
+     * that only adjusts the in-memory config is harmless to a rollback"*. It then required every
+     * migration to persist, which is the opposite of that sentence — and it passed only because
+     * `migrateTokenRightsOnBoot` CONTAINED a `persist(config)` call that threw on every boot.
+     *
+     * So the count was matching a call that never did anything, and the rollback section it protects
+     * described a file change that has never happened on any instance.
+     *
+     * Named individually with a reason rather than pattern-matched: an exemption a future migration
+     * could fall into by accident is the hole this gate exists to prevent.
+     */
+    const migrations = bootMigrations().filter(m => !(m in IN_MEMORY_ONLY)).length;
     // One save is not enough: a single `saveConfig` left behind while the others were removed satisfied a bare
     // `assert.match`, so the gate would have kept describing a hazard that only partly existed.
     assert.ok(saves >= migrations,
@@ -113,7 +149,10 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
       // Writes a `rights` matrix onto every token that lacked one, so an older build reads tokens carrying a
       // field it does not know. Harmless in itself — the legacy fields are left in place — but an operator
       // rolling back needs to know the file changed shape.
-      migrateTokenRightsOnBoot: 'tokens[].rights',
+      // NOT LISTED: `migrateTokenRightsOnBoot` derives in memory and writes nothing, so there is no
+      // field for the rollback section to name. It was mapped to `tokens[].rights` and the guide
+      // described that shape change — over a write that threw on every boot, so it never occurred.
+      // Add a row here on the day persistence ships (`D-2`), not before.
       // MOVES a credential rather than dropping a setting, which is why the rollback row says the key is
       // still recoverable: it is in `secrets.json` (0o600) and can be pasted back for an older build. The
       // consequence of not doing that is a 401 from an external provider, not a changed default.
@@ -133,6 +172,9 @@ describe('every rewrite an upgrade performs is documented as one-way', () => {
     const section = rollbackSection();
     const undocumented = [];
     for (const fn of bootMigrations()) {
+      // A migration that writes nothing has no field to name — the same list the persistence count
+      // uses, so the two cannot disagree about which migrations touch the file.
+      if (fn in IN_MEMORY_ONLY) continue;
       const field = FIELD_BY_MIGRATION[fn];
       if (field === undefined) {
         undocumented.push(`${fn} — no entry in this gate's field map, so nobody has said what it drops`);

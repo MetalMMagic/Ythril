@@ -151,6 +151,14 @@ Open **Conflicts** from the sidebar to see them. For each conflict choose what t
 
 **Dismiss** (✕) removes the conflict record without changing any files.
 
+**You do not have to do them one at a time.** Tick the conflicts you want — or use **Select all** — pick
+an action, and **Resolve N selected** applies it to every one. You are asked to confirm, with the count
+and the action named, before anything happens.
+
+This matters after a sync that went wrong: a hundred conflicts is otherwise a hundred clicks, which is
+the point at which people start leaving them unresolved. If some of the batch cannot be resolved, the
+result says how many succeeded and how many failed rather than reporting the whole run as one outcome.
+
 ---
 
 ### An edge label can say what it connects (3.7)
@@ -216,6 +224,18 @@ This tab lists all schema definitions on this instance.
 Click anywhere on a card to open and edit it. Changes save and close automatically.
 
 **Importing from a file:** Use **Import from file** to load a `.json` file. It accepts either a single library entry (or an array of them) *or* a whole space's exported schema (a `{ typeSchemas: … }` file from a space's Schema tab **Export JSON**) — in the latter case every type is auto-grouped into the library under a group named after the file's space, mirroring **Export to library**. Types linked to the library are skipped.
+
+**Moving a whole GROUP at once, in either direction.** Two buttons above the list work on many entries
+rather than one, and they are the pair most people want after setting a space up:
+
+- **Export space schema** — takes every type defined inline in a space and adds it to the library,
+  tagged with a group name you choose. The result says how many were created and how many updated.
+- **Apply group to space** — the other direction: every library entry in a group is applied to a target
+  space as a link, so the space follows the library rather than holding its own copy.
+
+Together they are how a space stops carrying its own definitions: export once to seed the group, then
+apply it back to that space and to every space that should match it. Doing this entry by entry is the
+same work with more clicks and more chances to miss one.
 
 **Publishing:** Click the globe icon on a card to make the entry visible to other Ythril instances. The icon turns accented when published. Click again to unpublish. No space data is ever exposed — only the schema definition.
 

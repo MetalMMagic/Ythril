@@ -28,6 +28,20 @@ Beside it are **seven sort buttons**, and the last two are the reason to know th
 
 That last one is a diagnosis rather than a sort: a space near the top is one people are querying and not getting answers from, which usually means it is missing content rather than misconfigured.
 
+### What the columns mean
+
+The table has never been described here, and two of its columns are not self-explanatory.
+
+| Column | What it shows |
+|---|---|
+| **Label** / **ID** | The name you gave the space, and the identifier the API uses |
+| **Storage** | **One column, not two.** `1.20 GiB / 5 GiB` when the space has a quota, just the amount used when it does not, and `—` when it is empty and unlimited. A bar behind it turns amber past 70% of the quota and red past 90% |
+| **Usage (7d)** | Calls in the last seven days, and the share of recalls that **found something**. A low percentage is the one number on this page worth acting on — it means people are asking that space questions it cannot answer |
+| **Networks** | Which networks share this space |
+| **Proxy** | Marked when this space stands in for others |
+
+Storage shows **megabytes** below 1 GiB, so a small space reads `40 MB` rather than `0.04 GiB`.
+
 ### Creating a space
 
 Click **Create New Space**. Fill in:
@@ -540,6 +554,29 @@ Click **Leave network** at the bottom of the network card. Your local data in th
 The page has **no heading of its own** — the left-hand navigation and the tab strip already tell you where you are, so there is nothing to look for at the top. This guide used to say the page was titled *Models & Media*, which was wrong twice over: there is no title, and the name it gave was not the one in the navigation.
 
 By default, Ythril ships with a bundled vision service (Ollama running `moondream`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
+
+### The three tabs, and where each control lives
+
+The page is split into **Models**, **Pipelines** and **Tools**, and knowing which is which saves
+hunting:
+
+| Tab | What is on it |
+|---|---|
+| **Models** | Which model answers for vision and speech — provider, endpoint, model name, API key, and each slot's call budget |
+| **Pipelines** | **The per-class ceilings.** How far Ythril may go with an image, audio, video or text file — the highest level any space is allowed to ask for |
+| **Tools** | The vector-index table and the per-space index rebuild |
+
+**The image ceiling has four settings, not two**, and only the third is worth explaining:
+
+| Setting | What happens to an uploaded image |
+|---|---|
+| **Off** | Stored as-is; nothing is read out of it |
+| **Caption** | A short description of what is in the picture, added to search |
+| **Recognition** | Caption **plus face recognition** — this is the one that identifies people, so it is the rung to think about before raising |
+| **Auto** | As much as the instance can do |
+
+A space can never ask for more than the ceiling set here. Raise a space's own level under its Settings
+tab and the picker simply does not offer anything above this line, with a note saying why.
 
 ### When to change this
 

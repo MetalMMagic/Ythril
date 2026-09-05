@@ -828,6 +828,7 @@
   "networks.member.synced": "Zsynchronizowano",
   "networks.member.neverSynced": "Nigdy nie synchronizowano",
   "networks.member.failing": "Błędy ({{ count }})",
+  "networks.member.belowFloor": "Wersja za stara",
   "networks.member.failingTitle": "{{ count }} kolejnych nieudanych prób synchronizacji od ostatniego sukcesu.",
   "networks.network.members.removeTitle": "Usuń członka",
   "networks.network.members.removeAriaLabel": "Usuń członka",

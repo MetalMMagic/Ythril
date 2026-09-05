@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { syncScheduleRefusal } from '../../sync/schedule.js';
+import { MIN_PEER_VERSION, peerFloorRefusal } from '../../sync/peer-floor.js';
 import { getConfig, saveConfig, getSecrets } from '../../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../../auth/tokens.js';
 import { getSyncHistory } from '../../sync/history.js';
@@ -43,9 +44,21 @@ crudRouter.get('/', globalRateLimit, requireAdmin, (_req, res) => {
   // Strip sensitive fields
   const networks = cfg.networks.map(n => ({
     ...n,
-    members: n.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m),
+    members: n.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
+      ...m,
+      belowFloor: peerFloorRefusal(m.version, m.versionCheckedAt),
+      minPeerVersion: MIN_PEER_VERSION,
+    })),
     inviteKeyHash: undefined,
   }));
+  /*
+   * `version`, `belowFloor` and `minPeerVersion` per MEMBER — the same three facts, spelled the same
+   * way, on both doors, which is the first rule in `CLAUDE.md`. On the envelope here and per-row on
+   * MCP would be one fact with two shapes, and the MCP tool's contract is a bare array.
+   *
+   * `version` already travelled because a member is spread. The VERDICT did not, and it is the half an
+   * operator gets wrong: a null version reads as 'unknown, probably fine' when it may mean refused.
+   */
   res.json({ networks });
 });
 
@@ -59,7 +72,11 @@ crudRouter.get('/:id', globalRateLimit, requireAdmin, (req, res) => {
 
   const safe = {
     ...net,
-    members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m),
+    members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => ({
+      ...m,
+      belowFloor: peerFloorRefusal(m.version, m.versionCheckedAt),
+      minPeerVersion: MIN_PEER_VERSION,
+    })),
     inviteKeyHash: undefined,
   };
   res.json(safe);

@@ -828,6 +828,7 @@
   "networks.member.synced": "Synced",
   "networks.member.neverSynced": "Never synced",
   "networks.member.failing": "Failing ({{ count }})",
+  "networks.member.belowFloor": "Version too old",
   "networks.member.failingTitle": "{{ count }} consecutive failed sync attempts since the last success.",
   "networks.network.members.removeTitle": "Remove member",
   "networks.network.members.removeAriaLabel": "Remove member",

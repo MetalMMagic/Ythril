@@ -12,6 +12,8 @@
  */
 import { Router } from 'express';
 import { getConfig } from '../../config/loader.js';
+import { callerPeerId } from './_shared.js';
+import { peerFloorRefusal, MIN_PEER_VERSION } from '../../sync/peer-floor.js';
 import { syncDocsRouter } from './docs.js';
 import { syncTombstonesRouter } from './tombstones.js';
 import { syncManifestRouter } from './manifest.js';
@@ -33,6 +35,61 @@ syncRouter.use((req, res, next) => {
     res.status(401).json({ error: 'ejected' });
     return;
   }
+  next();
+});
+
+/*
+ * ── Peer version floor (all sync endpoints but one) ────────────────────────────────────
+ *
+ * `P-33` = B: a peer below `MIN_PEER_VERSION` is refused, and the refusal names the version.
+ *
+ * **HERE, on the parent, for the same reason the ejection guard is here.** The floor is one rule and
+ * this repo's most expensive defect is one rule with several implementations, the weakest winning
+ * silently. Eight route files could each have grown their own check; one middleware ahead of all of
+ * them cannot be forgotten by a route added later.
+ *
+ * **The one exception is the member announce, and it is not a hole in the floor — it is the floor's
+ * input.** A version is only ever learned from gossip, so refusing the announce would mean refusing
+ * every peer for having no version and then never being able to learn one: a stale peer could never
+ * report that it had been upgraded. What that route lets a below-floor peer do is describe ITSELF —
+ * label, url, version — and it already refuses to let a peer write any other member's record. No
+ * brain document moves through it.
+ *
+ * **Only a PEER token is checked.** An admin or local token has no `peerInstanceId`, is not another
+ * instance, and has no version to report; running it through the floor would refuse the operator's own
+ * tooling for being absent — the absent-is-old rule applied to something that is not a peer at all.
+ */
+syncRouter.use((req, res, next) => {
+  const peerId = callerPeerId(req.authToken as Record<string, unknown> | undefined);
+  if (!peerId) { next(); return; }
+  // The announce is how a version arrives; see above.
+  if (req.method === 'POST' && /\/networks\/[^/]+\/members$/.test(req.path)) { next(); return; }
+
+  const cfg = getConfig();
+  for (const net of cfg.networks) {
+    const member = net.members.find(m => m.instanceId === peerId);
+    if (!member) continue;
+    const refusal = peerFloorRefusal(member.version, member.versionCheckedAt);
+    if (refusal) {
+      res.status(426).json({ error: refusal, minPeerVersion: MIN_PEER_VERSION, peerVersion: member.version ?? null });
+      return;
+    }
+    /*
+     * Found in the FIRST network listing this peer and admitted there. A peer we share two networks
+     * with runs one build, so its version cannot differ per network — checking every network would
+     * refuse on whichever record happened to be staler, which is a fact about our gossip history
+     * rather than about the peer.
+     */
+    next();
+    return;
+  }
+  /*
+   * A peer token bound to nothing we list as a member: manually-provisioned tokens and
+   * single-side-configured networks both look like this, and `spaceAllowed` already falls back to
+   * plain token-space scoping for them. There is no member record to carry a version, so the floor
+   * has nothing to say — refusing here would break asymmetric networks that work today, on a rule
+   * about versions.
+   */
   next();
 });
 

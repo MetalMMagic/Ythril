@@ -768,6 +768,11 @@ export interface NetworkMember {
   lastSyncAt?: string;
   /** Consecutive failed sync attempts since the last success (0/absent = healthy). */
   consecutiveFailures?: number;
+  /** The version this peer last reported over gossip; absent if it never has. */
+  version?: string;
+  /** Why this peer is refused on version grounds, or absent when it is fine. The SENTENCE, not a
+   *  boolean — from the same function the engine logs, so the two cannot drift. */
+  belowFloor?: string | null;
 }
 
 export interface InviteBundle {

@@ -1,5 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { getConfig } from '../../config/loader.js';
+import { MIN_PEER_VERSION, peerFloorRefusal } from '../../sync/peer-floor.js';
 
 export const list_peersTool: ToolHandler = {
   name: 'list_peers',
@@ -19,6 +20,16 @@ export const list_peersTool: ToolHandler = {
     + 'number is the signal that a peer is unreachable, and it is the field to check before blaming missing '
     + 'records on anything else), and `skipTlsVerify` (true means certificate checking is off for this peer, '
     + 'which is worth noticing on an audit).\n\n'
+    + 'ALSO PER ROW: `version` (what that peer last reported, `null` if it never has), `minPeerVersion` '
+    + '(the floor this instance requires, the same on every row) and `belowFloor` '
+    + '(a sentence when this peer is refused on version grounds, `null` when it is fine). A peer below '
+    + 'the floor does not sync DATA in either direction, so when records are missing and `consecutiveFailures` '
+    + 'is 0 this is the field that says why. The envelope carries `minPeerVersion`, the floor this '
+    + 'instance requires, so a refusal can be read without looking it up.' + '\n\n'
+    + 'A `null` version means one of TWO things and `belowFloor` is what tells them apart: a peer that '
+    + 'answered and named no version predates version reporting, so it IS refused; a peer this instance '
+    + 'has never exchanged with is simply unknown, and is not refused on version grounds. Do not infer '
+    + 'a verdict from `version` being null — read `belowFloor`.\n\n'
     + 'An empty list means this instance is in no network, not that syncing failed.',
   admin: true,
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
@@ -38,12 +49,33 @@ export const list_peersTool: ToolHandler = {
         lastSyncAt: m.lastSyncAt ?? null,
         consecutiveFailures: m.consecutiveFailures ?? 0,
         skipTlsVerify: m.skipTlsVerify ?? false,
+        /*
+         * The floor's VERDICT, not only its input. An operator holding a version and a floor still
+         * has to do the comparison, and 'absent means old' is the half they would get wrong — a null
+         * version reads as 'unknown, probably fine' and actually means refused. So the sentence that
+         * would be logged is the sentence reported, from the same function.
+         */
+        version: m.version ?? null,
+        belowFloor: peerFloorRefusal(m.version, m.versionCheckedAt),
+        minPeerVersion: MIN_PEER_VERSION,
       })),
     );
     return {
       content: [
         {
           type: 'text' as const,
+          /*
+           * A BARE ARRAY, and `minPeerVersion` rides on each row rather than on an envelope.
+           *
+           * Wrapping the array in `{ minPeerVersion, peers }` was the first attempt and CI refused it:
+           * this tool's contract is a JSON array, asserted by `mcp.test.js` and described by its own
+           * text as rows. An envelope is a breaking change to every caller that indexes the result,
+           * bought for a constant.
+           *
+           * Per-row is also this tool's existing idiom — `network`, `networkId` and `networkType` are
+           * already repeated on every row — and it keeps ONE spelling of the fact across both doors,
+           * which is what `CLAUDE.md` asks for. REST puts it on each member for the same reason.
+           */
           text: peers.length === 0
             ? 'No peers configured.'
             : JSON.stringify(peers),

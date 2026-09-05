@@ -60,6 +60,23 @@ export interface NetworkMember {
    *  Trust-on-first-use: pinned the first time we learn it via member gossip / invite;
    *  a later attempt to change it to a different key is rejected. */
   signingPublicKey?: string;
+  /** The version this member last reported, learned from member gossip — its own announce, or the
+   *  self-record piggybacked on its reply to ours. Checked against `MIN_PEER_VERSION`
+   *  (`sync/peer-floor.ts`) before any data flows either way.
+   *
+   *  **Absent means BELOW the floor, never exempt from it.** A member that has never reported a
+   *  version predates the release that started reporting one, so the optionality here is a fact about
+   *  old peers rather than permission for them — `peerFloorRefusal(undefined)` returns a refusal. */
+  version?: string;
+  /** ISO8601 of the last COMPLETED member-gossip exchange with this peer, set whether or not a
+   *  version came back with it.
+   *
+   *  **This is what makes `version` interpretable.** Absent `version` means two completely different
+   *  things: a peer that answered and reported nothing (so it predates version reporting, and is
+   *  below the floor), or a peer we have simply never exchanged with (so we know nothing). Without
+   *  this stamp both look identical, and treating them the same refuses every member of an
+   *  asymmetric or manually-provisioned network for ever. */
+  versionCheckedAt?: string;
 }
 
 export interface VoteCast {

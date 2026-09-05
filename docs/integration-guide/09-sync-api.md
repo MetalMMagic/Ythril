@@ -326,11 +326,17 @@ Treat a missing `duplicateTriplets` as zero: a peer on an older build omits it.
 
 Owner's ruling, 2026-09-01. Three things follow from it, and a client that pushes documents needs all three.
 
-**Send no embedding.** The four ingest schemas declare no `embedding` and no `embeddingModel`, so if you send
-them they are dropped. A vector is derived from the text by one particular model; two instances running
-different models — or different versions of one — hold legitimately different vectors for identical content,
-and ranking one against the other produces plausible-looking nonsense rather than an error. Memories were the
+**Send no embedding.** No ingest schema declares `embedding` or `embeddingModel`, so if you send them they
+are dropped. A vector is derived from the text by one particular model; two instances running different
+models — or different versions of one — hold legitimately different vectors for identical content, and
+ranking one against the other produces plausible-looking nonsense rather than an error. Memories were the
 last type that carried theirs; now none do.
+
+**The same holds when this instance PULLS from you, and until 4.0 it did not.** The schemas above run on the
+push path; a pull fetches whole documents and validates nothing, so a pulled record kept the sender's vector
+— and, more expensively, the sender's `_expireAt`, which the receiving instance's retention sweep then
+acted on. Both directions now drop the same five fields, and the serving side leaves them out of the page
+altogether, so a sync page is materially smaller than it was.
 
 **The receiver embeds what it accepts, on its own terms.** Every accepted document is queued for embedding
 against the receiving instance's own model, at the moment it is written. Nothing has to ask for this and there
@@ -458,8 +464,9 @@ Each brain-document leaf hashes the document's **content** (canonical JSON, keys
 Five fields are excluded, and the rule behind the list is worth knowing if you are comparing roots yourself:
 **a field that is hashed must replicate.** `embedding`, `embeddingModel` and `matchedText` are derived by the
 local model, so peers running different models legitimately differ. `_expireAt` and `_contentExpireAt` are
-retention stamps each instance computes from its own policy. Everything else is hashed, and everything else
-crosses the wire — a field in neither category means two peers can never agree about identical content. File leaves hash the file's SHA-256. The check is advisory: a root mismatch is reported as `MERKLE_DIVERGENCE`, it does not block sync.
+retention stamps each instance computes from its own policy — a peer's stamp is never adopted, in either
+direction, because the sweep that acts on it would then be following another operator's policy. Everything
+else is hashed, and everything else crosses the wire — a field in neither category means two peers can never agree about identical content. File leaves hash the file's SHA-256. The check is advisory: a root mismatch is reported as `MERKLE_DIVERGENCE`, it does not block sync.
 
 ### Gossip Endpoints
 

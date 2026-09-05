@@ -140,8 +140,15 @@ describe('and the receiver decides whether to embed it', () => {
   it('and it no longer trusts a vector that arrived with the record', () => {
     /*
      * It used to return early when the incoming document already had a vector — reasonable while memories
-     * shipped theirs, and dead now that no schema declares one. Worse than dead: it reads as a statement that
-     * a peer may send a usable vector, which is the belief the ruling overturns.
+     * shipped theirs, and dead now. Worse than dead: it reads as a statement that a peer may send a usable
+     * vector, which is the belief the ruling overturns.
+     *
+     * **The reason here used to be *"no ingest schema declares one"*, and that was true of ONE of the two
+     * ingest paths.** This file's subject is the ingest ROUTER, so the pull path in `sync/engine.ts` — which
+     * validates nothing and `replaceOne`s what it fetched — was outside everything it looked at, and stored
+     * the sender's vector for as long as this assertion had been passing. A gate scoped to one mechanism
+     * concludes about all of them. `a-local-only-field-is-dropped-on-both-ingest-paths.test.js` is the one
+     * that spans both.
      */
     const body = bodyOf(queue, 'enqueueIngestedRecord');
     assert.doesNotMatch(body, /doc\.embedding|Array\.isArray\(vec\)/,

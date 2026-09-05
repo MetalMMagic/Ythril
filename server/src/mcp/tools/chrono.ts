@@ -178,7 +178,7 @@ export const create_chronoTool: ToolHandler = {
       ...(rec.value ? { recurrence: rec.value } : {}),
     }, ctx.actor, ttlDaysFromArgs(a), {
       // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
-      // grammar — both spellings — so this is one call rather than a second reading of the deprecated name.
+      // grammar, so a change to it reaches every create door at once rather than one at a time.
       ...(chronoSuppress.value !== undefined ? { suppressEmbeddings: chronoSuppress.value } : {}),
       // Duplicate check defaults ON for the interactive create tool, as it does for remember/upsert_entity.
       checkDuplicates: a['checkDuplicates'] !== false,

@@ -25,9 +25,14 @@
  *
  * ## Why this is local, and takes no seq
  *
- * The vector does not replicate. `api/sync/docs.ts` strips `embedding` before sending, in all five places,
- * with the reason written beside each: it is derived, and a peer may run a different embedding model. So
- * removing one is a purely local change — no tombstone, no seq bump, nothing for a peer to converge on.
+ * The vector does not replicate — `sync/local-only-fields.ts` is the list and names the three mechanisms
+ * that hold it: no `Incoming*` schema declares it, so a PUSHED document loses it to zod; the pull path
+ * strips it explicitly, because it validates nothing; and the sending side projects it away so the bytes
+ * never travel. So removing one is a purely local change — no tombstone, no seq bump, nothing to converge.
+ *
+ * This paragraph used to say `api/sync/docs.ts` *"strips `embedding` before sending, in all five places"*.
+ * There was no such strip in that file and there never had been: the push path dropped it by OMISSION and
+ * the pull path did not drop it at all. A mechanism named in prose is not a mechanism.
  * Bumping seq would replicate a no-op and re-send whole documents for a field the other side never receives.
  *
  * Each peer runs its own sweep when the meta reaches it, which is what makes that correct rather than merely

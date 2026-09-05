@@ -18,6 +18,7 @@ import { reportServerFailure } from '../../util/report-failure.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../../util/seq.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, LinkDoc, TombstoneDoc } from '../../config/types.js';
 import type { FileMetaDoc } from '../../config/types.js';
+import { LOCAL_ONLY_EXCLUSION } from '../../sync/local-only-fields.js';
 import { checkEdgeLinkViolations, checkLinkViolations, MAX_FORK_DEPTH, IncomingMemoryDoc, IncomingEntityDoc, IncomingEdgeDoc, IncomingChronoDoc, IncomingLinkDoc, IncomingFileMetaDoc, ingestFileMeta, encodeCursor, decodeCursor, forkChainDepth, rejectImplausibleSeq, callerPeerId, spaceAllowed, isNonPeerSyncWrite, NON_PEER_WRITE_MESSAGE, isDirectionalWriteBlocked, violationsAgainstLocalSchema, withSchemaViolations, isDuplicateKeyOnly, ingestBrainDoc } from './_shared.js';
 
 export const syncDocsRouter = Router();
@@ -72,8 +73,13 @@ function pageBySeq<T extends { _id: string; seq: number }>(
 
       const found = col<T>(`${spaceId}_${collection}`)
         .find(asFilter<T>({ seq: { $gt: sinceVal }, ...extraFilter })).sort({ seq: 1 }).limit(pageSize + 1);
+      /*
+       * The local-only fields never leave, which is the SAVING rather than the guarantee — a vector is
+       * several hundred floats per record and was the bulk of every page. The guarantee is the receiver's
+       * strip in `sync/engine.ts`, because a peer decides what it sends and we decide what we store.
+       */
       const rawDocs = returnFull
-        ? await found.toArray() as T[]
+        ? await found.project(LOCAL_ONLY_EXCLUSION).toArray() as T[]
         : await found.project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
       const hasMore = rawDocs.length > pageSize;

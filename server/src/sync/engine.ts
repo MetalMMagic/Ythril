@@ -75,6 +75,7 @@ import { armedSchedules } from '../util/armed-schedule.js';
 import { assertPeerAtFloor } from './peer-floor.js';
 import { REPLICATED_FAMILIES, type PayloadKey } from './replicated-families.js';
 import { SERVER_VERSION } from '../util/server-version.js';
+import { stripLocalOnly } from './local-only-fields.js';
 
 // Timeout for every outbound fetch to a peer.
 // Without this, the OS TCP timeout (~75 s on Linux) applies, which means one
@@ -914,7 +915,16 @@ async function pullFromPeer(
           );
           continue;
         }
-        pageDocs.push(doc);
+        /*
+         * THE RECEIVER DECIDES WHAT IT STORES, and this is the one place on the pull path where it can.
+         *
+         * The push path drops these by omission — no `Incoming*` schema declares one, so zod strips them
+         * — and this path validates nothing at all: it fetches `full=true` and `replaceOne`s what comes
+         * back. Without the strip a pulled record carried the sender's vector, which ranks plausibly and
+         * in the wrong order, and the sender's `_expireAt`, which `brain/ttl-sweep.ts` acts on — so a peer
+         * decided when THIS instance deleted its data, with nothing logged either side.
+         */
+        pageDocs.push(stripLocalOnly(doc));
         count++;
         if ((doc as MemoryDoc).seq > maxSeq) maxSeq = (doc as MemoryDoc).seq;
         if ((doc as MemoryDoc).seq > highSeq && (doc as MemoryDoc).author?.instanceId === member.instanceId) {

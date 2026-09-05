@@ -759,9 +759,17 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
-  // `crossSpace` is deprecated here but still ALLOWED, so this refusal does not break the callers we told to stop
-  // using it before we have removed it. Refusing a key we still accept elsewhere would be a worse contract than the
-  // permissive body it replaces.
+  // `crossSpace` is ALLOWED here, permanently, so this refusal does not reject a body that is correct.
+  //
+  // THIS COMMENT SAID "deprecated … before we have removed it", WHICH POINTED THE NEXT READER AT A CHANGE
+  // THAT MUST NOT HAPPEN. On this route the space arrives in the PATH, so *"omit the space"* — the idiomatic
+  // MCP form — cannot be expressed. `crossSpace: true` is REST's only route to a cross-space find_similar,
+  // and removing it turns the MCP/REST parity gate's `find-similar ↔ find_similar` case red. The tool's own
+  // schema description was corrected to say "Not slated for removal" precisely so that a caller does not
+  // build around an absence that will never arrive; this comment kept the sentence that correction removed.
+  //
+  // Refusing a key we still accept elsewhere would in any case be a worse contract than the permissive body
+  // it replaces.
   const badSimilar = unknownBodyFields(body, FIND_SIMILAR_BODY_FIELDS);
   if (badSimilar) { res.status(400).json(badSimilar); return; }
   const entryId = typeof body['entryId'] === 'string' ? body['entryId'].trim() : '';
@@ -833,7 +841,10 @@ searchRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpace
   // Determine cross-space search scope
   let crossSpaceIds: string[] | undefined;
   if (crossSpace) {
-    // The MATRIX decides the cross-space set, with the legacy allowlist only as a fallback.
+    // THE MATRIX DECIDES THE CROSS-SPACE SET. There is no fallback, and this line said there was one —
+    // *"with the legacy allowlist only as a fallback"* — directly above the paragraph explaining that the
+    // allowlist read was the defect and is gone. `spacesWhereTokenMay` returns `[]` for a record with no
+    // matrix, deliberately.
     //
     // This read the allowlist alone, and `spaces` is `undefined` on every token minted since the matrix —
     // the rights editor writes `rights.perSpace` and nothing writes that array. So `!tokenSpaces` was true

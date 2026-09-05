@@ -638,7 +638,11 @@ export function peerMemberNetworks(peerInstanceId: string) {
 }
 
 /**
- * Does this token's own scope reach `spaceId`? The matrix first, the legacy allowlist only as a fallback.
+ * Does this token's own scope reach `spaceId`? **The matrix, and nothing else** — no matrix, no reach.
+ *
+ * This line read *"the matrix first, the legacy allowlist only as a fallback"* while the section further
+ * down explained that the fallback is gone. One docblock, two answers, and the summary is the half a reader
+ * skimming for the shape of the function actually takes away.
  *
  * ## This closes a hole, it does not tidy one
  *

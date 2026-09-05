@@ -553,8 +553,13 @@ export function createApp() {
   // gossip; the new public key propagates on the next sync cycle. Requires an
   // unrestricted admin token (+ TOTP when MFA is enabled).
   app.post('/api/admin/rotate-signing-key', globalRateLimit, requireAdminMfa, async (req, res) => {
-    // "Unrestricted" from the MATRIX, with the legacy allowlist only as a fallback — `editorScopeFor`
-    // returns `undefined` for a token that reaches everything and a list for one that does not.
+    // "Unrestricted" FROM THE MATRIX, and from nothing else — `editorScopeFor` returns `undefined` for a
+    // token that reaches everything and a list for one that does not, and `[]` for a token with no matrix
+    // at all.
+    //
+    // This line said *"with the legacy allowlist only as a fallback"*, directly above the paragraph
+    // explaining that reading the allowlist WAS the defect. There is no fallback: it was removed with the
+    // rest of them, and the same sentence had to be corrected on `api/brain/search.ts` in the same sweep.
     //
     // This tested `req.authToken?.spaces` for truthiness, and that array is `undefined` on every token
     // minted since the matrix. So a space-restricted administrator whose scope lives in `rights` read as

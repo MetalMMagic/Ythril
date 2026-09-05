@@ -672,9 +672,13 @@ export function requireAdminMfaScoped(paramName: string) {
  *
  * ## The instance-admin path is unchanged
  *
- * Byte for byte the old order — MFA, then the legacy allowlist, then the area rungs. A token that passes today
- * passes identically, which is what keeps this a widening at one named door rather than a rewrite of the
- * guard every admin route shares.
+ * Byte for byte the old order — MFA, then the space-reach check, then the area rungs. A token that passes
+ * today passes identically, which is what keeps this a widening at one named door rather than a rewrite of
+ * the guard every admin route shares.
+ *
+ * (It said *"then the legacy allowlist"*. The ORDER is unchanged; what that step reads is not — it has been
+ * the rights matrix since 4.0 removed the allowlist, and calling it by the old name is how a reader
+ * concludes there is still a fallback to find.)
  */
 export function requireAdminOrSpaceAdminMfaScoped(paramName: string) {
   return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -694,8 +698,8 @@ export function requireAdminOrSpaceAdminMfaScoped(paramName: string) {
 
     if (!enforceMfa(req, res, bearer, record)) return;
     // Only meaningful on the instance-admin path: a space administrator was admitted by the space id itself,
-    // so the allowlist has nothing left to narrow. Run unconditionally anyway — a guard that is skipped for
-    // one class of caller is the shape of every "one rule, two implementations" defect in this repo.
+    // so the reach check has nothing left to narrow. Run unconditionally anyway — a guard that is skipped
+    // for one class of caller is the shape of every "one rule, two implementations" defect in this repo.
     if (!enforceSpaceScope(res, record, spaceId)) return;
     if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
 

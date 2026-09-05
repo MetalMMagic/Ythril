@@ -115,10 +115,22 @@ const FROZEN = {
   // `applyFileMetaPage` lives in `api/sync/_shared.ts` beside the push path's `ingestFileMeta`, so the two
   // directions share one implementation instead of this file holding a second.
   //
-  // **DECOMPOSE: A-12 — the six families are written out TWICE in this file**, once as `pullType` calls
-  // with their result plumbing and once as `pushCollection` calls, so a seventh is six edits. A table of
-  // `{ collection, payloadKey, extraFilter }` iterated by both halves is the shape, and it is a real
-  // refactor of the cycle rather than a tidy-up.
+  // NO DECOMPOSITION: PAID. This raise owed `A-12`, and it has shipped — so the marker is the settled form
+  // the three raises above use, not an annotated live one.
+  //
+  // The six families were written out TWICE in this file, once as `pullType` calls with their
+  // result plumbing and once as `pushCollection` calls, so a seventh was six edits. The shape it asked for
+  // — a table of `{ collection, payloadKey, extraFilter }` iterated by both halves — shipped as
+  // `sync/replicated-families.ts`, OUTSIDE this file, because a refactor that made the engine bigger would
+  // have charged the raise a second time.
+  //
+  // **Do not write the OPEN marker keyword here in order to retract it.** `todo-consistency.mjs` reads that
+  // keyword as a claim that the task is still owed and checks its id against the queue — it cannot tell a
+  // live marker from one being quoted to say it is finished, so quoting it re-arms a settled debt and then
+  // fails against a task that has correctly LEFT the queue. Written the wrong way round first, and both
+  // gates said so in turn: the open keyword failed `todo:check`, and dropping every marker failed the
+  // "every raise is answered" case here. The settled form answers one and is invisible to the other, which
+  // is why it exists; the account of what the debt cost belongs in prose beside it.
   //
   // RAISED 975 -> 979 for `Q-2`, and the four lines ARE the fix. Each direction now builds its transfer
   // set once, as a named object, because the alternative was what was there: the set inline in one
@@ -128,8 +140,8 @@ const FROZEN = {
   // — omitted it too.
   //
   // Reclaimed seven of the eleven by formatting and by moving the whole-file transfer budget into
-  // `peer-fetch.ts`, where the file that owns each budget's meaning can hold the rule. `A-12` is what
-  // pays the rest back: it deletes both enumerations rather than shortening them.
+  // `peer-fetch.ts`, where the file that owns each budget's meaning can hold the rule. The rest was paid
+  // back by the decomposition above, which deleted both enumerations rather than shortening them.
   //
   // RAISED 979 -> 984 for `N-1`, the peer version floor. Five lines: the import, one call to
   // `assertPeerAtFloor`, our version on the outbound self-record, and storing the version a peer
@@ -137,8 +149,8 @@ const FROZEN = {
   // `sync/peer-floor.ts` — this file holds only the two lines that say WHERE in the cycle the floor
   // applies, which is a fact about the cycle and cannot move out of it.
   //
-  // `A-12` still pays it back and pays back more than this: it deletes both six-family enumerations
-  // rather than shortening them.
+  // Paid back by the decomposition above, which deleted both six-family enumerations rather than
+  // shortening them.
   //
   // 984 -> 986 with the same PR, after CI refused the first rule: the two lines are the
   // `versionCheckedAt` stamp and its `changed` flag, written on the exchange whether or not a version

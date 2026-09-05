@@ -15,13 +15,14 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
+import { NetworkMemberRowComponent } from './network-member-row.component';
 import { NetworkCreateDialogComponent } from './network-create-dialog.component';
 import { NetworkJoinDialogComponent } from './network-join-dialog.component';
 import { NetworkEnableWizardComponent } from './network-enable-wizard.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, ErrorStateComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, ErrorStateComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent, NetworkMemberRowComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -54,35 +55,15 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
       border-top: 1px solid var(--border-muted);
     }
 
-    .member-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border-muted);
-      font-size: 13px;
-      flex-wrap: wrap; /* narrow iframe: the endpoint URL + delete wrap to the next line, never overflow */
-    }
-    /* The peer endpoint can be a long URL — let it shrink and ellipsize instead of pushing the row wide. */
-    .member-endpoint {
-      flex: 1 1 160px;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .member-row:last-child { border-bottom: none; }
-    .member-sync { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-    .member-failing {
-      display: inline-flex; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap;
-      padding: 1px 7px; border-radius: 10px; color: var(--error);
-      background: color-mix(in srgb, var(--error) 12%, transparent);
-      border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-    }
-
+    /*
+     * The member-row, member-endpoint, member-sync and member-failing rules moved to
+     * network-member-row.component.ts with the markup that used them (N-2). No backticks in this
+     * comment: it lives inside a template literal, which one would terminate.
+     *
+     * Kept as a note because leaving them here is the failure that looks like nothing: the child renders
+     * correctly from its own styles while the parent carries dead rules for markup it no longer holds,
+     * and the next person to touch either copy has two.
+     */
     .vote-row {
       display: flex;
       align-items: center;
@@ -288,39 +269,11 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
               <!-- Members -->
               <div class="section-title">{{ 'networks.network.members.title' | transloco }}</div>
               @for (m of net.members; track m.instanceId) {
-                <div class="member-row">
-                  <span class="mono badge badge-gray" style="font-size:11px;">{{ m.instanceId.slice(0, 8) }}</span>
-                  <span style="font-weight:500; flex:1;">{{ m.label }}</span>
-                  <span class="badge badge-gray">{{ m.syncDirection ?? 'both' }}</span>
-                  <!-- Sync health at a glance: last successful sync + a failing badge when a run streak is failing. -->
-                  <!-- Without this, a peer refused on version grounds is indistinguishable from a
-                       brand-new one: no failure streak (never dialled) and no timestamp. -->
-                  @if (m.belowFloor) {
-                    <span class="member-failing" [attr.title]="m.belowFloor">
-                      <ph-icon name="warning" [size]="11"/> {{ 'networks.member.belowFloor' | transloco }}
-                    </span>
-                  }
-                  @if (m.consecutiveFailures) {
-                    <span class="member-failing" [attr.title]="'networks.member.failingTitle' | transloco: { count: m.consecutiveFailures }">
-                      <ph-icon name="warning" [size]="11"/> {{ 'networks.member.failing' | transloco: { count: m.consecutiveFailures } }}
-                    </span>
-                  }
-                  <span class="member-sync" [attr.title]="m.lastSyncAt ? (m.lastSyncAt | date:'dd.MM.yyyy HH:mm') : ''">
-                    @if (m.lastSyncAt) { {{ 'networks.member.synced' | transloco }} {{ m.lastSyncAt | date:'dd.MM.yyyy HH:mm' }} }
-                    @else { {{ 'networks.member.neverSynced' | transloco }} }
-                  </span>
-                  <a class="member-endpoint" [href]="m.endpoint" target="_blank" rel="noopener" [attr.title]="m.endpoint">{{ m.endpoint }}</a>
-                  <button
-                    class="btn-danger btn btn-sm"
-                    style="padding:2px 8px;"
-                    [disabled]="removingMember[net.id + ':' + m.instanceId]"
-                    (click)="removeMember(net, m.instanceId, m.label)"
-                    [attr.title]="'networks.network.members.removeTitle' | transloco"
-                    [attr.aria-label]="'networks.network.members.removeAriaLabel' | transloco"
-                  ><ph-icon name="x" [size]="14"/></button>
-                </div>
+                <app-network-member-row
+                  [member]="m"
+                  [removing]="!!removingMember[net.id + ':' + m.instanceId]"
+                  (remove)="removeMember(net, m.instanceId, m.label)" />
               }
-
               <!-- Open votes -->
               @if (openVotes(net.id).length > 0) {
                 <div style="margin-top:16px;">

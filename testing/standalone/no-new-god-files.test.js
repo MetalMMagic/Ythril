@@ -432,11 +432,21 @@ const FROZEN = {
   // what a brand-new member looks like, so without this row an operator cannot tell them apart from
   // this page at all.
   //
-  // DECOMPOSE: N-2 — the member row is the fourth thing in this template that is really its own
-  // component (the network card, the vote list and the invite panel are the others). A
-  // `network-member-row` component takes this block, the failure badge and the endpoint link out
-  // together, and the page keeps the network-level state it actually owns.
-  'client/src/app/pages/settings/networks.component.ts': 650,
+  // DECOMPOSED: the member row left as `network-member-row.component.ts`,
+  // taking the failure badge, the endpoint link and its four style rules with it. The page keeps the
+  // network-level state it actually owns.
+  //
+  // Three things in this template are still really their own components — the network card, the vote
+  // list and the invite panel. None of them is owed by a raise, so none is queued; the next raise here
+  // has three obvious candidates rather than needing one found.
+  //
+  // 650 -> 598 with `N-2`, which is the raise PAID BACK rather than merely fitted under. The member row
+  // is its own component now, and it was the right thing to take out: every new per-member FACT lands in
+  // that markup — the peer-floor badge was the second in a year — so the growth was structural.
+  //
+  // LOWERED rather than left at 650. A frozen number above the real size is that many lines the file can
+  // regrow into with the gate saying nothing, which is how a decomposition gets spent twice.
+  'client/src/app/pages/settings/networks.component.ts': 598,
   // FIRST entry for this file: RAISED 650 -> 662 for the re-key branch in `updateEdgeById` — the If-Match
   // check that `writeFilterFor` cannot make on a path with no `findOneAndUpdate`, the call, the deleteFields
   // replay onto the moved document, and the metric.
@@ -640,6 +650,14 @@ describe('a raise owes a decomposition task', () => {
    *   - `NO DECOMPOSITION: <reason>` — for a file where splitting is not the answer. A type file grows with
    *     the domain and a `.strict()` schema grows with its own contract; demanding a refactor task there
    *     would be make-work, and make-work in a queue is what stops a queue being read.
+   *   - `DECOMPOSED: <what left>` — the raise is PAID: the split happened and the frozen number is back at or
+   *     below where the file stood before the raise. This is the state the first two could not express, and
+   *     writing `NO DECOMPOSITION` here instead would record the opposite of what happened.
+   *
+   * **The third one is CHECKED, which the other two cannot be.** `DECOMPOSED` names a number, so the gate
+   * verifies it against the frozen size rather than believing the word — claimed while the file is still
+   * above its pre-raise size, it is a raise wearing the marker that retires raises, and that is the one way
+   * this convention could be used to launder a permanent increase.
    *
    * The reason costs something: it lands in a diff a person reads, next to the number it excuses.
    */
@@ -651,12 +669,21 @@ describe('a raise owes a decomposition task', () => {
     let block = [];
     for (const line of lines) {
       if (/^\s*\/\//.test(line)) { block.push(line); continue; }
-      const entry = /^\s*'([^']+)':\s*\d+,/.exec(line);
+      const entry = /^\s*'([^']+)':\s*(\d+),/.exec(line);
       if (entry) {
         const text = block.join('\n');
-        const raises = (text.match(/RAISED\s+\d+\s*->\s*\d+/g) ?? []).length;
-        if (raises > 0 && !/DECOMPOSE:\s*\S|NO DECOMPOSITION:\s*\S/.test(text)) {
-          unanswered.push(`${entry[1]} — ${raises} raise(s), no DECOMPOSE or NO DECOMPOSITION marker`);
+        const raises = [...text.matchAll(/RAISED\s+(\d+)\s*->\s*\d+/g)].map((m) => Number(m[1]));
+        const paid = /DECOMPOSED:\s*\S/.test(text);
+        if (raises.length > 0 && !paid && !/DECOMPOSE:\s*\S|NO DECOMPOSITION:\s*\S/.test(text)) {
+          unanswered.push(`${entry[1]} — ${raises.length} raise(s), no DECOMPOSE, DECOMPOSED or NO DECOMPOSITION marker`);
+        }
+        // A paid raise is the only marker with a number behind it, so it is the only one that can be false.
+        if (paid && raises.length > 0) {
+          const before = Math.min(...raises);
+          if (Number(entry[2]) > before) {
+            unanswered.push(`${entry[1]} — DECOMPOSED claimed, but it is frozen at ${entry[2]}, above the `
+              + `${before} it stood at before the raise. The split did not pay the raise back.`);
+          }
         }
       }
       block = [];

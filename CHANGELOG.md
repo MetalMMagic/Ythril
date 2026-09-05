@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The benchmark folder now publishes a measured number instead of only a method** (`B-1`). It held a
+  protocol written before any result existed, a good deal of careful method, and no figure anywhere — every
+  section in the future tense.
+
+  What is published is the one tier that has been run: **evidence recall, with no model anywhere in the loop**.
+  For each question the benchmark knows which turns the reference answer cites, runs a search, and asks
+  whether those turns came back. Three ways of turning a conversation into records score 66.8%, 65.3% and
+  66.3%, all returning the same number of records so they can be read against each other.
+
+  **It is deliberately not the number other systems quote.** Those are usually end-to-end answering — did the
+  system get the question right — and this is only whether the evidence was retrieved. Quoting one against the
+  other would compare two different measurements, so the tier is named everywhere the figure appears, and the
+  caveats are the ones the run's own report insists on: recall is not accuracy, a miss is not necessarily a
+  failure because the same fact is often said elsewhere, and a search that returns everything scores perfectly
+  while being useless.
+
+  **Nothing was tuned to produce it**, and that is stated in the file. The commit it was measured at is named,
+  along with the three changes to the search path since — none of which touches the settings it ran under.
+
 ## [4.0.0] — 2026-09-05
 
 ### Added

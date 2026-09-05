@@ -138,6 +138,42 @@ function stripServerOwnedToken(body: unknown): unknown {
 }
 
 /**
+ * The rights matrix, as either door accepts it. ONE declaration, used by the mint route and the edit
+ * route — it was written out twice, identically, and `CLAUDE.md` names one rule with two
+ * implementations as the defect this repo produces most.
+ *
+ * **`perSpace` IS CAPPED, and the cap is why this was extracted now.** The `spaces` array it replaces
+ * carried `.max(1000)`. Removing that array in 4.0 (`D-5`) would have taken the size protection with it:
+ * `z.record` accepts a hundred thousand keys as readily as one, and each is stored on the token record
+ * and walked on every scope decision.
+ *
+ * The number is the one the array had, deliberately — this is the same limit expressed against the field
+ * that now carries scope, not a new policy arriving under cover of a refactor.
+ *
+ * **The space id is `.min(1)` for the same reason.** `spaces` was `z.array(z.string().min(1))`, so an
+ * empty id was refused; `z.record(z.string(), …)` accepts `''` as a key, which is a grant to a space that
+ * cannot exist. Two protections were riding on the array's element schema and both would have been lost
+ * silently by removing it.
+ *
+ * Both were found by red-team cases whose SUBJECT had moved out from under them — each asserts a 400,
+ * and a removed field answers 400 too, so each would have gone on passing while the thing it guarded
+ * disappeared. That is the shape to watch when a field is retired: a test on its validation keeps
+ * passing on the refusal that replaced it.
+ *
+ * The array-bomb red-team case is what surfaced it, and it would have passed either way: it asserts a
+ * `400` for 1001 spaces, and a removed field answers `400` too. A test that keeps passing while its
+ * subject disappears is the reason that case now names the matrix.
+ */
+const MAX_SCOPED_SPACES = 1000;
+const RightsMatrix = z.object({
+  instanceAdmin: z.boolean(),
+  createSpaces: z.boolean(),
+  floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
+  perSpace: z.record(z.string().min(1), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)))
+    .refine(m => Object.keys(m).length <= MAX_SCOPED_SPACES,
+      { message: `perSpace may name at most ${MAX_SCOPED_SPACES} spaces` }),
+}).strict();
+/**
  * `.strict()`, and it is the most important word in this file.
  *
  * Zod drops unknown keys by default, so `{ spaceIds: ['qa'] }` minted a token with NO `spaces` field and
@@ -187,12 +223,7 @@ const CreateTokenBody = z.object({
    * Mutually exclusive with `spaces` / `admin` / `readOnly` — see the refusal below. Accepting both would
    * put two descriptions of the same thing in one request, and the loser would be silent.
    */
-  rights: z.object({
-    instanceAdmin: z.boolean(),
-    createSpaces: z.boolean(),
-    floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
-    perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
-  }).strict().optional(),
+  rights: RightsMatrix.optional(),
 }).strict();
 
 /**
@@ -458,12 +489,7 @@ const RenameTokenBody = z.object({
   //
   // `rights` is now a legitimate field, and `name` is optional so an edit can change either or both. The
   // refine below keeps an empty body from being a silent no-op reported as success.
-  rights: z.object({
-    instanceAdmin: z.boolean(),
-    createSpaces: z.boolean(),
-    floor: z.record(z.enum(SPACE_AREAS), z.enum(RUNGS)).nullable(),
-    perSpace: z.record(z.string(), z.record(z.enum(SPACE_AREAS), z.enum(RUNGS))),
-  }).strict().optional(),
+  rights: RightsMatrix.optional(),
   /**
    * This token's relationship to the second factor — editable HERE and nowhere else.
    *

@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, delWithBody } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -62,11 +63,11 @@ describe('H1 — MCP proxy space cannot exceed member-space token scope', () => 
     const p = await post(INSTANCES.a, adminToken, '/api/spaces', { id: proxyId, label: 'Esc Proxy', proxyFor: [spaceA, spaceB] });
     assert.equal(p.status, 201, `create proxy: ${JSON.stringify(p.body)}`);
 
-    const t1 = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-proxy-only-${RUN}`, spaces: [proxyId] });
+    const t1 = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-proxy-only-${RUN}`, rights: legacyRights({ spaces: [proxyId] })});
     assert.equal(t1.status, 201, JSON.stringify(t1.body));
     proxyOnlyToken = t1.body.plaintext; tokenIds.push(t1.body.token.id);
 
-    const t2 = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-full-${RUN}`, spaces: [proxyId, spaceA, spaceB] });
+    const t2 = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-full-${RUN}`, rights: legacyRights({ spaces: [proxyId, spaceA, spaceB] })});
     assert.equal(t2.status, 201, JSON.stringify(t2.body));
     fullToken = t2.body.plaintext; tokenIds.push(t2.body.token.id);
   });
@@ -99,7 +100,7 @@ describe('H3 — space-restricted admin cannot mint a broader token', () => {
 
   before(async () => {
     // A space-restricted admin token (admin over 'general' only).
-    const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-restricted-admin-${RUN}`, admin: true, spaces: ['general'] });
+    const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `esc-restricted-admin-${RUN}`, rights: legacyRights({ admin: true, spaces: ['general'] })});
     assert.equal(t.status, 201, JSON.stringify(t.body));
     restrictedAdmin = t.body.plaintext; tokenIds.push(t.body.token.id);
   });
@@ -109,19 +110,19 @@ describe('H3 — space-restricted admin cannot mint a broader token', () => {
   });
 
   it('cannot mint an unrestricted (all-spaces) token', async () => {
-    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-escalate-all-${RUN}`, admin: true });
+    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-escalate-all-${RUN}`, rights: legacyRights({ admin: true })});
     if (r.status === 201 && r.body?.token?.id) tokenIds.push(r.body.token.id); // clean up if it slipped through
     assert.equal(r.status, 403, `VULNERABILITY: restricted admin minted an all-spaces token (got ${r.status}: ${JSON.stringify(r.body)})`);
   });
 
   it('cannot mint a token scoped to a space outside its own allow-list', async () => {
-    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-escalate-other-${RUN}`, spaces: ['esc-outside-scope'] });
+    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-escalate-other-${RUN}`, rights: legacyRights({ spaces: ['esc-outside-scope'] })});
     if (r.status === 201 && r.body?.token?.id) tokenIds.push(r.body.token.id);
     assert.equal(r.status, 403, `VULNERABILITY: restricted admin granted access outside its scope (got ${r.status}: ${JSON.stringify(r.body)})`);
   });
 
   it('CAN mint a token scoped to a subset of its own spaces (control)', async () => {
-    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-subset-${RUN}`, spaces: ['general'] });
+    const r = await post(INSTANCES.a, restrictedAdmin, '/api/tokens', { name: `esc-subset-${RUN}`, rights: legacyRights({ spaces: ['general'] })});
     assert.equal(r.status, 201, `Regression: restricted admin could not mint an in-scope token: ${JSON.stringify(r.body)}`);
     if (r.body?.token?.id) tokenIds.push(r.body.token.id);
   });

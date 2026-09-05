@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -42,7 +43,7 @@ describe('Space-scoped token cannot access sync endpoints of other spaces', () =
     // Create a token scoped ONLY to "general"
     const tokRes = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: 'sync-scope-bypass-test ' + Date.now(),
-      spaces: ['general'],
+      rights: legacyRights({ spaces: ['general'] })
     });
     assert.equal(tokRes.status, 201, `Failed to create scoped token: ${JSON.stringify(tokRes.body)}`);
     scopedToken = tokRes.body.plaintext;

@@ -32,7 +32,9 @@ const code = withoutComments(src);
 
 describe('minting with a rights matrix', () => {
   it('the create body accepts `rights`', () => {
-    assert.match(code, /rights:\s*z\.object\(/, 'a rights matrix cannot be set on mint, so nothing can use it');
+    // Through the shared `RightsMatrix` since `D-5`. It was declared inline here and again on the edit
+    // body — one shape, two copies, which is how a protection reaches one door and not the other.
+    assert.match(code, /rights: RightsMatrix/, 'a rights matrix cannot be set on mint, so nothing can use it');
   });
 
   it('the rights object is itself strict', () => {
@@ -45,13 +47,20 @@ describe('minting with a rights matrix', () => {
      * exactly the defect this file is about, so checking one of the two routes was checking the wrong half as
      * often as the right one.
      */
-    const nested = [...code.matchAll(/rights: z\.object\(/g)];
-    assert.ok(nested.length >= 2,
-      `expected the create and update bodies to both declare a nested rights object, found ${nested.length}`);
-    for (const m of nested) {
-      assert.match(statementFrom(code, m.index, 'the nested rights schema'), /\}\)\.strict\(\)/,
-        'a nested rights object accepts unknown keys, so a mis-spelled area mints less than was asked for');
-    }
+    /*
+     * ONE declaration now, and checking it checks both doors — which is what the note above was reaching
+     * for by counting to two. `D-5` extracted `RightsMatrix`; both bodies reference it, and
+     * `minting-and-editing-share-one-scope-rule` refuses a second declaration, so this cannot quietly go
+     * back to being two shapes.
+     */
+    const at = code.indexOf('const RightsMatrix');
+    assert.ok(at > 0, 'RightsMatrix is gone — re-point this gate');
+    const matrix = code.slice(at, code.indexOf('}).strict()', at) + 11);
+    assert.match(matrix, /\}\)\.strict\(\)/,
+      'the rights object accepts unknown keys, so a mis-spelled area mints less than was asked for');
+    const users = [...code.matchAll(/rights: RightsMatrix/g)].length;
+    assert.ok(users >= 2,
+      `expected the create and update bodies to both use RightsMatrix, found ${users}`);
   });
 
   it('refuses the legacy fields outright, rather than only alongside `rights`', () => {

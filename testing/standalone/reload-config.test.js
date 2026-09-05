@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -118,7 +119,7 @@ describe('POST /api/admin/reload-config — authentication', () => {
   });
 
   it('returns 403 for a read-only token', async () => {
-    const created = await post(INSTANCES.a, token, '/api/tokens', { name: `readonly-reload-${Date.now()}`, readOnly: true });
+    const created = await post(INSTANCES.a, token, '/api/tokens', { name: `readonly-reload-${Date.now()}`, rights: legacyRights({ readOnly: true })});
     assert.equal(created.status, 201, `Create read-only token: ${JSON.stringify(created.body)}`);
     const roToken = created.body.plaintext;
     const roTokenId = created.body.token?.id;

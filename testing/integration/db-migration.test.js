@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, get, post, del, reqJson } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -140,7 +141,7 @@ describe('Data Config — GET /api/admin/data/config', () => {
 
   it('returns 403 for non-admin token', async () => {
     // Create a standard token, use it, then revoke it
-    const createR = await adminPost('/api/tokens', { name: `data-config-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `data-config-nonAdmin-${RUN_ID}`});
     assert.equal(createR.status, 201, JSON.stringify(createR.body));
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
@@ -190,7 +191,7 @@ describe('Connection Test — POST /api/admin/data/config/test', () => {
   });
 
   it('returns 403 for non-admin token', async () => {
-    const createR = await adminPost('/api/tokens', { name: `conn-test-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `conn-test-nonAdmin-${RUN_ID}`});
     assert.equal(createR.status, 201);
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
@@ -280,7 +281,7 @@ describe('Maintenance Mode', () => {
   });
 
   it('returns 403 for non-admin trying to toggle maintenance', async () => {
-    const createR = await adminPost('/api/tokens', { name: `maint-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `maint-nonAdmin-${RUN_ID}`});
     assert.equal(createR.status, 201);
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
@@ -318,7 +319,7 @@ describe('Manual Backup — POST /api/admin/data/backup', () => {
   });
 
   it('returns 403 for non-admin', async () => {
-    const createR = await adminPost('/api/tokens', { name: `backup-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `backup-nonAdmin-${RUN_ID}`});
     assert.equal(createR.status, 201);
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
@@ -358,7 +359,7 @@ describe('Backups list — GET /api/admin/data/backups', () => {
   });
 
   it('returns 403 for non-admin', async () => {
-    const createR = await adminPost('/api/tokens', { name: `backups-list-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `backups-list-nonAdmin-${RUN_ID}`});
     assert.equal(createR.status, 201);
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
@@ -428,7 +429,7 @@ describe('Backup + Restore — round-trip', () => {
     const backupR = await adminPost('/api/admin/data/backup', {});
     const backupId = backupR.body.backup?.id;
 
-    const createR = await adminPost('/api/tokens', { name: `restore-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `restore-nonAdmin-${RUN_ID}`});
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
 
@@ -453,7 +454,7 @@ describe('Migration — POST /api/admin/data/migrate (auth + validation)', () =>
   });
 
   it('returns 403 for non-admin', async () => {
-    const createR = await adminPost('/api/tokens', { name: `migrate-nonAdmin-${RUN_ID}`, admin: false });
+    const createR = await adminPost('/api/tokens', { name: `migrate-nonAdmin-${RUN_ID}`});
     const stdToken = createR.body.plaintext;
     const tokenId  = createR.body.token.id;
 

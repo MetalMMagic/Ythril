@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, delWithBody, reqJson } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -138,7 +139,7 @@ describe('Space wipe — full wipe', () => {
     // 401 — so it would still pass if the ADMIN gate were removed (a valid non-admin token
     // would then wipe the space). Use a real, valid, non-admin token so the 403 proves the
     // admin gate itself, not merely "unauthenticated is rejected".
-    const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `wipe-nonadmin-${RUN_ID}`, admin: false });
+    const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `wipe-nonadmin-${RUN_ID}`});
     assert.equal(t.status, 201, JSON.stringify(t.body));
     const nonAdmin = t.body.plaintext;
     try {
@@ -164,7 +165,8 @@ describe('Space wipe — full wipe', () => {
     }
 
     const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
-      name: `scoped-admin-${RUN_ID}`, admin: true, spaces: [inScope],
+      name: `scoped-admin-${RUN_ID}`,
+      rights: legacyRights({ admin: true, spaces: [inScope] })
     });
     assert.equal(t.status, 201, JSON.stringify(t.body));
     const scopedAdmin = t.body.plaintext;

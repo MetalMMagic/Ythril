@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, delWithBody } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -59,7 +60,7 @@ before(async () => {
     assert.equal(r.status, 201, `space create failed: ${JSON.stringify(r.body)}`);
   }
 
-  const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `scope-probe-${RUN}`, spaces: [ALLOWED] });
+  const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `scope-probe-${RUN}`, rights: legacyRights({ spaces: [ALLOWED] })});
   assert.equal(t.status, 201, `token mint failed: ${JSON.stringify(t.body)}`);
   scopedToken = t.body.plaintext;
   scopedTokenId = t.body.token.id;

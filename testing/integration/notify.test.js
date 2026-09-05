@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, waitFor } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -207,7 +208,7 @@ describe('Notify channel', () => {
     // so it must not be able to impersonate a remote peer.
     const createR = await post(INSTANCES.a, token, '/api/tokens', {
       name: `notify-non-admin-${Date.now()}`,
-      spaces: ['general'],
+      rights: legacyRights({ spaces: ['general'] })
     });
     assert.equal(createR.status, 201, `Create token failed: ${JSON.stringify(createR.body)}`);
     const nonAdminToken = createR.body.plaintext;

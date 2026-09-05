@@ -34,6 +34,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, patch, put, del, reqJson } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -770,7 +771,7 @@ describe('PATCH /api/schema-library/:name/publish — publish toggle', () => {
 
   it('PATCH publish requires admin token — rejects non-admin', async () => {
     // Create a non-admin token
-    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-pub-${RUN}`, admin: false });
+    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-pub-${RUN}`});
     assert.equal(createR.status, 201, JSON.stringify(createR.body));
     const nonAdminToken = createR.body.plaintext;
     const r = await patch(INSTANCES.a, nonAdminToken, `/api/schema-library/${encodeURIComponent(pubName)}/publish`, { published: true });
@@ -875,7 +876,7 @@ describe('Foreign catalogs — CRUD and proxy endpoints', () => {
   });
 
   it('POST /catalogs requires admin token', async () => {
-    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-cat-${RUN}`, admin: false });
+    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-cat-${RUN}`});
     assert.equal(createR.status, 201);
     const nonAdminToken = createR.body.plaintext;
     const r = await post(INSTANCES.a, nonAdminToken, '/api/schema-library/catalogs', {
@@ -940,7 +941,7 @@ describe('Library access tokens', () => {
     const r = await post(INSTANCES.a, token(), '/api/tokens', {
       name: `lib-admin-${RUN}`,
       schemaLibrary: true,
-      admin: true,
+      rights: legacyRights({ admin: true })
     });
     assert.equal(r.status, 400, `Expected 400 for schemaLibrary+admin combo, got ${r.status}`);
   });
@@ -949,7 +950,7 @@ describe('Library access tokens', () => {
     const r = await post(INSTANCES.a, token(), '/api/tokens', {
       name: `lib-spaces-${RUN}`,
       schemaLibrary: true,
-      spaces: ['some-space'],
+      rights: legacyRights({ spaces: ['some-space'] })
     });
     assert.equal(r.status, 400, `Expected 400 for schemaLibrary+spaces combo, got ${r.status}`);
   });

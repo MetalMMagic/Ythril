@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -63,7 +64,7 @@ describe('Space rename — authentication and authorisation', () => {
     // Read-only token
     const ro = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: 'rt-rename-readonly-' + Date.now(),
-      readOnly: true,
+      rights: legacyRights({ readOnly: true })
     });
     assert.equal(ro.status, 201, `Failed to create read-only token: ${JSON.stringify(ro.body)}`);
     readOnlyToken = ro.body.plaintext;

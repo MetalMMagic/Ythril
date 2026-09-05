@@ -40,6 +40,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, patch, delWithBody } from '../sync/helpers.js';
 import { openMcpSession } from '../sync/mcp-session.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -679,7 +680,7 @@ describe('MCP recall_global — space-scoped token must only see its own spaces'
     // access to spaces is enforced at the tool-call level.
     const tokenRes = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: `scoped-no-access-${Date.now()}`,
-      spaces: ['__nonexistent_space__'],
+      rights: legacyRights({ spaces: ['__nonexistent_space__'] })
     });
     assert.equal(tokenRes.status, 201, `Create scoped token: ${JSON.stringify(tokenRes.body)}`);
     scopedTokenPlaintext = tokenRes.body.plaintext;
@@ -1042,7 +1043,7 @@ describe('MCP security � read-only token cannot call mutating tools', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     const tokenRes = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: `readonly-mcp-test-${Date.now()}`,
-      readOnly: true,
+      rights: legacyRights({ readOnly: true })
     });
     assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
     readOnlyTokenPlaintext = tokenRes.body.plaintext;
@@ -1424,7 +1425,7 @@ describe('MCP security � read-only token cannot call bulk_write', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     const tokenRes = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: `readonly-bulk-${Date.now()}`,
-      readOnly: true,
+      rights: legacyRights({ readOnly: true })
     });
     assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
     readOnlyTokenPlaintext = tokenRes.body.plaintext;

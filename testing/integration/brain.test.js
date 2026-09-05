@@ -20,6 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, delWithBody, patch } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -2274,7 +2275,7 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
     // Create a read-only token
     const tokenRes = await post(INSTANCES.a, token(), '/api/tokens', {
       name: `readonly-rest-${RUN}`,
-      readOnly: true,
+      rights: legacyRights({ readOnly: true })
     });
     assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
     readOnlyToken = tokenRes.body.plaintext;

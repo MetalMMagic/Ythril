@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, del } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -46,7 +47,7 @@ before(async () => {
   // the shape every escalation below used, and it is the commonest token an instance hands out.
   const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
     name: `relay-escalation-${RUN}`,
-    spaces: ['general'],
+    rights: legacyRights({ spaces: ['general'] })
   });
   assert.equal(t.status, 201, JSON.stringify(t.body));
   plainWriteToken = t.body.plaintext;

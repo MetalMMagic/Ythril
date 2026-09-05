@@ -97,6 +97,55 @@ describe('one scope rule, used by every route that applies it', () => {
   });
 });
 
+describe('the matrix carries the protections the removed array had', () => {
+  /*
+   * TWO PROTECTIONS WERE RIDING ON `spaces: z.array(z.string().min(1)).max(1000)` and both would have
+   * been lost by deleting it — silently, because the field that replaces it is a `z.record`, which caps
+   * nothing and accepts any string as a key.
+   *
+   * Neither was found by reading the diff. Both were found by red-team cases whose SUBJECT had moved out
+   * from under them: each asserts a 400, and a removed field answers 400 too, so each went on passing
+   * while the thing it guarded disappeared. **That is the shape to watch whenever a field is retired —
+   * a test on its validation keeps passing on the refusal that replaced it.**
+   */
+  it('a size cap, the same one the array carried', () => {
+    const src = code(TOKENS);
+    const at = src.indexOf('const RightsMatrix');
+    assert.ok(at > 0, 'RightsMatrix is gone — re-point this gate');
+    const decl = src.slice(at, src.indexOf('}).strict()', at));
+    assert.match(decl, /MAX_SCOPED_SPACES/,
+      'perSpace has no size cap, so a token can name any number of spaces — each one stored on the '
+      + 'record and walked on every scope decision. The array it replaced was capped at 1000');
+  });
+
+  it('and a space id that is not empty', () => {
+    const src = code(TOKENS);
+    /*
+     * Anchored INSIDE the schema. A bare `indexOf('perSpace:')` finds the `NO_RIGHTS` constant at the
+     * top of the file first and reads a line that has no validation on it at all — the third time in
+     * this change that an unscoped `indexOf` measured the wrong code and reported confidently.
+     */
+    const decl = src.indexOf('const RightsMatrix');
+    assert.ok(decl > 0, 'RightsMatrix is gone — re-point this gate');
+    const at = src.indexOf('perSpace:', decl);
+    assert.ok(at > decl, 'perSpace is gone from the matrix schema — re-point this gate');
+    // Bounded by the newline character itself, which is right on CRLF too: it is the last one.
+    const line = src.slice(at, src.indexOf('\n', at));
+    assert.match(line, /z\.string\(\)\.min\(1\)/,
+      'perSpace accepts an empty string as a space id, which is a grant to a space that cannot exist. '
+      + 'The array it replaced refused it per element');
+  });
+  it('and the matrix is declared ONCE, for both doors', () => {
+    // It was written out identically on the mint schema and the edit schema. Two copies of one shape is
+    // how a cap gets added to one door and not the other.
+    const src = code(TOKENS);
+    const decls = [...src.matchAll(/perSpace: z\.record/g)].length;
+    assert.equal(decls, 1,
+      `perSpace is declared ${decls} times — one shape, one declaration, or a protection added to one `
+      + 'door quietly misses the other');
+  });
+});
+
 describe('the legacy mint options are refused, and say what to use instead', () => {
   it('the body schema no longer accepts them', () => {
     // `CreateTokenBody` is `.strict()`, so removing the keys turns them into a 400 rather than a silent

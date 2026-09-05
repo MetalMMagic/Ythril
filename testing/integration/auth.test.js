@@ -20,6 +20,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, patch, reqJson } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -146,7 +147,7 @@ describe('Token lifecycle', () => {
     // Create token scoped only to that space
     const create = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: 'scoped-token',
-      spaces: [spaceId],
+      rights: legacyRights({ spaces: [spaceId] })
     });
     assert.equal(create.status, 201);
     const scopedToken = create.body.plaintext;

@@ -138,6 +138,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Existing tokens are untouched.** The old fields are still stored on tokens that have them and are
   still honoured; this is about what the create endpoint accepts, not about what already exists.
+
+  **Two limits moved across with it, and nearly did not.** The old space list refused an empty space id
+  and allowed at most a thousand entries. The permission grid that replaces it had neither, so removing
+  the list would have quietly dropped both — a token could have named any number of spaces, or a space
+  whose name is nothing at all. Both now apply to the grid, with the same thousand.
+
+  Each was guarded by a security test that would have gone on passing: both assert that the request is
+  refused, and a field that no longer exists is also refused. Same answer, different reason, protection
+  gone with nothing to show for it.
 ### Fixed
 
 - **Every start logged a warning about a repair that had already happened, and the repair it named could

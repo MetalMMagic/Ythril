@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -40,7 +41,7 @@ describe('Space-scoped token enforcement', () => {
     // Create a token scoped only to the "general" space
     const r = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: 'space-boundary-test ' + Date.now(),
-      spaces: ['general'],
+      rights: legacyRights({ spaces: ['general'] })
     });
     assert.equal(r.status, 201, `Failed to create scoped token: ${JSON.stringify(r.body)}`);
     generalOnlyToken = r.body.plaintext;
@@ -140,7 +141,7 @@ describe('Space-scoped token sees only its allowed spaces in /api/spaces', () =>
     // Create a token scoped only to targetSpaceId
     const r = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: `scoped-list-test-${Date.now()}`,
-      spaces: [targetSpaceId],
+      rights: legacyRights({ spaces: [targetSpaceId] })
     });
     assert.equal(r.status, 201, `Failed to create scoped token: ${JSON.stringify(r.body)}`);
     scopedToken = r.body.plaintext;

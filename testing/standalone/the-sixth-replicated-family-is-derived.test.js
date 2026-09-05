@@ -134,17 +134,21 @@ describe('the watermark candidate is computed from the transfers, not from a sec
       'a second list of the families is back beside the `transfers` record it duplicates');
   });
 
-  it('and the engine names every brain collection in its transfers', () => {
+  it('and the FAMILY LIST names every brain collection', () => {
     /*
      * Derived from `BRAIN_COLLECTIONS` rather than counted, because a count is what rotted. `filemeta` is
      * the URL spelling of the `files` collection — one word apart, deliberately, and the reason this
      * mapping is asserted rather than assumed.
+     *
+     * Read from `sync/replicated-families.ts` since `A-12`: the engine's two enumerations became one
+     * table, and each direction fills its transfers record by iterating it. So the list is where a
+     * missing family would be, and it is the only place — which is what that row was for.
      */
-    const src = code(ENGINE);
+    const src = code('server/src/sync/replicated-families.ts');
     const urlName = (c) => (c === 'files' ? 'filemeta' : c);
     for (const c of BRAIN_COLLECTIONS) {
-      assert.match(src, new RegExp(`${urlName(c)}:\\s*\\w+`),
-        `the cycle does not carry ${c} — every replicated family must be in the transfers record`);
+      assert.ok(src.includes(`payloadKey: '${urlName(c)}'`),
+        `the family list does not carry ${c} — neither direction would move it`);
     }
   });
 });

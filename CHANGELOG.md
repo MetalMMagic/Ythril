@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **The six record types that replicate are now listed once, and both directions of a sync read that
+  list** (`A-12`). Nothing an operator can observe changed — no route, no setting, no stored shape — and
+  the entry is here because it is the kind of change that hides a defect if it goes wrong.
+
+  They were written out twice, once for the pull and once for the push. Adding a seventh type meant six
+  edits in two places, and nothing fails when one list gets it and the other does not: it builds, it runs,
+  and one direction quietly ignores a whole kind of record. That already happened once — when file
+  metadata became the sixth type, it was missing from three separate lists, and every omission was silent.
+
+  The list lives in its own file rather than inside the sync engine, because which types replicate is a
+  fact about replication and not about that loop — the integrity hash, the ingest checks and the retention
+  sweep each hold an opinion of the same set, and each has been wrong about it at least once.
 ### Security
 
 - **A token with no permission grid reached every space. It now reaches none.**

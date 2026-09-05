@@ -73,6 +73,7 @@ import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSi
 import { v4 as uuidv4 } from 'uuid';
 import { armedSchedules } from '../util/armed-schedule.js';
 import { assertPeerAtFloor } from './peer-floor.js';
+import { REPLICATED_FAMILIES, type PayloadKey } from './replicated-families.js';
 import { SERVER_VERSION } from '../util/server-version.js';
 
 // Timeout for every outbound fetch to a peer.
@@ -937,20 +938,21 @@ async function pullFromPeer(
     return { count, highSeq, maxSeq, deliveredThrough, truncated };
   }
 
-  const memR = await pullType<MemoryDoc>('memories');
-  const entR = await pullType<EntityDoc>('entities');
-  const edgeR = await pullType<EdgeDoc>('edges');
-  const chronoR = await pullType<ChronoEntry>('chrono');
-  const linkR = await pullType<LinkDoc>('links');
-  // `P-32`: the sixth family. The URL says `filemeta` and the collection is `_files`, because the route
-  // serves METADATA while `/api/files` serves bytes — one word apart on purpose.
-  const fileMetaR = await pullType<FileMetaDoc & { seq: number }>('filemeta');
+  /*
+   * SEQUENTIAL, not `Promise.all`. Each transfer pages against the same peer and applies as it goes, so
+   * running them together multiplies the concurrent load on the side of the cycle that is already slow,
+   * and interleaves the writes a truncated transfer's watermark has to reason about.
+   */
+  const pulled = {} as Record<PayloadKey, PullResult>;
+  for (const family of REPLICATED_FAMILIES) {
+    pulled[family.payloadKey] = await pullType(family.payloadKey);
+  }
 
-  pulledMemories = memR.count;
-  pulledEntities = entR.count;
-  pulledEdges = edgeR.count;
-  pulledChrono = chronoR.count;
-  pulledLinks = linkR.count;
+  pulledMemories = pulled.memories.count;
+  pulledEntities = pulled.entities.count;
+  pulledEdges = pulled.edges.count;
+  pulledChrono = pulled.chrono.count;
+  pulledLinks = pulled.links.count;
 
   /*
    * ONE WATERMARK, FIVE TRANSFERS — so the max is only safe if all five finished.
@@ -961,7 +963,6 @@ async function pullFromPeer(
    * actually vouch for. EVERY transfer is passed — an omitted one places no ceiling, which makes it
    * exactly the one that gets skipped.
    */
-  const pulled = { memories: memR, entities: entR, edges: edgeR, chrono: chronoR, links: linkR, filemeta: fileMetaR };
   highestSeq = resolveWatermark({
     direction: 'receive', peerLabel: member.label ?? member.instanceId, spaceId,
     from: sinceSeq,
@@ -1070,7 +1071,7 @@ async function pushToPeer(
    */
   async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry | LinkDoc | (FileMetaDoc & { seq: number })>(
     collName: string,
-    payloadKey: 'memories' | 'entities' | 'edges' | 'chrono' | 'links' | 'filemeta',
+    payloadKey: PayloadKey,
     extraFilter: Record<string, unknown> = {},
   ): Promise<{ pushed: number; maxSeq: number } & TransferOutcome> {
     let pushed = 0;
@@ -1126,21 +1127,19 @@ async function pushToPeer(
     return { pushed, maxSeq: localMaxSeq, deliveredThrough: seqCursor, truncated };
   }
 
-  const memP = await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
-  const entP = await pushCollection<EntityDoc>(`${spaceId}_entities`, 'entities');
-  const edgeP = await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
-  const chronoP = await pushCollection<ChronoEntry>(`${spaceId}_chrono`, 'chrono');
-  const linkP = await pushCollection<LinkDoc>(`${spaceId}_links`, 'links');
-  // PARENTS ONLY. A chunk is derived from the blob and the receiver makes its own, with its own chunker
-  // and its own model — sent, it would carry passage text and a vector another instance cannot rank.
-  const fileMetaP = await pushCollection<FileMetaDoc & { seq: number }>(`${spaceId}_files`, 'filemeta',
-    { parentFileId: { $exists: false } });
+  // Sequential for the same reason as the pull, and the parents-only filter comes from the row rather
+  // than from a special case here — see `REPLICATED_FAMILIES`.
+  const pushed = {} as Record<PayloadKey, { pushed: number; maxSeq: number } & TransferOutcome>;
+  for (const family of REPLICATED_FAMILIES) {
+    pushed[family.payloadKey] = await pushCollection(
+      `${spaceId}_${family.collection}`, family.payloadKey, family.pushFilter ?? {});
+  }
 
-  pushedMemories = memP.pushed;
-  pushedEntities = entP.pushed;
-  pushedEdges = edgeP.pushed;
-  pushedChrono = chronoP.pushed;
-  pushedLinks = linkP.pushed;
+  pushedMemories = pushed.memories.pushed;
+  pushedEntities = pushed.entities.pushed;
+  pushedEdges = pushed.edges.pushed;
+  pushedChrono = pushed.chrono.pushed;
+  pushedLinks = pushed.links.pushed;
   /*
    * Same rule as the pull, same function, AND NOW THE SAME LIST — which is what this comment used to claim
    * while the line below it disproved it.
@@ -1151,7 +1150,6 @@ async function pushToPeer(
    * this watermark back and never advance it, and a cycle whose only change was file metadata re-pushed the
    * same page for ever. The candidate is derived from the transfers now.
    */
-  const pushed = { memories: memP, entities: entP, edges: edgeP, chrono: chronoP, links: linkP, filemeta: fileMetaP };
   maxSeqPushed = resolveWatermark({
     direction: 'push', peerLabel: member.label ?? member.instanceId, spaceId,
     from: lastSeqPushed,

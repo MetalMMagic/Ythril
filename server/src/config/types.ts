@@ -1379,7 +1379,6 @@ export interface MemoryDoc extends StampSkewable {
    * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
    * network. `_DEPRECATIONS.md` carries its removal.
    */
-  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   fact: string;
@@ -1435,7 +1434,6 @@ export interface EntityDoc extends StampSkewable {
    * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
    * network. `_DEPRECATIONS.md` carries its removal.
    */
-  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   name: string;
@@ -1481,7 +1479,6 @@ export interface EdgeDoc extends StampSkewable {
    * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
    * network. `_DEPRECATIONS.md` carries its removal.
    */
-  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   from: string;
@@ -1623,7 +1620,6 @@ export interface ChronoEntry extends StampSkewable {
    * `brain/suppress-embeddings.ts` for why dropping it would un-suppress records across a mixed-version
    * network. `_DEPRECATIONS.md` carries its removal.
    */
-  excludeFromVectorSearch?: boolean;
   _id: string;
   spaceId: string;
   title: string;

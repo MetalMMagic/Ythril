@@ -241,65 +241,27 @@ describe('suppressEmbeddings is reachable on every surface that can set it', () 
       + 'One rule, two surfaces: gate on consistency, not on presence.');
   });
 
-  it('the pre-3.1.0 spelling is DECLARED on MCP, or the dispatcher refuses what REST accepts', () => {
-    // This assertion is inverted from what it was, and CI is why. It used to demand the old name appear
-    // nowhere in a tool file, on the reasoning that a schema description is what an agent constructs
-    // arguments from. That reasoning is sound and the conclusion was wrong: MCP input schemas are
-    // `additionalProperties: false` and the DISPATCHER validates against them, so an undeclared property is
-    // refused before `parseRecordSuppression` ever runs. The tools answered "unexpected property
-    // 'excludeFromVectorSearch'" while the REST routes answered 200 for the same field — one rule, two
-    // doors, and the behaviour depending on which client the caller picked.
-    for (const [type, file] of Object.entries(MCP_TOOLS)) {
-      assert.match(code(file), /excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA/,
-        `the ${type} MCP tool does not declare the legacy spelling, so it will 400 for a body REST accepts`);
-    }
-  });
-
-  it('and it appears ONLY as that shared alias — never as prose, never with its own semantics', () => {
-    // The half of the old rule that was right: one name is what a reader should find. The alias is allowed
-    // to exist as a declared property so the call validates; it is not allowed to describe the behaviour a
-    // second time, or to be mentioned in a tool's own prose where somebody would read it as a live choice.
-    for (const [type, file] of Object.entries(MCP_TOOLS)) {
-      /*
-       * EVERY mention is the shared declaration, rather than exactly one of them.
-       *
-       * It was `=== 1`, which held only while a single tool per file declared the alias. From 3.7 the CREATE
-       * tools declare it too — the record tier can be set on a create, and an undeclared property is refused
-       * by the dispatcher before any handler runs — so a correct file now names it twice. Counting
-       * declarations against total mentions asks the question the case is actually about: is the alias ever
-       * spelled out with semantics of its own, or is it always the one shared schema constant?
-       */
-      const src = code(file);
-      const mentions = [...src.matchAll(/excludeFromVectorSearch/g)].length;
-      const declarations = [...src.matchAll(/excludeFromVectorSearch: LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA/g)].length;
-      assert.ok(declarations >= 1, `the ${type} MCP tool declares the alias nowhere`);
-      assert.equal(mentions, declarations,
-        `the ${type} MCP tool names excludeFromVectorSearch ${mentions} times but declares it as the shared `
-        + `alias only ${declarations} — the extra mention describes the behaviour a second time, or reads as `
-        + 'a live choice in prose an agent constructs arguments from');
-    }
-    for (const [type, { file }] of Object.entries(ROUTES)) {
-      assert.doesNotMatch(code(file), /'excludeFromVectorSearch'|`excludeFromVectorSearch`/,
-        `the ${type} REST route spells the legacy name out instead of taking it from the constants — see `
-        + 'chrono.ts, where a literal list of patchable fields lost the alias and 400d a body the parser '
-        + 'was willing to read');
-    }
-  });
-
-  it('the alias schema redirects and does nothing else', () => {
-    // A deprecated alias that re-explains the mechanism IS a second name. Its whole job is to point at the
-    // one place the behaviour is described, so that is what it must say — and it must not be the place a
-    // reader learns what the switch does.
-    const shared = code('server/src/mcp/tools/shared.ts');
-    const at = shared.indexOf('export const LEGACY_SUPPRESS_EMBEDDINGS_SCHEMA');
-    assert.ok(at > 0, 'the shared alias schema is gone — the declarations above cannot be what they claim');
-    const decl = shared.slice(at, shared.indexOf('} as const;', at));
-    assert.match(decl, /deprecated: true/, 'it must be marked deprecated in the schema itself');
-    assert.match(decl, /suppressEmbeddings/, 'and name its replacement');
-    assert.doesNotMatch(decl, /vector|traversal|three tiers|falls through/i,
-      'the alias restates the behaviour, which makes it a second name rather than a redirect');
-  });
-
+  /*
+   * ── THREE ALIAS CASES STOOD HERE and went with `D-6` in 4.0 ──────────────────────────────────
+   *
+   * They held the pre-3.1.0 spelling to a narrow shape while it existed: DECLARED on every MCP tool that
+   * takes the flag (because a tool schema is `additionalProperties: false` and the dispatcher validates
+   * before the handler, so an undeclared alias is refused where REST accepted it); appearing ONLY as the
+   * shared alias constant and never in a tool's own prose; and redirecting to the real description rather
+   * than restating the behaviour.
+   *
+   * Every one of them was about a name that no longer exists. They are deleted rather than inverted,
+   * because `the-legacy-suppression-spelling-is-gone.test.js` asserts the absence across every server
+   * source and both doors — and an inverted copy here would be the same rule in two files.
+   *
+   * **The reasoning is kept because it is the part that generalises.** The first of the three was itself
+   * an inversion: it originally demanded the old name appear NOWHERE in a tool file, on the sound-looking
+   * ground that a schema description is what an agent constructs arguments from. CI proved the conclusion
+   * wrong — removing the property does not hide the alias, it makes the tool REFUSE it, which is a
+   * capability difference between the doors rather than a documentation one. That is now exactly what
+   * makes the removal work, and it is why `D-6` is a deletion in the schemas rather than a change in any
+   * handler.
+   */
   it('the legacy chrono POST-as-update form is GONE, so there is no deprecated door to drop it on', () => {
     // This assertion is inverted from what it was. While the route existed it had to REFUSE the flag —
     // performing no property validation and writing no audit snapshot, it was not a place to grant new

@@ -110,59 +110,61 @@ describe('`false` at the record tier never reaches the resolver as `false`', () 
   });
 });
 
-describe('one name, and the old one is read but never advertised', () => {
-  it('the new spelling wins when a record carries both', () => {
-    // A record written before 3.1.0 and then un-suppressed by this build carries `suppressEmbeddings: false`
-    // beside a legacy `true` until the write lands. Preferring the legacy key there would keep a record
-    // suppressed after somebody asked for it not to be.
-    assert.equal(recordSuppression({ suppressEmbeddings: false, excludeFromVectorSearch: true }), undefined);
-    assert.equal(recordSuppression({ suppressEmbeddings: true, excludeFromVectorSearch: false }), true);
-  });
-
-  it('the legacy spelling is still honoured on a record nobody has rewritten', () => {
-    assert.equal(recordSuppression({ excludeFromVectorSearch: true }), true,
-      'every record suppressed before 3.1.0 carries only this key — dropping it re-embeds all of them');
-  });
-
-  it('a write mirrors the record tier onto the legacy key in BOTH directions', () => {
-    // These collections replicate by whole-document replace, so a peer on an older build must keep finding
-    // the key it knows. Mirroring the set but not the unset is the half that bites: a stale legacy `true`
-    // left behind is read by the fallback above and the record stays suppressed.
-    const set = { suppressEmbeddings: true }, unset = {};
-    mirrorLegacySuppression(set, unset);
-    assert.deepEqual(set, { suppressEmbeddings: true, excludeFromVectorSearch: true });
-
-    const set2 = {}, unset2 = { suppressEmbeddings: '' };
-    mirrorLegacySuppression(set2, unset2);
-    assert.deepEqual(unset2, { suppressEmbeddings: '', excludeFromVectorSearch: '' });
-
-    const set3 = { tags: ['x'] }, unset3 = {};
-    mirrorLegacySuppression(set3, unset3);
-    assert.deepEqual(set3, { tags: ['x'] }, 'a write that does not touch the tier must not invent the key');
-    assert.deepEqual(unset3, {});
-  });
-
-  it('both doors accept either spelling and refuse a non-boolean identically', () => {
+/*
+ * ── THE LEGACY-SPELLING BLOCK STOOD HERE and went with `D-6` in 4.0 ─────────────────────────────
+ *
+ * Five cases covered `excludeFromVectorSearch`: that the new spelling won when a record carried both,
+ * that the old one was still honoured alone, that a write mirrored onto it in BOTH directions, that
+ * either spelling was accepted as input, and that a sweep excluded records suppressed under either.
+ *
+ * All five described a pair of names, and there is one name now. They are DELETED rather than inverted:
+ * `the-legacy-suppression-spelling-is-gone.test.js` asserts the removal across every server source, both
+ * doors and the release gate, and restating a piece of it here would be the same rule in two places —
+ * which is what this repo's most expensive defect is made of.
+ *
+ * The two properties that were NOT about the pair survive below, because they are about the tier itself
+ * and would have been lost with the block: a non-boolean is refused identically on both doors, and the
+ * not-suppressed filter is a `$ne` rather than an `$exists`.
+ */
+describe('the record tier, now that it has one name', () => {
+  it('refuses a non-boolean identically on both doors', () => {
+    /*
+     * The half worth keeping from the old input-alias case. MCP used to DROP a string silently while REST
+     * answered 400 — the same rule with two implementations, and the weaker one winning. One parser now,
+     * so the two cannot disagree.
+     */
     assert.deepEqual(parseRecordSuppression({ suppressEmbeddings: true }), { ok: true, value: true });
-    assert.deepEqual(parseRecordSuppression({ excludeFromVectorSearch: true }), { ok: true, value: true },
-      'the input alias: a caller written against 3.0 keeps working');
-    assert.deepEqual(parseRecordSuppression({ suppressEmbeddings: false, excludeFromVectorSearch: true }),
-      { ok: true, value: false }, 'the new spelling wins on input too');
+    assert.deepEqual(parseRecordSuppression({ suppressEmbeddings: false }), { ok: true, value: false });
     assert.deepEqual(parseRecordSuppression({}), { ok: true, value: undefined });
     assert.deepEqual(parseRecordSuppression(undefined), { ok: true, value: undefined });
     assert.equal(parseRecordSuppression({ suppressEmbeddings: 'true' }).ok, false,
-      'a string must be a refusal on both doors — MCP used to drop it silently while REST answered 400');
-    assert.equal(parseRecordSuppression({ excludeFromVectorSearch: 'true' }).ok, false);
+      'a string must be a refusal on both doors');
   });
 
-  it('a sweep excludes records suppressed under EITHER spelling', () => {
-    // The backfill query is where the legacy key hides: a filter naming only the new one re-embeds every
-    // record suppressed before the rename, which is the exact thing suppression was asked for.
-    const f = recordNotSuppressedFilter();
-    assert.deepEqual(f, { suppressEmbeddings: { $ne: true }, excludeFromVectorSearch: { $ne: true } });
+  it('and the old spelling is no longer an input alias', () => {
+    // Not a duplicate of the removal gate: that one reads SOURCES, this one exercises the parser. A
+    // caller sending the retired name must get nothing back, not a silently accepted value.
+    assert.deepEqual(parseRecordSuppression({ excludeFromVectorSearch: true }),
+      { ok: true, value: undefined },
+      'the retired spelling is still read as input, so a caller is told 201 for a field nothing applies');
+  });
+
+  it('the not-suppressed filter is a $ne, and names one key', () => {
+    /*
+     * `$ne` rather than `$exists`, because a record that has never carried the field must COUNT as not
+     * suppressed — an `$exists` filter would sweep only records somebody had explicitly un-suppressed.
+     */
+    assert.deepEqual(recordNotSuppressedFilter(), { suppressEmbeddings: { $ne: true } });
+  });
+
+  it('a stored false is not a suppression, and not a statement either', () => {
+    // `recordSuppression` returns `true | undefined` and never `false`: at this tier a `false` means "not
+    // stated" and must fall THROUGH to the schema and space tiers rather than overriding them.
+    assert.equal(recordSuppression({ suppressEmbeddings: true }), true);
+    assert.equal(recordSuppression({ suppressEmbeddings: false }), undefined);
+    assert.equal(recordSuppression({}), undefined);
   });
 });
-
 describe('both doors name the one tier name', () => {
   it('the MCP schema names all three tiers and the resolution order', () => {
     const d = DESC();

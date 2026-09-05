@@ -28,7 +28,6 @@ import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
 import { PROPERTIES_SCAN_MAX_MS, textContains } from './tag-filter.js';
-import { mirrorLegacySuppression } from './suppress-embeddings.js';
 import { wipeSpaceCollection } from './bulk-wipe.js';
 
 /** An item that references a given entity, and — for an edge — which of its ends does. */
@@ -414,7 +413,6 @@ export async function updateEntityById(
 
   applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset,
     { collection: 'entity', existing: existing as unknown as Record<string, unknown> }); // F10
-  mirrorLegacySuppression($set, $unset); // X-1b: keep the pre-3.1.0 key in step for older peers
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   // Lost-update detection, identical to `updateMemory` and for the same reason: `returnDocument: "before"`

@@ -55,7 +55,17 @@ describe('the exclusion is a missing vector, never a read-time filter', () => {
     // runtime import cycle, since that file imports `edges.ts`.
     const embed = strip(read('server/src/brain/suppress-embeddings.ts'));
     assert.match(embed, /recordSuppression\(doc\)/, 'the embed path is where the flag is honoured');
-    assert.match(embed, /\$unset/, 'setting it must REMOVE the vector, not mark the record');
+    /*
+     * THE VECTOR REMOVAL IS IN `embed-record.ts`, and this asserted it in the wrong file.
+     *
+     * It matched any `$unset` in `suppress-embeddings.ts` — which was `mirrorLegacySuppression`'s, keeping
+     * the pre-3.1.0 key in step, and had nothing to do with a vector. `D-6` deleted that function and the
+     * gate went red over a property that still holds, which is how a match on the wrong thing announces
+     * itself: only when the thing it was really matching disappears.
+     */
+    const store = strip(read('server/src/brain/embed-record.ts'));
+    assert.match(store, /\$unset: \{ embedding/,
+      'setting it must REMOVE the vector, not mark the record');
   });
 });
 

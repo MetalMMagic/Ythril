@@ -185,7 +185,7 @@ export async function checkLinkViolations(
  * Whether to embed is not decided here: `enqueueIngestedRecord` asks this instance's own
  * `record > schema > space` resolution, per the owner's 2026-09-01 ruling that the receiver applies its rules.
  */
-export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings?: boolean; excludeFromVectorSearch?: boolean }>(
+export async function ingestBrainDoc<T extends { _id: string; suppressEmbeddings?: boolean;}>(
   spaceId: string,
   recordType: BrainEmbedRecordType | null,
   collection: string,
@@ -297,7 +297,6 @@ export const IncomingMemoryDoc = z.object({
    * memory came to be dropped from its batch in silence.
    */
   suppressEmbeddings: z.boolean().optional(),
-  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   fact: z.string(),
   tags: z.array(z.string()).max(100),
@@ -349,7 +348,6 @@ export const IncomingFileMetaDoc = z.object({
   properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs to honour it. */
   suppressEmbeddings: z.boolean().optional(),
-  excludeFromVectorSearch: z.boolean().optional(),
   author: AuthorRefSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -439,7 +437,6 @@ export const IncomingEntityDoc = z.object({
   _id: z.string().min(1),
   /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
   suppressEmbeddings: z.boolean().optional(),
-  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   name: z.string().min(1),
   type: z.string().min(1),
@@ -464,7 +461,6 @@ export const IncomingEdgeDoc = z.object({
   _id: z.string().min(1),
   /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
   suppressEmbeddings: z.boolean().optional(),
-  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   from: z.string().min(1),
   to: z.string().min(1),
@@ -542,7 +538,6 @@ export const IncomingChronoDoc = z.object({
   contentRedactedAt: z.string().optional(),
   /** See `IncomingMemoryDoc`: the record tier of suppression, which the receiver needs in order to honour it. */
   suppressEmbeddings: z.boolean().optional(),
-  excludeFromVectorSearch: z.boolean().optional(),
   spaceId: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),

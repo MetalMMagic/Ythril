@@ -385,11 +385,16 @@ PATCH /api/brain/spaces/:spaceId/chrono/:id
 { "suppressEmbeddings": true }
 ```
 
-> **Renamed in 3.1.0.** This field was `excludeFromVectorSearch` up to and including 3.0.1. The old spelling
-> is still ACCEPTED on both doors, so existing callers keep working, and it is still written to the stored
-> record so that a peer on an older build in the same network keeps honouring it. Nothing offers it: send
-> `suppressEmbeddings`. If a request carries both, `suppressEmbeddings` wins. The alias is scheduled for
-> removal in 4.0.
+> **Renamed in 3.1.0, and the old spelling was REMOVED in 4.0.** This field was
+> `excludeFromVectorSearch` up to and including 3.0.1. Until 4.0 that name was still accepted on both
+> doors and still written into the stored record, so a peer on an older build kept honouring it.
+>
+> **Both halves went at once.** Sending it is now a refusal rather than a silent acceptance, and it is no
+> longer stored. Send `suppressEmbeddings`.
+>
+> What made the removal safe is the peer version floor: a 4.x instance refuses every 3.x peer, so no peer
+> that fails to understand the current name can be on the network. Nothing needs migrating — every write
+> since 3.1.0 has set the current name.
 >
 > The name changed because the old one described the wrong thing. "Excluded from vector search" reads as
 > *removed from search*, which would include traversal — and it never did (see the table below). The two

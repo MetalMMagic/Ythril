@@ -582,7 +582,7 @@ export const _asEmbedJobDoc = asDoc<BrainEmbedJobDoc>;
 export async function enqueueIngestedRecord(
   spaceId: string,
   recordType: BrainEmbedRecordType,
-  doc: { _id: string; suppressEmbeddings?: boolean; excludeFromVectorSearch?: boolean },
+  doc: { _id: string; suppressEmbeddings?: boolean;},
 ): Promise<void> {
   // Cast for the resolver's `Record<string, unknown>` signature, exactly as `reindex.ts` does. The parameter
   // above is narrow on purpose: it names the two fields this decision reads, so a caller can see at the call

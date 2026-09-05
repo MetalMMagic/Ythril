@@ -811,62 +811,56 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
   // The source-level gate proves the field is FORWARDED. These prove it LANDS — the previous version of
   // this feature was consistent in the source of three route files and unreachable on the fourth, and the
   // report that found it came from reading code, not from a response. Assert on the stored record.
-  it('PATCH chrono with ONLY the legacy excludeFromVectorSearch returns 200 and persists it', async () => {
+  it('PATCH chrono with the RETIRED spelling is refused, not silently accepted', async () => {
+    /*
+     * Four cases stood here while `excludeFromVectorSearch` was an input alias: that it was accepted
+     * alone, that it could be cleared alone, that writing the current name also wrote the old one, and
+     * that the current name won when a body carried both.
+     *
+     * `D-6` removed it in 4.0, so all four describe a name that no longer exists. They collapse to the
+     * one thing worth asserting from outside: a caller sending it gets a REFUSAL. Accepted-and-dropped
+     * would be the bad outcome — a 200 for a field nothing applies — and that is what this rules out.
+     */
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       excludeFromVectorSearch: true,
     });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body.excludeFromVectorSearch, true, 'the response must reflect the flag');
-    // Read it back: a handler can echo a field it never wrote, which is the shape of the defect this
-    // covers — a 200 carrying the request's own values while the store was never touched.
+    assert.equal(r.status, 400, `the retired spelling must be refused: ${JSON.stringify(r.body)}`);
+
+    // And nothing was written. A refusal that still mutated is the worst of both.
     const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.status, 200);
-    assert.equal(back.body.excludeFromVectorSearch, true, 'the STORED record must carry the flag');
+    assert.equal(back.body.excludeFromVectorSearch, undefined,
+      'a refused field must not reach the stored record');
   });
 
-  it('PATCH chrono clears the legacy excludeFromVectorSearch again', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
-      excludeFromVectorSearch: false,
-    });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.body.excludeFromVectorSearch, false, 'false must be stored, not treated as absent');
-  });
-
-  it('PATCH chrono rejects a non-boolean under the legacy spelling too', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
-      excludeFromVectorSearch: 'true',
-    });
-    assert.equal(r.status, 400, JSON.stringify(r.body));
-  });
-
-  it('PATCH chrono with ONLY suppressEmbeddings returns 200 and persists BOTH spellings', async () => {
-    // The 3.1.0 name. It must work exactly as the alias above does, and the write must carry the legacy key
-    // as well: these collections replicate by whole-document replace, so a peer on an older build that
-    // rewrites this record would otherwise drop a flag it does not understand and re-embed a record the
-    // owner asked to keep unembedded.
+  it('PATCH chrono with suppressEmbeddings persists it, and only it', async () => {
+    /*
+     * The source-level gate proves the field is FORWARDED. This proves it LANDS — the previous version of
+     * this feature was consistent in three route files and unreachable in the fourth, and the report that
+     * found it came from reading code rather than from a response.
+     *
+     * The second assertion is new: the write must NOT also carry the retired spelling. It did until 4.0,
+     * deliberately, so an older peer rewriting the record kept a flag it understood.
+     */
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       suppressEmbeddings: true,
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.body.suppressEmbeddings, true, 'the STORED record must carry the new name');
-    assert.equal(back.body.excludeFromVectorSearch, true,
-      'and the pre-3.1.0 name, or an older peer un-suppresses it on the next sync');
+    assert.equal(back.body.suppressEmbeddings, true, 'the STORED record must carry the name');
+    assert.equal(back.body.excludeFromVectorSearch, undefined,
+      'the retired spelling is still being written alongside');
   });
 
-  it('PATCH chrono: the new spelling wins when a body carries both', async () => {
-    // A caller migrating one field at a time can send both in one request. Preferring the legacy key would
-    // make the change they just made invisible.
+  it('and clearing it stores false rather than treating it as absent', async () => {
+    // `false` is a real stored value at this tier: `recordSuppression` reports it as "not stated" so the
+    // schema and space tiers decide, which is a different thing from the field being missing.
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
-      suppressEmbeddings: false, excludeFromVectorSearch: true,
+      suppressEmbeddings: false,
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.body.suppressEmbeddings, false, 'the new spelling decides');
-    assert.equal(back.body.excludeFromVectorSearch, false, 'and the legacy key follows it, not the body');
+    assert.equal(back.body.suppressEmbeddings, false, 'false must be stored, not dropped');
   });
-
   it('PATCH chrono rejects a non-boolean suppressEmbeddings', async () => {
     const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
       suppressEmbeddings: 'true',
@@ -892,11 +886,11 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
     // The "writes nothing" half is kept and matters more than before: a 404 that still mutated would be
     // the worst of both, and the positive path is covered by the PATCH case directly above.
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
-      excludeFromVectorSearch: true,
+      suppressEmbeddings: true,
     });
     assert.equal(r.status, 404, JSON.stringify(r.body));
     const back = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
-    assert.equal(back.body.excludeFromVectorSearch, false, 'a removed route must not have written');
+    assert.equal(back.body.suppressEmbeddings, false, 'a removed route must not have written');
   });
 
   it('Create chrono with optional fields', async () => {

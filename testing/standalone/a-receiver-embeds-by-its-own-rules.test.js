@@ -151,22 +151,27 @@ describe('and the receiver decides whether to embed it', () => {
 });
 
 describe('the record tier of suppression reaches the receiver', () => {
-  it('all four ingest schemas declare both spellings of the flag', async () => {
+  it('all four ingest schemas declare the flag — and only the current spelling', async () => {
     /*
-     * `suppressEmbeddings` is the current name and `excludeFromVectorSearch` the pre-3.1 one, still written
-     * beside it. Both, because a peer on either build sends the one it knows, and the receiver resolves them
-     * together — accepting one and stripping the other would make the outcome depend on the sender's version.
+     * A field missing from an `Incoming*` schema is STRIPPED on push, so a record whose author marked it
+     * "never embed" arrives unmarked and the receiver embeds it — a record deliberately kept out of
+     * meaning-ranked search entering one on every peer.
+     *
+     * This used to require BOTH spellings, because a pre-3.1.0 peer sends the one it knows. `D-6` removed
+     * the old one in 4.0, and the peer floor is what made that safe: a 4.x build refuses every 3.x peer,
+     * so no sender can be using the old name. The ABSENCE is asserted as well, because a stray
+     * re-declaration would accept a field nothing reads — a push answered 200 for a mark that is then
+     * never applied.
      */
     const shared = await import('../../server/dist/api/sync/_shared.js');
     for (const name of ['IncomingMemoryDoc', 'IncomingEntityDoc', 'IncomingEdgeDoc', 'IncomingChronoDoc']) {
       const shape = shared[name]?.shape ?? {};
       assert.ok(Object.keys(shape).length > 5, `${name} not found — re-anchor this gate`);
-      for (const field of ['suppressEmbeddings', 'excludeFromVectorSearch']) {
-        assert.ok(Object.prototype.hasOwnProperty.call(shape, field),
-          `${name} does not declare '${field}', so it is stripped on push. A record whose author marked it `
-          + '"never embed" then arrives unmarked, and the receiver embeds it — putting a record deliberately '
-          + 'kept out of meaning-ranked search into one on every peer');
-      }
+      assert.ok(Object.prototype.hasOwnProperty.call(shape, 'suppressEmbeddings'),
+        `${name} does not declare 'suppressEmbeddings', so it is stripped on push and the receiver embeds `
+        + 'a record its author marked never-embed');
+      assert.ok(!Object.prototype.hasOwnProperty.call(shape, 'excludeFromVectorSearch'),
+        `${name} still declares the pre-3.1.0 spelling, removed in 4.0 — it would be accepted and never read`);
     }
   });
 

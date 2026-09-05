@@ -240,10 +240,11 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     assert.equal(after.embedding, undefined, 'the stale vector is UNSET, not left behind');
     assert.equal(after.embeddingModel, undefined);
     assert.equal(after.suppressEmbeddings, true, 'and the record itself is still there');
-    assert.equal(after.excludeFromVectorSearch, true,
-      'the pre-3.1.0 key is written alongside — these collections replicate by whole-document replace, so a '
-      + 'peer on an older build must keep finding the key it knows or it re-embeds a record somebody '
-      + 'deliberately suppressed');
+    // The mirror onto the pre-3.1.0 key was asserted here and went with `D-6` in 4.0. The ABSENCE is
+    // asserted instead: a leftover write would put back a key nothing reads, which is a field on every
+    // record and a difference between two instances' hashes for no gain.
+    assert.equal(after.excludeFromVectorSearch, undefined,
+      'the retired spelling is still being written alongside the current one');
     assert.ok(after.fact, 'suppressed is not deleted — an operator must still be able to find it by listing');
   });
 
@@ -262,26 +263,29 @@ describe('brain embedding queue drains (real MongoDB, real embed() over a stub e
     const back = await coll.findOne({ _id: doc._id });
     assert.ok(Array.isArray(back.embedding),
       'clearing the flag re-embeds — the job handles both directions, so no caller has to know which');
-    assert.equal(back.excludeFromVectorSearch, false,
-      'and the legacy key follows the clear as well as the set: left at `true` it would be read by the '
-      + 'fallback and keep the record suppressed after somebody asked for it not to be');
+    assert.equal(back.excludeFromVectorSearch, undefined,
+      'the retired spelling reappears when the flag is cleared');
   });
 
-  it('a record suppressed under the PRE-3.1.0 key alone is still never embedded', async () => {
-    // Two properties in one, and the second is the migration. Not only "unset later": a record created
-    // already-suppressed must not be embedded at all, or every creator would burn a model call to produce a
-    // vector the next job deletes. And this writes the LEGACY spelling straight into Mongo, which is exactly
-    // the shape of every record suppressed before the rename and of anything an older peer syncs to us —
-    // reading only the new key would re-embed all of them, silently and at cost.
+  it('a record created ALREADY suppressed is never embedded, not embedded then cleared', async () => {
+    /*
+     * The half of the old case that survives, and it is the expensive half: a record created
+     * already-suppressed must not be embedded at all, or every creator burns a model call to produce a
+     * vector the next job deletes.
+     *
+     * It used to write the PRE-3.1.0 key straight into Mongo — the shape of every record suppressed
+     * before the rename and of anything an older peer synced in. `D-6` retired that spelling in 4.0 and
+     * the peer floor is what made it safe: a 4.x build refuses every pre-3.1.0 peer, so no such record
+     * arrives. Written with the current key now, which is what a creator actually stores.
+     */
     const doc = await memory.remember(SPACE, 'born retired', [], []);
     await mongo.col(`${SPACE}_memories`).updateOne({ _id: doc._id },
-      { $set: { excludeFromVectorSearch: true } });
+      { $set: { suppressEmbeddings: true } });
 
     assert.equal(await worker.runOneEmbedJob(), true);
     assert.equal((await mongo.col(`${SPACE}_memories`).findOne({ _id: doc._id })).embedding, undefined);
     assert.equal(await jobs().countDocuments({}), 0, 'and the job retires rather than retrying forever');
   });
-
   it('all four creators agree — none embeds inline by default', async () => {
     // Stated as one comparison so a type drifting away fails here even if its own rows above were
     // updated to match it.

@@ -108,6 +108,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   siblings are still lifted onto `vision.*` / `stt.*` and deleted, because a file the product owns can be
   fixed rather than refused. An operator's manifest is not their config.json.
 
+### Fixed
+
+- **Every start logged a warning about a repair that had already happened, and the repair it named could
+  never have worked.** On boot, a token that predates the per-space rights matrix gets one derived from
+  its old settings. That derivation is deliberately kept in memory and not written to disk — but the code
+  tried to write it anyway, using a mechanism that does not exist in this codebase, so the attempt failed
+  on every boot of every instance and left a line saying *"Could not persist derived token rights (will
+  retry next boot)"*.
+
+  **Nothing was ever wrong with your tokens.** The derivation itself always worked, and the thing that
+  failed was a write that was not supposed to happen. Access was never affected. What was affected is
+  that an operator reading their logs saw a permanent warning describing a retry that could not occur —
+  it reads like a full disk, and no amount of restarting would clear it.
+
+  **Why the obvious fix would have been the real bug.** Making that write succeed looks like a one-line
+  repair and would have quietly reversed a deliberate decision: the derived rights are held in memory on
+  purpose, because parts of the system still read the old settings directly, and writing a derivation to
+  disk before it has been checked against the behaviour it reproduces makes any mistake in it permanent.
+  So the fix is the other way round — the step now has no way to write at all, and cannot be asked to.
+  Persisting it is a separate, deliberate piece of work.
+
+  **The rollback instructions described a file change that never happened.** The hosting guide told you
+  that upgrading writes a rights matrix into `config.json`, so an older build would read tokens carrying
+  a field it does not understand. That has never occurred on any instance — the write always failed. The
+  table now says what is true: tokens are untouched, and the config file you copy before upgrading is
+  identical afterwards as far as they are concerned.
+
+  Four places in the codebase said this step writes nothing and two said it does. The ones that
+  disagreed were checks that read the source for the word "persist", found it, and passed — over a call
+  that threw every time it ran. All six now say the same thing, and they assert the absence of a write
+  rather than the presence of one.
+
 ### Added
 
 - **Deleting an entity can take its edges with it — behind a preview and a token** (owner's ruling

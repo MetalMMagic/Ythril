@@ -772,17 +772,26 @@ moved. They are listed here so the consequence of going back is not a surprise:
 | a provider API key in `mediaEmbedding.<vision\|stt\|nli\|rerank>.apiKey` → `secrets.json` | `apiKey` | sends no `Authorization` header to that provider, so an external vision / speech-to-text / NLI / rerank endpoint returns 401 and the feature stops. The key is NOT lost — it is in `secrets.json` (`0o600`) and can be pasted back into `config.json` for the older build. **New in 3.0**, and the reason is that `config.json` is the file operators copy, paste into issues, and mount as a ConfigMap. |
 | `mediaEmbedding.ollamaUrl` / `visionModel` / `whisperUrl` / `whisperModel` → `vision.*` / `stt.*` | `ollamaUrl`, `visionModel`, `whisperUrl`, `whisperModel` | stops finding those four names and falls back to its BUILT-IN defaults — `http://ollama:11434` and `http://whisper:8000` — so it captions and transcribes against whatever answers there, with no error. The values are not lost: they are on `vision.*` / `stt.*`, which the older build also reads. **New in 3.0.** The env vars are a separate matter and 4.0 REMOVED the legacy spellings: `VISION_BASE_URL`, `STT_BASE_URL` and `STT_MODEL` are the names, and `OLLAMA_URL` / `WHISPER_URL` / `WHISPER_MODEL` now refuse the boot rather than resolving — see the rename note in the media-embedding guide for why refusing beats ignoring. **This matters for a rollback in one direction only:** the current names resolve in every 3.x build, so a manifest written for 4.0 runs on 3.x unchanged. A manifest still using the legacy names runs on 3.x and will not start on 4.0. |
 | `mediaEmbedding.faceRecognition.enabled` → the image ladder | `faceRecognition.enabled` | applies its own default for face recognition rather than the choice that was recorded |
-| every token gains a `rights` matrix | **nothing** | keeps working: it reads the legacy `admin`/`readOnly`/`spaces` fields, which are left in place |
+| every token gains a `rights` matrix **in memory** | **nothing** | keeps working, and `config.json` is not touched at all — the matrix is derived on each start and never written, so there is nothing here for a rollback to undo |
 | a legacy `syncSchedule` shorthand → the cron expression it always meant | **nothing** | keeps syncing at exactly the same rate. This is the one row here with no rollback cost, and it is listed so you can tell it from the others: `"every 5m"` becomes `"*/5 * * * *"`, and every 3.x build tried a real cron expression FIRST, so it runs the rewritten value identically. **New in 4.0**, where sending a shorthand is refused with a `400` naming its cron form. A shorthand outside cron's range — `"every 90m"` — is NOT rewritten: it never resolved on any build, so that network has been on manual sync all along, and it is named in the startup log rather than rounded to a schedule nobody chose. |
 
 The first three are silent in the old build — the field is simply absent, which reads as "never configured"
 rather than "removed".
 
-**`tokens[].rights` is the exception, and the safe kind.** The upgrade derives a per-space rights matrix for every
-token from its legacy `admin`/`readOnly`/`spaces` fields and writes it down; it does **not** remove those fields.
-So an older build ignores the new one and enforces exactly what it did before, and a rollback needs no token work.
-It is listed here because the file changes shape and an operator reading `config.json` should know why, not
-because anything is lost.
+**`tokens[].rights` is not a file change at all, and this paragraph used to say it was.** The upgrade derives a
+per-space rights matrix for every token from its legacy `admin`/`readOnly`/`spaces` fields — **in memory, on
+every start, and it is never written to `config.json`.** The legacy fields stay, they remain what enforcement
+reads, and the file an operator copies before upgrading is byte-identical afterwards as far as tokens are
+concerned.
+
+It is kept in this table because it is the row people ask about: a rollback needs no token work, and there is
+no shape change to explain.
+
+**Corrected 2026-09-05, and the correction is worth stating.** This section said the matrix was written down.
+The code did attempt that write on every boot — and it could never succeed, because the mechanism it used does
+not exist in this codebase, so the attempt failed and was logged as a warning every time. So the hazard this
+paragraph described has never existed on any instance. Writing it deliberately is separate future work, and
+this table gains a row on the day it happens.
 
 #### The procedure
 

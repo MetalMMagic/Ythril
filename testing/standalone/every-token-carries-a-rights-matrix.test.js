@@ -56,25 +56,50 @@ describe('a minted token has a matrix', () => {
   });
 });
 
-describe('the boot migration is durable', () => {
+/*
+ * ── THIS SUITE ASSERTED THE OPPOSITE, AND WAS SATISFIED BY A CALL THAT ALWAYS THREW ──────────────
+ *
+ * It read the source for `persist(config)` and for the words *"will retry next boot"*, and both were
+ * there — so it passed, for as long as it has existed, over a function that could never write anything.
+ * `defaultSave` reached for `require('../config/loader.js')` and `server/package.json` is
+ * `"type": "module"`, so the call threw on every boot and the surrounding catch logged the very sentence
+ * this gate was matching on. A source-reading gate asserting an OUTCOME rather than a shape is only ever
+ * asserting intent.
+ *
+ * And the intent was wrong. `loadConfig` states the decision, with its reason: *"IN MEMORY ONLY, and
+ * deliberately not persisted: enforcement still reads the legacy fields, so this run is an observation
+ * rather than a change."* That reason is still true — `spaces` is still the scoping input in ten modules
+ * (`_DEPRECATIONS.md` row 1.7) — so persisting the derivation now would make a derivation defect durable
+ * before anything had compared it against the behaviour it reproduces.
+ *
+ * Three other places already said in-memory-only. This was the one that disagreed, and it disagreed with
+ * observable reality as well as with the other three.
+ */
+describe('the boot migration derives in memory and writes nothing', () => {
   const src = read(BOOT);
 
-  it('the backfill result is written to disk, not just held in memory', () => {
+  it('it still runs, and still on both counts', () => {
+    // The half that was right and stays: the step does two things — derive a missing matrix and repair a
+    // malformed one — and `if (filled === 0)` alone would skip a repair.
     const after = bodyOf(src, 'migrateTokenRightsOnBoot');
-    // Both counts, because the boot step does two things now: derive a missing matrix, and repair a malformed
-    // one. `if (filled === 0)` alone would return before persisting a repair — the fix would run and be lost.
-    assert.match(after, /if \(filled === 0 && repaired === 0\) return 0;/, 'a write only when something changed');
-    assert.match(after, /persist\(config\)/, 'and it must actually persist');
-    // And the loader must still CALL it, or the migration is code nobody runs.
-    assert.match(read('server/src/config/loader.ts'), /migrateTokenRightsOnBoot\(_config\)/);
+    assert.match(after, /if \(filled === 0 && repaired === 0\) return 0;/,
+      'the step no longer short-circuits on both counts, so a repair can be skipped');
+    assert.match(read('server/src/config/loader.ts'), /migrateTokenRightsOnBoot\(_config\)/,
+      'the loader no longer calls it, so a token with no matrix reaches nothing');
   });
 
-  it('a failed write retries next boot rather than being reported as done', () => {
-    // Same subject as the test above, and previously a different guess at how much of it to read — 700 there and
-    // 900 here. Two windows on one function is a sign neither was measured.
+  it('and it has no way to write, not merely no working one', () => {
+    /*
+     * Absence is the assertion. "The save is broken" was the state this was written from; "there is no
+     * save" is the state the design describes, and it is the only version a reader cannot undo by
+     * fixing what looks like an unrelated error.
+     */
     const after = bodyOf(src, 'migrateTokenRightsOnBoot');
-    assert.match(after, /catch/, 'a failed persist must not throw at boot');
-    assert.match(after, /will retry next boot/i, 'and must say so, like the media-embedding migration beside it');
+    assert.doesNotMatch(after, /persist\(|saveConfig|defaultSave/,
+      'the derivation writes, or tries to — `D-2` is where persistence arrives, after the scoping is '
+      + 'unified and the matrix is shown to reproduce the enforcement it replaces');
+    assert.doesNotMatch(after, /will retry next boot/i,
+      'it still promises a retry of a write it no longer attempts');
   });
 });
 

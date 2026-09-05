@@ -149,21 +149,35 @@ describe('repairTokenRights — the pass over the config', () => {
   });
 });
 
-describe('the boot step persists a repair', () => {
-  it('writes when only a repair happened — nothing was filled', () => {
-    // The bug this pins: `if (filled === 0) return 0;` returned BEFORE the persist, so the repair ran in memory
-    // and was lost at every boot, for ever, exactly like the skip it replaces.
+/*
+ * ── ASSERTED ON THE EFFECT, NOT ON A SAVE CALL ──────────────────────────────────────────────────
+ *
+ * These two counted calls to an injected save function. That parameter is gone: the step is in-memory
+ * only by design — `loadConfig` says so with its reason — and an injectable save was a save path with
+ * the safety catch off, reversible at any call site. It only ever ran in tests, because the production
+ * default reached for `require()` in an ESM package and threw on every boot.
+ *
+ * The SUBJECT is unchanged and is still worth pinning: a repair must happen even when nothing was
+ * filled. The original bug was `if (filled === 0) return 0;` short-circuiting before the repair was
+ * kept. What changed is the observable — the returned count and the mutated config, which is the repair
+ * itself, rather than a write that was a proxy for it.
+ *
+ * That is the stronger assertion anyway: a save call proves something was handed to a function, while
+ * `dataQuality === 'none'` proves the malformed matrix was actually repaired.
+ */
+describe('the boot step repairs even when nothing was filled', () => {
+  it('a repair alone still counts, and still lands on the config', () => {
     const cfg = { tokens: [tok({ id: 'a', rights: { instanceAdmin: false, createSpaces: false, floor: REPORTED('write'), perSpace: {} } })] };
-    let saved = 0;
-    assert.equal(migrateTokenRightsOnBoot(cfg, () => { saved++; }), 1);
-    assert.equal(saved, 1, 'the repair was not persisted');
-    assert.equal(cfg.tokens[0].rights.floor.dataQuality, 'none');
+    assert.equal(migrateTokenRightsOnBoot(cfg), 1,
+      'a repair with nothing filled reports no work — `if (filled === 0) return 0;` is back');
+    assert.equal(cfg.tokens[0].rights.floor.dataQuality, 'none',
+      'the malformed area was not repaired, so the step counted work it did not do');
   });
 
-  it('writes nothing when every token is already well-formed', () => {
+  it('and reports nothing when every token is already well-formed', () => {
     const cfg = { tokens: [tok({ id: 'a', rights: { instanceAdmin: false, createSpaces: false, floor: ALL('read'), perSpace: {} } })] };
-    let saved = 0;
-    assert.equal(migrateTokenRightsOnBoot(cfg, () => { saved++; }), 0);
-    assert.equal(saved, 0, 'a healthy config was rewritten at boot');
+    const before = JSON.stringify(cfg);
+    assert.equal(migrateTokenRightsOnBoot(cfg), 0, 'a healthy config was reported as changed');
+    assert.equal(JSON.stringify(cfg), before, 'a healthy config was mutated at boot');
   });
 });

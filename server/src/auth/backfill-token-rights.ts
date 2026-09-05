@@ -83,34 +83,48 @@ export function repairTokenRights(config: Config): number {
 }
 
 /**
- * The boot step: derive, repair, then persist if anything changed.
+ * The boot step: derive and repair, IN MEMORY, and write nothing.
  *
- * `saveConfig` is injected rather than imported so this module does not depend on the loader that calls it — the
- * cycle would be real, and a token migration has no business reaching back into configuration loading.
+ * ## It has no save path, and that is the fix rather than an omission
  *
- * A failed write is logged and retried next boot, exactly like the media-embedding migration beside it. Throwing
- * would take the instance down over housekeeping; pretending it succeeded would lose the migration silently.
+ * `loadConfig` states the decision this obeys: *"IN MEMORY ONLY, and deliberately not persisted:
+ * enforcement still reads the legacy fields, so this run is an observation rather than a change. Writing
+ * it to config.json would make a derivation defect durable before anything has compared it against the
+ * behaviour it is meant to reproduce."* The durable-migration gate exempts this function in those words,
+ * and `a-token-without-a-matrix-reaches-nothing.test.js` describes it the same way.
+ *
+ * **The code did the opposite of all three.** It resolved `persist = save ?? defaultSave` and called it
+ * whenever it had derived or repaired anything, so every boot ATTEMPTED the write the design forbids.
+ *
+ * **It was in-memory only by ACCIDENT.** `defaultSave` reached for `require('../config/loader.js')` to
+ * keep the import graph one-way, and `server/package.json` is `"type": "module"`, where `require` does
+ * not exist. So the call threw, the `catch` logged *"Could not persist derived token rights (will retry
+ * next boot)"*, and the boot carried on — every boot, for ever, on every instance. It is in any preflight
+ * log.
+ *
+ * ## Why fixing the obvious thing would have been the defect
+ *
+ * The warning names a recovery that cannot happen: *retry next boot* is not a retry when the failure is a
+ * missing language feature, and it reads like a full disk. Anyone repairing it the obvious way — swapping
+ * the `require` for a real import — would have silently INVERTED a deliberate decision, starting to write
+ * a derivation to `config.json` before it had ever been compared against the enforcement it reproduces.
+ * That is the exact outcome the loader's comment exists to prevent, arrived at by someone fixing an
+ * unrelated-looking error.
+ *
+ * **So the `save?` parameter is gone too.** An injectable save is a save path with the safety catch off:
+ * the next caller passes one and the decision above is reversed at a call site, where no reviewer is
+ * looking for it.
+ *
+ * `D-2` is where persistence arrives, deliberately, once the scoping has been unified onto
+ * `reachesSpace`/`memberSpacesForRequest` and the derived matrix has been shown to reproduce it.
  */
-export function migrateTokenRightsOnBoot(config: Config, save?: (c: Config) => void): number {
+export function migrateTokenRightsOnBoot(config: Config): number {
   const filled = backfillTokenRights(config);
   const repaired = repairTokenRights(config);
   if (filled === 0 && repaired === 0) return 0;
-  const persist = save ?? defaultSave;
-  try {
-    persist(config);
-    if (filled) log.info(`Derived a rights matrix for ${filled} token(s) from their legacy fields (written to disk)`);
-    // Said separately and at warn, because a repair means something wrote a shape the API refuses — the count
-    // is the only place that is visible, and folding it into the line above would read as ordinary migration.
-    if (repaired) log.warn(`Repaired a malformed rights matrix on ${repaired} token(s) — unknown areas dropped, missing areas set to 'none'`);
-  } catch (err) {
-    log.warn(`Could not persist derived token rights (will retry next boot): ${err}`);
-  }
+  if (filled) log.info(`Derived a rights matrix for ${filled} token(s) from their legacy fields (in memory only)`);
+  // Said separately and at warn, because a repair means something wrote a shape the API refuses — the count
+  // is the only place that is visible, and folding it into the line above would read as ordinary migration.
+  if (repaired) log.warn(`Repaired a malformed rights matrix on ${repaired} token(s) — unknown areas dropped, missing areas set to 'none'`);
   return filled + repaired;
-}
-
-/** Late-bound so the import graph stays one-way: loader -> here, never back. */
-function defaultSave(config: Config): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { saveConfig } = require('../config/loader.js') as { saveConfig: (c: Config) => void };
-  saveConfig(config);
 }

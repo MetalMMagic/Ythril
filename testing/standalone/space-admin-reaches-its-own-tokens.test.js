@@ -92,7 +92,10 @@ describe('being admitted is not being unbounded', () => {
     assert.deepEqual([...scope], ['qa']);
     const refusals = refusalsOutsideEditorScope({
       editorSpaces: scope,
-      target: { spaces: ['research'], schemaLibrary: false },
+      // Described by its MATRIX, not the pre-3.0 allowlist. Since 2026-09-05 a record with no matrix
+      // reaches NOTHING, so a fixture built from `spaces` would be a token that reaches no space at all —
+      // inside every scope, refused by nothing, and this case would pass while asserting nothing.
+      target: { rights: rights({ perSpace: { research: ALL('admin') } }), schemaLibrary: false },
       rights: undefined,
     });
     assert.equal(refusals.length, 1, 'a token reaching another space must still be refused');

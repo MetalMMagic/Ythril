@@ -96,11 +96,19 @@ describe('editorScopeFor — where an administrator may act', () => {
     assert.deepEqual(editorScopeFor({ rights: r }), ['qa']);
   });
 
-  it('falls back to the legacy allowlist when there is no matrix', () => {
-    // An OIDC session, or a record that predates the backfill.
-    assert.deepEqual(editorScopeFor({ spaces: ['qa'] }), ['qa']);
-    assert.equal(editorScopeFor({ spaces: undefined }), undefined, 'absent allowlist is still unrestricted');
-    assert.deepEqual(editorScopeFor({ spaces: [] }), [], 'EMPTY is none — never read as unrestricted');
+  it('does NOT fall back to the legacy allowlist — no matrix is no scope', () => {
+    /*
+     * This asserted the fallback, for "an OIDC session, or a record that predates the backfill". Neither
+     * exists any more: an OIDC session carries `rights` as a REQUIRED field derived by `migrateToken`,
+     * and a pre-matrix PAT gets one from `migrateTokenRightsOnBoot` on every start.
+     *
+     * What the fallback did in the meantime was read an absent allowlist as UNRESTRICTED — and the
+     * field has been absent on every token since 3.1. Owner, 2026-09-05: *"no matrix = refuse - no
+     * fallback no backwards compatibility anymore"*.
+     */
+    assert.deepEqual(editorScopeFor({ spaces: ['qa'] }), [], 'the allowlist is still being read');
+    assert.deepEqual(editorScopeFor({ spaces: undefined }), [], 'absent must be NOTHING, not everything');
+    assert.deepEqual(editorScopeFor({ spaces: [] }), []);
   });
 
   it('prefers the matrix over a legacy allowlist that disagrees', () => {
@@ -124,7 +132,15 @@ describe('editorScopeFor — where an administrator may act', () => {
 });
 
 describe('the guard behaves the same, now fed from the matrix', () => {
-  const target = (spaces) => ({ spaces, schemaLibrary: false });
+  /*
+   * A target is described by its MATRIX now, not by the pre-3.0 allowlist. `editorScopeFor` reads the
+   * target the same way it reads the editor — one resolution, both sides — so a fixture built from
+   * `spaces` would describe a token that reaches nothing and prove nothing about the guard.
+   */
+  const target = (spaces) => ({
+    schemaLibrary: false,
+    rights: rights({ perSpace: Object.fromEntries(spaces.map(s => [s, ALL('admin')])) }),
+  });
 
   it('refuses an edit to a token reaching outside a MATRIX-derived scope', () => {
     // The case that silently passed before: the editor's scope lived only in its matrix, so the guard saw

@@ -133,11 +133,21 @@ export function spaceAdminSpacesFor(record: { rights?: TokenRights | null } | un
 }
 
 export function editorScopeFor(
-  record: { rights?: TokenRights | null; spaces?: string[] } | undefined,
+  record: { rights?: TokenRights | null } | undefined,
 ): readonly string[] | undefined {
   if (!record) return undefined;
   const rights = record.rights;
-  if (!rights) return record.spaces;                    // no matrix: the legacy field is all there is
+  /*
+   * NO MATRIX MEANS NO SCOPE, and here that has to be `[]` rather than `undefined`.
+   *
+   * This returned `record.spaces`, the pre-3.0 allowlist — which is `undefined` on every token since
+   * 3.1, and `undefined` from THIS function means unrestricted. So a token with no matrix was read as an
+   * instance-wide administrator by every caller: the same absent-means-permission mistake as
+   * `tokenReachesSpace`, one layer up, where the two values that mean opposite things look identical.
+   *
+   * Owner, 2026-09-05: *"no matrix = refuse - no fallback no backwards compatibility anymore"*.
+   */
+  if (!rights) return [];
   if (rights.floor && SPACE_AREAS.some(a => rights.floor?.[a] && rights.floor[a] !== 'none')) return undefined;
   return Object.keys(rights.perSpace ?? {})
     .filter(id => SPACE_AREAS.some(a => effectiveRung(rights, id, a) !== 'none'));

@@ -68,19 +68,35 @@ describe('a matrix-scoped token is confined to its own spaces', () => {
   });
 });
 
-describe('the legacy allowlist still works, and only when there is no matrix', () => {
-  it('a pre-matrix token is scoped by its allowlist', () => {
-    assert.equal(tokenReachesSpace({ spaces: ['qa'] }, 'qa'), true);
+describe('the legacy allowlist is not consulted, and no matrix reaches nothing', () => {
+  /*
+   * INVERTED 2026-09-05. Owner: *"no matrix = refuse - no fallback no backwards compatibility anymore"*.
+   *
+   * Two cases stood here: that a pre-matrix token was scoped by its allowlist, and that no scope of
+   * either kind was unrestricted *"exactly as before"* — with the note that changing it *"would refuse
+   * traffic rather than fix anything"*.
+   *
+   * That note was true when it was written and stopped being true in 3.1, when `spaces` left
+   * `TokenRecord`. There is no token shape left that this refuses: a PAT gets a matrix from
+   * `createToken`, a pre-matrix PAT gets one from `migrateTokenRightsOnBoot` on every start, and an OIDC
+   * session carries `rights` as a REQUIRED field derived per request from its claim mapping.
+   *
+   * So the fallback was unreachable AND it read an absent scope as UNRESTRICTED — the worse of the two
+   * ways to be unreachable, because nothing exercises it and anything that ever did would be handed the
+   * whole instance.
+   */
+  it('a record carrying only the pre-3.0 allowlist reaches NOTHING', () => {
+    assert.equal(tokenReachesSpace({ spaces: ['qa'] }, 'qa'), false,
+      'the allowlist is still being read as scope');
     assert.equal(tokenReachesSpace({ spaces: ['qa'] }, 'finance'), false);
   });
 
-  it('no scope of either kind is unrestricted, exactly as before', () => {
-    // Not a widening: this is the pre-existing meaning of an absent allowlist, and changing it here would
-    // refuse traffic rather than fix anything.
-    assert.equal(tokenReachesSpace({}, 'anything'), true);
-    assert.equal(tokenReachesSpace(undefined, 'anything'), true);
+  it('and no scope of either kind reaches nothing, where it used to reach everything', () => {
+    assert.equal(tokenReachesSpace({}, 'anything'), false,
+      'an absent scope is still read as unrestricted — the shape this codebase has shipped three times');
+    assert.equal(tokenReachesSpace(undefined, 'anything'), false,
+      'no token at all must reach nothing');
   });
-
   it('the MATRIX WINS when both are present, and it is the narrower answer that survives', () => {
     // The ordering assertion. A token carrying a stale wide allowlist and a narrow matrix must be held to the
     // matrix — reading the allowlist first would restore the hole in a different shape.

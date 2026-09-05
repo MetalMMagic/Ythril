@@ -25,7 +25,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { changelogSection, sectionContentLines, releaseBody } from '../../scripts/changelog-section.mjs';
+import {
+  changelogSection, sectionContentLines, releaseBody,
+  abridgeForRelease, RELEASE_BODY_MAX, RELEASE_BODY_TARGET,
+} from '../../scripts/changelog-section.mjs';
 
 const wf = readFileSync('.github/workflows/publish.yml', 'utf8');
 const changelog = readFileSync('CHANGELOG.md', 'utf8');
@@ -81,6 +84,69 @@ describe('the section extraction is one implementation, and it is bounded struct
     assert.equal(sectionContentLines(empty).length, 0,
       'a section holding only headings claims something changed and names none of it');
     assert.ok(sectionContentLines(changelogSection(changelog, NEWEST)).length >= 3);
+  });
+});
+
+describe('a body too long for GitHub is abridged, not refused', () => {
+  /*
+   * MEASURED, and it cost a tag. `v4.0.0` was pushed, both registries took the image, and the Release step
+   * failed with `422 body is too long (maximum is 125000 characters)` against **335 002 characters** of
+   * notes. Every release before it fitted, so nothing had ever exercised a ceiling: `release-notes.mjs` had
+   * a FLOOR — refusing a section too short to describe anything — and nothing at the other end.
+   *
+   * A major is where it breaks, because a major carries every entry since the last one. And it breaks at
+   * the LAST step, after the images have published, which is the most expensive place for it to land.
+   *
+   * The limit is passed explicitly here so the cases exercise the real code path without a 300 KB fixture.
+   */
+  const entry = (n) => `- **Entry ${n}.** ${'x'.repeat(200)}`;
+  const many = Array.from({ length: 60 }, (_, i) => entry(i)).join('\n');
+
+  it('leaves a body that already fits completely alone', () => {
+    // The common case, and the one a ceiling must not touch: every release before 4.0.0 fitted.
+    assert.equal(abridgeForRelease(many, '9.9.9', 100_000), many);
+  });
+
+  it('fits inside the limit, and the limit it fits inside is under GitHub\'s', () => {
+    const out = abridgeForRelease(many, '9.9.9', 3_000);
+    assert.ok(out.length <= 3_000, `abridged to ${out.length}, over the 3000 asked for`);
+    assert.ok(RELEASE_BODY_TARGET < RELEASE_BODY_MAX,
+      'the target must sit UNDER the hard limit — this body is full of em-dashes, so its byte length runs '
+      + 'ahead of its character length, and being right about which one GitHub counts is not worth the margin');
+  });
+
+  it('cuts between entries, never inside one', () => {
+    /*
+     * The rule the module header already states: *"a slice bounded by a character count would ship a
+     * truncated release note that reads as complete"*. A body that stops mid-sentence is exactly that.
+     */
+    const out = abridgeForRelease(many, '9.9.9', 3_000);
+    const shown = out.split('\n').filter(l => l.startsWith('- **Entry '));
+    assert.ok(shown.length >= 1, 'nothing survived — the budget maths left no room for a single entry');
+    for (const l of shown) {
+      assert.ok(l.endsWith('x'.repeat(10)), `an entry was cut mid-text: ${l.slice(-40)}`);
+    }
+  });
+
+  it('says it is abridged at BOTH ends, and how many of how many', () => {
+    // The top one is the one that matters: a reader who stops halfway through a body this size never
+    // reaches a footer, and would take a window onto the notes for all of them.
+    const out = abridgeForRelease(many, '9.9.9', 3_000);
+    const shown = out.split('\n').filter(l => l.startsWith('- **Entry ')).length;
+    assert.match(out.split('\n')[0], /abridged/i, 'the first line must say so');
+    assert.ok(out.includes(`${shown} of 60 entries`), 'the count must be the REAL one, not the budgeted one');
+    assert.match(out, /End of the abridged notes/, 'and the end must say where it ended');
+    assert.ok(out.includes('/blob/v9.9.9/CHANGELOG.md'),
+      'both notices must point at the CHANGELOG AT THIS TAG — a link to main would drift away from the notes');
+  });
+
+  it('and a single entry bigger than the whole budget still says where the notes are', () => {
+    // Rather than returning an empty body, which announces a version and describes none of it — the exact
+    // failure the floor above this file exists to prevent.
+    const huge = `- **One enormous entry.** ${'y'.repeat(5_000)}`;
+    const out = abridgeForRelease(huge, '9.9.9', 1_000);
+    assert.match(out, /too long to show here/);
+    assert.ok(out.includes('/blob/v9.9.9/CHANGELOG.md'));
   });
 });
 

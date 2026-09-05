@@ -16,7 +16,7 @@
  * and only one of them had a mechanism.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { changelogSection, sectionContentLines, releaseBody } from './changelog-section.mjs';
+import { changelogSection, sectionContentLines, releaseBody, abridgeForRelease, RELEASE_BODY_MAX } from './changelog-section.mjs';
 
 const version = process.argv[2];
 const outPath = process.argv[3];
@@ -40,10 +40,24 @@ if (content.length < 3) {
   process.exit(1);
 }
 
-const body = releaseBody(section);
+/*
+ * THERE IS A CEILING AS WELL AS A FLOOR, and only the floor existed.
+ *
+ * The check above refuses a section too short to describe anything. Nothing checked the other end, because
+ * every release until 4.0.0 fitted: that tag was cut, both registries took the image, and this step failed
+ * with `422 body is too long (maximum is 125000 characters)` against 335 002 characters of notes.
+ *
+ * A major is where it breaks — 4.0.0 carries every entry since 3.0.0 — and the failure lands at the LAST
+ * step, after everything else has published, which is the most expensive place for it to land.
+ */
+const full = releaseBody(section);
+const body = abridgeForRelease(full, version);
 if (outPath) {
   writeFileSync(outPath, body + '\n', 'utf8');
-  console.error(`wrote ${body.length} chars of notes for ${version} to ${outPath}`);
+  console.error(body.length === full.length
+    ? `wrote ${body.length} chars of notes for ${version} to ${outPath}`
+    : `wrote ${body.length} chars of notes for ${version} to ${outPath} — ABRIDGED from ${full.length}, `
+      + `over GitHub's ${RELEASE_BODY_MAX} limit; the body points at CHANGELOG.md at this tag`);
 } else {
   process.stdout.write(body + '\n');
 }

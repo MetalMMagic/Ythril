@@ -136,7 +136,7 @@ export const rememberTool: ToolHandler = {
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
     // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
-    // grammar — both spellings — so this is one line rather than a second reading of the deprecated name.
+    // grammar, so a change to it reaches every create door at once rather than one at a time.
     const supCreate = parseRecordSuppression(a);
     if (!supCreate.ok) throw new Error(supCreate.error);
     const mem = await remember(ts, fact, entityIds, tags, description, props, memType,

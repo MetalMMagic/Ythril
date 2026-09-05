@@ -97,7 +97,7 @@ export const upsert_entityTool: ToolHandler = {
     let upserted;
     try {
       // The record tier, which no create door stated until 2026-09-02. `parseRecordSuppression` owns the
-      // grammar — both spellings — so this is one line rather than a second reading of the deprecated name.
+      // grammar, so a change to it reaches every create door at once rather than one at a time.
       const supCreate = parseRecordSuppression(a);
       if (!supCreate.ok) throw new Error(supCreate.error);
       upserted = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,

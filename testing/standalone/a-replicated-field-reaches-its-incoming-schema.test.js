@@ -61,6 +61,16 @@ import { readFileSync } from 'node:fs';
 const TYPES = 'server/src/config/types.ts';
 const SHARED = 'server/src/api/sync/_shared.ts';
 const MERKLE = 'server/src/brain/merkle.ts';
+/*
+ * The exclusion SET left `merkle.ts` for `sync/local-only-fields.ts`, which has two consumers: the hash
+ * skips these fields, and the pull path strips them from an arriving document. One list, because the rule
+ * this file states runs both ways — a field that is hashed must replicate, so a field that must NOT
+ * replicate must not be hashed, or the divergence warning fires for ever over nothing.
+ *
+ * The file-metadata INCLUSION list stayed in `merkle.ts`: it is a projection of that document's own
+ * fields rather than a statement about which fields are local.
+ */
+const LOCAL_ONLY = 'server/src/sync/local-only-fields.ts';
 
 /** Fields of a `*Doc` interface, in declaration order. */
 function docFields(src, name) {
@@ -102,8 +112,8 @@ function incomingKeys(src, name) {
  * So the extractor has to read both, and what it returns is the same thing either way: the set of fields
  * the hash does not see.
  */
-function merkleExcluded(src, docName) {
-  const set = src.match(/const DERIVED_FIELDS = new Set\(\[([^\]]*)\]\)/);
+function merkleExcluded(src, docName, localOnlySrc) {
+  const set = localOnlySrc.match(/LOCAL_ONLY_FIELDS: ReadonlySet<string> = new Set\(\[([^\]]*)\]\)/);
   const names = s => [...(s ?? '').matchAll(/([a-zA-Z_]\w*)/g)].map(m => m[1]).filter(n => n !== '0');
   const fromSet = names(set?.[1]);
 
@@ -168,8 +178,9 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
   const types = readFileSync(TYPES, 'utf8');
   const shared = readFileSync(SHARED, 'utf8');
   const merkle = readFileSync(MERKLE, 'utf8');
+  const localOnly = readFileSync(LOCAL_ONLY, 'utf8');
   // Per document, because the two projection shapes are read differently — see `merkleExcluded`.
-  const { fromSet, fromProjection } = merkleExcluded(merkle, null);
+  const { fromSet, fromProjection } = merkleExcluded(merkle, null, localOnly);
   const REPLICATED = replicatedPairs(shared);
 
   it('the extractors find what they are looking for (the check itself works)', () => {
@@ -186,9 +197,9 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
       assert.ok((docFields(types, doc) ?? []).length > 6, `${doc} fields not found — re-anchor`);
       assert.ok((incomingKeys(shared, inc) ?? []).length > 6, `${inc} keys not found — re-anchor`);
     }
-    assert.ok(fromSet.length >= 3, 'DERIVED_FIELDS not found in merkle.ts — re-anchor');
+    assert.ok(fromSet.length >= 3, 'LOCAL_ONLY_FIELDS not found in sync/local-only-fields.ts — re-anchor');
     assert.ok(fromProjection.length >= 3, 'DERIVED_PROJECTION not found in merkle.ts — re-anchor');
-    assert.ok(merkleExcluded(merkle, 'FileMetaDoc').fromProjection.length >= 10,
+    assert.ok(merkleExcluded(merkle, 'FileMetaDoc', localOnly).fromProjection.length >= 10,
       'FILE_HASH_PROJECTION not found in merkle.ts — re-anchor. It is an INCLUSION list, unlike every other '
       + 'collection, and reading it as an exclusion makes every derived file field look hashed.');
   });
@@ -203,7 +214,7 @@ describe('a hashed field replicates, and a non-replicated field is not hashed', 
     it(`${docName}: every hashed field is declared by ${incName}`, () => {
       const fields = docFields(types, docName);
       const keys = incomingKeys(shared, incName);
-      const view = merkleExcluded(merkle, docName);
+      const view = merkleExcluded(merkle, docName, localOnly);
       /*
        * An INCLUSIVE projection turns the question round: a field is hashed only if it is NAMED, so
        * everything else is out of the hash and needs no declaration. The rule is unchanged — hashed AND

@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { col, asFilter } from '../db/mongo.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { BRAIN_COLLECTIONS } from '../config/types-knowledge.js';
+import { LOCAL_ONLY_FIELDS } from '../sync/local-only-fields.js';
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -64,10 +65,12 @@ function sha256hex(input: string): string {
  * would make a redacted entry hash identically to one that still has its detail, which is real divergence
  * going unreported. The schedule is local; what it did to the record is not.
  */
-const DERIVED_FIELDS = new Set([
-  'embedding', 'embeddingModel', 'matchedText',
-  '_expireAt', '_contentExpireAt',
-]);
+/*
+ * READ FROM `sync/local-only-fields.ts`, which is the same set for the same reason. `CLAUDE.md` states
+ * the equivalence as a rule — a field that is hashed must replicate — so a field excluded here is exactly
+ * a field ingest must drop, and two lists of one set is how one of them goes wrong.
+ */
+const DERIVED_FIELDS = LOCAL_ONLY_FIELDS;
 
 /**
  * Canonical JSON of a document: keys sorted at every level, derived fields

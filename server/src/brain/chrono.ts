@@ -393,14 +393,14 @@ export async function updateChrono(
   // the vector when the flag is on and computes one when it is off. So this path never has to know
   // which way the toggle went, which is what keeps the rule in one place.
   // ONE enqueue, unconditionally, for every successful update: recompute the text from the record as
-  // STORED, and honour excludeFromVectorSearch in whichever direction it moved. See the entity update and
+  // STORED, and honour `suppressEmbeddings` in whichever direction it moved. See the entity update and
   // `embedStoredRecord` for why this replaced an inline embed built from a stale read.
   await enqueueEmbedJob(spaceId, 'chrono', updatedChrono._id);
   /*
    * The writer whose `$set` key is COMPUTED — `$set[k] = v` over `Object.entries(updates)` — so no grep for
-   * either field name finds this path in either spelling. Reconciled from the STORED document for that
-   * reason: reading the updates object would mean re-deriving which of the two classes the loop happened to
-   * touch, and getting that wrong is invisible.
+   * the field name finds this path at all. Reconciled from the STORED document for that reason: reading the
+   * updates object would mean re-deriving which class the loop happened to touch, and getting that wrong is
+   * invisible.
    *
    * Both classes are passed only when the caller named one of them. Omitting `memoryIds` on a patch means
    * "leave the memory links", not "remove them".

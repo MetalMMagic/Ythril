@@ -166,8 +166,27 @@ agreeing they match, for ever, with nothing to contradict. A file field must be 
 Owner's ruling, 2026-09-01: *"dont transfer embeddings... on transfer the receiver applies its rules. if the
 space has supressembeddings dont embed at all. if it should embed use the receivers embedding mechanism."*
 
-**No ingest schema declares `embedding` or `embeddingModel` — none of the six.** A vector never crosses the
-wire in either direction.
+**A vector never crosses the wire, and "no ingest schema declares it" is only HALF the reason — the half
+that covers one of the two ingest paths.** That sentence stood here alone and was believed; it is true of
+PUSH, which zod strips because no `Incoming*` schema declares the field. **Pull validates nothing.** It
+fetched `full=true` and `replaceOne`d what came back, so a pulled record carried the sender's vector and
+was stored with it, for as long as the sentence had been read as covering both.
+
+**And the vector was not the expensive half.** The same five fields are excluded from the space hash, and
+two of them are the retention stamps — `_expireAt` and `_contentExpireAt`. `brain/ttl-sweep.ts` deletes
+every record whose stamp has passed, across every space, through the normal delete path. **So a pulled
+stamp let one instance decide when another deleted its data** — an operator who configured a year of
+retention losing records after the sender's seven days, with nothing logged on either side.
+
+**The list is `sync/local-only-fields.ts`, with two consumers and one reason.** `merkle.ts` excludes them
+from the hash; the pull path strips them before the write. The equivalence that makes it ONE list is the
+rule two sections above — a field that is hashed must replicate — read backwards: a field that must not
+replicate must not be hashed, or every cycle reports a divergence for a space where nothing is wrong.
+
+**What to take from it, because the shape recurs:** the gate protecting this asserted that the receiver
+does not trust an arriving vector, and it was scoped to the ingest ROUTER. The second ingest site was
+outside the thing it looked at, so it passed throughout. A gate scoped to one mechanism concludes about
+all of them.
 
 Whether to embed is then `embeddingSuppressedFor`, resolving `record > schema > space` against THIS instance's
 configuration — **except for a file, which has two tiers and not three.** A file has no `type`, so it has no

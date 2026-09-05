@@ -150,6 +150,10 @@ never put to a network vote.
 
 A space that set a single number before this split keeps working exactly as it did: it shows on all five fields, which is what it always meant.
 
+> **These numbers are yours alone, and a peer's are not.** In a space that syncs, every instance applies **its own** windows to every record it holds — including records that arrived from somebody else. An instance keeping tickets for a year does not start deleting them after a week because the peer it syncs with keeps them for a week. The expiry is worked out here, from the fields above, and is recomputed on this instance whenever the record is next written.
+>
+> **Before 4.0 that was true of records pushed to you and not of records you pulled**, so an instance doing the pulling could inherit the sender's expiry and delete data early — with nothing logged, and nothing to tell it apart from your own policy working. Nothing is restored by upgrading: what a peer's window already deleted is gone, and a stamp that came from a peer is replaced by your own the next time that record is written.
+
 Below the fields, any type that *does* have its own window is listed read-only — that list is where you see what actually overrides these numbers, and it is edited on the type, in the **Schema** tab.
 
 **Rebuild search indexes** is the repair for *search returns nothing and nothing says why* — a space whose vector indexes are missing or were destroyed (restoring a backup used to do this). It re-creates them from your existing content; search stays empty until it finishes, and nothing is deleted. Reindexing is not a substitute: it re-embeds content against the current model and cannot recreate a missing index. Requires an admin token (and TOTP when MFA is on). The same rebuild is also available per space directly from the **vector-index table** under Settings → Media Processing → Tools — the one place the drift (recorded *ready* vs. a database with no index) is actually visible — behind the same confirmation.

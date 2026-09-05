@@ -9,6 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The divergence check hashes a file's metadata too, and only the authored half.** Both halves of that
+  sentence are load-bearing, and they fail in opposite directions.
+
+  Hash nothing and two instances holding different descriptions compute the same root and report
+  themselves **identical** — a permanent false negative on the one signal that says data really is missing.
+  Hash the derived fields as well and two instances that agree about everything anybody WROTE diverge for
+  ever over a size in bytes, which teaches an operator to ignore the warning.
+
+  The check is advisory and blocks nothing, so nothing else would ever have contradicted either reading.
+
+- **Deleting an entity can take its edges with it — behind a preview and a token** (owner's ruling
+  `P-29`). A `DELETE` on an entity is refused while edges still connect it to something. There is a second
+  way out now, and **the refusal itself names it**.
+
+  Call `GET .../entities/:id/cascade-preview`, read exactly what would go, and repeat the `DELETE` with
+  the `cascadeToken` it returns. The `entity_cascade_preview` tool is the same capability for an agent.
+
+  **Not a flag, and the reason is not caution.** An entity is a hub: the records a cascade removes are not
+  visible in the call, there is no undo, and a flag saying *"I checked"* cannot be checked. A token quoted
+  back from a preview can be — it is derived from the exact list you were shown, so **a record created
+  after you looked cannot be deleted by a decision taken before it existed**. Add an edge between the two
+  calls and the delete is refused, with the current list attached so your next call is one and not two.
+
+  **The refusal used to say nothing about any of this.** It has listed the blocking ids since 3.x, and the
+  integrator who asked for this spent four attempts — `?cascade=true`, `?force=true`, `?deleteEdges=true`,
+  `?withEdges=true` — before writing clear-then-delete by hand. The `409` now carries the preview route
+  and the parameter name, so the next step is discoverable from the error rather than from the guide.
+
+  **What it removes:** the edges, and the entity. **Not** what is at the other end of them — a cascade
+  takes the relationships, not the records they join. Not a face label either: the photo survives and is
+  unlabelled, which an ordinary delete already does. And not a memory, timeline entry or file that names
+  the entity: those are records of their own, they still block, and the refusal names them.
+
+  The token never expires and is not a secret, both deliberately. A token that still matches means the
+  list has not moved, which is exactly when your decision is still good — an expiry would refuse a correct
+  decision and accept a stale one whenever the clock happened to agree. And anyone who can compute it
+  already knows the list, because the refusal prints it.
+
+- **The token list sorts on every column but the buttons, and searches on Label and Spaces.** Owner-requested,
+  2026-09-01, with the Brain tables as the reference — so it reuses their header primitive: click a heading to
+  sort, click again to reverse, and two search boxes dock under the two headings that have them.
+
+  Sorting is client-side, and that is written down rather than left to be discovered: the token list arrives in
+  one response and never pages, so there is nothing to ask the server for. Adding `sort`/`dir` to the auth API
+  would owe all five places a capability lives, for a list that has no pages to span.
+
+  **Two orderings are decisions rather than defaults**, each with a case naming it. **Spaces sorts by reach** —
+  library-access, then fewest spaces, then unrestricted last — because sorting badge text alphabetically answers
+  no question anybody has, and because `spaces: []` means ALL spaces, so ordering by length would file the
+  broadest token as the narrowest. **Blanks stay at the bottom in both directions**: *never used* and *no
+  expiry* are absences, and sorted as values they would head an ascending list as though least-recently-used,
+  or bury the tokens expiring soonest under the permanent ones.
+
+  Filtering to nothing now says so and offers to clear the search, instead of showing the "you have no tokens
+  yet" state — which would tell an operator their tokens had been revoked.
+
+- **Every model slot's call budget is now operator-settable.** Only the document pipeline ever was: an
+  operator could set `pageTimeoutMs`, `ocrTimeoutMs` and `describeTimeoutMs`, and nothing else. The other ten
+  model calls each carried a literal — two exported constants in the media providers, one in the face
+  detector, bare `AbortSignal.timeout(20_000)` in the NLI and rerank clients, `30_000` in the embedder, and
+  `?? 60_000` repeated **five times** in the document VLM client. Ten slots, four mechanisms, none reachable
+  without a rebuild. Reported by the canary operator, who asked why they could not configure the vision
+  deadline.
+
+  `modelSlots.<slot>.timeoutMs` sets it, for any of `vision`, `stt`, `embedding`, `rerank`, `nli`, `assist`,
+  `docVlm`, `docRepair`, `docVerify`, `faceExternal` — the same ten names the per-slot egress permissions
+  already use, reused rather than duplicated. Settable through `PATCH /api/admin/media-config` and pinnable
+  per slot with `YTHRIL_PINNED_FIELDS=modelSlots.vision`. **Every default is unchanged**, so this ships no
+  behaviour change on its own: a change that made budgets configurable *and* moved them would make any
+  resulting regression impossible to attribute to either half.
+
+  **Raising a budget raises the stall floor with it**, and that is the half that would have turned a feature
+  into a defect if it had been missed. The media stall detector re-queues a job that reports no progress, and
+  a single long call reports nothing while it runs — so it is fed the *configured* value. Fed the constant, it
+  would have kept protecting the default while the operator's larger value ran unprotected, and a call longer
+  than the stall timeout is re-queued mid-flight, abandons its work, and reaches the same call again. That is
+  the loop the stall floor exists to prevent, re-armed by the control meant to help.
+
+  **Deliberately no environment variable.** Every setting that had both an env var and an admin field turned
+  out to have two different legal ranges, and the fix for that shipped the same day; adding ten more dual-door
+  settings on top of it would be re-opening the hole. `YTHRIL_PINNED_FIELDS` already gives infrastructure what
+  it needs — it can fix a slot at whatever the config resolves to, which is the actual requirement.
+
+  One resolver, in a module that imports nothing: the budgets are read from the config loader, from two brain
+  clients, from the media providers and from the document converter, several of which the loader itself
+  imports, so anything it depended on would close a runtime import cycle.
+
 - **A file's METADATA now replicates — its description, tags, properties and the records attached to it**
   (owner's ruling `P-32`).
   The bytes have always travelled. What somebody wrote about a file did not.
@@ -28,16 +115,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **A file CHUNK is refused rather than stripped.** A chunk is derived from the blob and each instance
   makes its own, with its own chunker and its own model. Stripped of the field that marks it, it would land
   as a FILE under an id ending in `#0`, carrying another instance's passage text.
-
-- **The divergence check hashes a file's metadata too, and only the authored half.** Both halves of that
-  sentence are load-bearing, and they fail in opposite directions.
-
-  Hash nothing and two instances holding different descriptions compute the same root and report
-  themselves **identical** — a permanent false negative on the one signal that says data really is missing.
-  Hash the derived fields as well and two instances that agree about everything anybody WROTE diverge for
-  ever over a size in bytes, which teaches an operator to ignore the warning.
-
-  The check is advisory and blocks nothing, so nothing else would ever have contradicted either reading.
 
 - **A file metadata record has a `seq`, which it never had.** It is the ordering primitive replication runs
   on — the page cursor, the watermark, and last-writer-wins are all seq-based.
@@ -104,33 +181,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   envelope because `list_peers` returns a bare JSON array by contract, and wrapping it would break every
   caller that indexes the result — so one spelling of the fact through both doors, not two.
 
-- **Deleting an entity can take its edges with it — behind a preview and a token** (owner's ruling
-  `P-29`). A `DELETE` on an entity is refused while edges still connect it to something. There is a second
-  way out now, and **the refusal itself names it**.
+- **Every reader of "what is next to this?" answers from one definition.** Five of them each followed a
+  different subset of the six fields: the standalone traverse, the walk inside `recall`, the scan that
+  refuses a delete, the ER diagram, and the check sync runs on arriving records. The last one had never
+  adopted the shared module at all — it hardcoded one field name, one target collection and the UUID shape.
 
-  Call `GET .../entities/:id/cascade-preview`, read exactly what would go, and repeat the `DELETE` with
-  the `cascadeToken` it returns. The `entity_cascade_preview` tool is the same capability for an agent.
-
-  **Not a flag, and the reason is not caution.** An entity is a hub: the records a cascade removes are not
-  visible in the call, there is no undo, and a flag saying *"I checked"* cannot be checked. A token quoted
-  back from a preview can be — it is derived from the exact list you were shown, so **a record created
-  after you looked cannot be deleted by a decision taken before it existed**. Add an edge between the two
-  calls and the delete is refused, with the current list attached so your next call is one and not two.
-
-  **The refusal used to say nothing about any of this.** It has listed the blocking ids since 3.x, and the
-  integrator who asked for this spent four attempts — `?cascade=true`, `?force=true`, `?deleteEdges=true`,
-  `?withEdges=true` — before writing clear-then-delete by hand. The `409` now carries the preview route
-  and the parameter name, so the next step is discoverable from the error rather than from the guide.
-
-  **What it removes:** the edges, and the entity. **Not** what is at the other end of them — a cascade
-  takes the relationships, not the records they join. Not a face label either: the photo survives and is
-  unlabelled, which an ordinary delete already does. And not a memory, timeline entry or file that names
-  the entity: those are records of their own, they still block, and the refusal names them.
-
-  The token never expires and is not a secret, both deliberately. A token that still matches means the
-  list has not moved, which is exactly when your decision is still good — an expiry would refuse a correct
-  decision and accept a stale one whenever the clock happened to agree. And anyone who can compute it
-  already knows the list, because the refusal prints it.
+  It now derives its classes like everything else, so a memory or timeline entry arriving from a peer has
+  every one of its link arrays checked instead of one. **It still only RECORDS** — sync ingest is
+  "validated, counted, and let in", and a refusal there would hold the watermark and stop the channel.
 
 - **Deleting a memory or a timeline entry can now be REFUSED, and this is the change most likely to reach
   a running script.** In a space with `strictLinkage` on, a timeline entry listing a memory — or a file
@@ -174,15 +232,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A link class is a `(fromKind, toKind)` PAIR now rather than a record kind. Keyed on the from kind alone,
   a caller asking about a chrono entry's MEMORY links was silently handed the class for its ENTITY links
   and scanned the wrong column — no error, and a plausible empty answer.
-
-- **Every reader of "what is next to this?" answers from one definition.** Five of them each followed a
-  different subset of the six fields: the standalone traverse, the walk inside `recall`, the scan that
-  refuses a delete, the ER diagram, and the check sync runs on arriving records. The last one had never
-  adopted the shared module at all — it hardcoded one field name, one target collection and the UUID shape.
-
-  It now derives its classes like everything else, so a memory or timeline entry arriving from a peer has
-  every one of its link arrays checked instead of one. **It still only RECORDS** — sync ingest is
-  "validated, counted, and let in", and a refusal there would hold the watermark and stop the channel.
 
 - **The scan that refuses a delete can see references to a memory, a timeline entry or a file, not just to
   an entity.** Nothing blocked deleting a memory that a timeline entry named, even under the strictest
@@ -305,55 +354,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The gate asks the question all four validators share rather than checking them one by one: a fifth record
   kind is covered on the commit that adds it, and a future removal has to remove all four together.
 
-- **The token list sorts on every column but the buttons, and searches on Label and Spaces.** Owner-requested,
-  2026-09-01, with the Brain tables as the reference — so it reuses their header primitive: click a heading to
-  sort, click again to reverse, and two search boxes dock under the two headings that have them.
-
-  Sorting is client-side, and that is written down rather than left to be discovered: the token list arrives in
-  one response and never pages, so there is nothing to ask the server for. Adding `sort`/`dir` to the auth API
-  would owe all five places a capability lives, for a list that has no pages to span.
-
-  **Two orderings are decisions rather than defaults**, each with a case naming it. **Spaces sorts by reach** —
-  library-access, then fewest spaces, then unrestricted last — because sorting badge text alphabetically answers
-  no question anybody has, and because `spaces: []` means ALL spaces, so ordering by length would file the
-  broadest token as the narrowest. **Blanks stay at the bottom in both directions**: *never used* and *no
-  expiry* are absences, and sorted as values they would head an ascending list as though least-recently-used,
-  or bury the tokens expiring soonest under the permanent ones.
-
-  Filtering to nothing now says so and offers to clear the search, instead of showing the "you have no tokens
-  yet" state — which would tell an operator their tokens had been revoked.
-
-- **Every model slot's call budget is now operator-settable.** Only the document pipeline ever was: an
-  operator could set `pageTimeoutMs`, `ocrTimeoutMs` and `describeTimeoutMs`, and nothing else. The other ten
-  model calls each carried a literal — two exported constants in the media providers, one in the face
-  detector, bare `AbortSignal.timeout(20_000)` in the NLI and rerank clients, `30_000` in the embedder, and
-  `?? 60_000` repeated **five times** in the document VLM client. Ten slots, four mechanisms, none reachable
-  without a rebuild. Reported by the canary operator, who asked why they could not configure the vision
-  deadline.
-
-  `modelSlots.<slot>.timeoutMs` sets it, for any of `vision`, `stt`, `embedding`, `rerank`, `nli`, `assist`,
-  `docVlm`, `docRepair`, `docVerify`, `faceExternal` — the same ten names the per-slot egress permissions
-  already use, reused rather than duplicated. Settable through `PATCH /api/admin/media-config` and pinnable
-  per slot with `YTHRIL_PINNED_FIELDS=modelSlots.vision`. **Every default is unchanged**, so this ships no
-  behaviour change on its own: a change that made budgets configurable *and* moved them would make any
-  resulting regression impossible to attribute to either half.
-
-  **Raising a budget raises the stall floor with it**, and that is the half that would have turned a feature
-  into a defect if it had been missed. The media stall detector re-queues a job that reports no progress, and
-  a single long call reports nothing while it runs — so it is fed the *configured* value. Fed the constant, it
-  would have kept protecting the default while the operator's larger value ran unprotected, and a call longer
-  than the stall timeout is re-queued mid-flight, abandons its work, and reaches the same call again. That is
-  the loop the stall floor exists to prevent, re-armed by the control meant to help.
-
-  **Deliberately no environment variable.** Every setting that had both an env var and an admin field turned
-  out to have two different legal ranges, and the fix for that shipped the same day; adding ten more dual-door
-  settings on top of it would be re-opening the hole. `YTHRIL_PINNED_FIELDS` already gives infrastructure what
-  it needs — it can fix a slot at whatever the config resolves to, which is the actual requirement.
-
-  One resolver, in a module that imports nothing: the budgets are read from the config loader, from two brain
-  clients, from the media providers and from the document converter, several of which the loader itself
-  imports, so anything it depended on would close a runtime import cycle.
-
 - **Tier 0-R ran on real infrastructure, and the graph arm is measurable for the first time.** Three model-free
   ingestion rungs over LoCoMo, 199 stratified questions, zero model calls:
   S0 (raw turns) **66.8%** strict evidence recall, S0+ (turns plus deterministic structure) 65.3%, S0G (the same
@@ -425,6 +425,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   locked out somebody's working token to close a hole nothing reaches. The gate that compares the rights
   matrix against the old allowlist is what said so — it failed on the first attempt at this fix, and it
   was right to.
+
+- **The token list table is its own component** (`token-table.component.ts`), with its ordering and matching
+  rules in `token-table.ts` beside a spec that names each one. The page was at its frozen size ceiling, so the
+  feature could not be added to it — and the gate's message is the argument rather than the rule: every change
+  lands in the same place because that is where the code already is. What stays behind is the page's requests,
+  its create dialog and its rights editor.
+
+  The two expiry predicates moved to the shared module in the same pass, because the table's badges and the
+  page's active/expiring/expired rollup are two consumers of one rule.
 
 - **The four sync read routes were one rule written four times, and are now one function.** `GET` of a
   page by `seq`, and `GET` of one document by id, for each of memories, entities, edges and chrono —
@@ -531,6 +540,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   After either, the stored id no longer equals its derivation, and that edge behaves exactly as every edge did
   before this change: no worse, just not yet better. Re-keying it means delete-and-insert on a synced
   natural-key collection, which has to reason about the tombstone the delete leaves behind — its own work.
+
+- **One space wipe instead of four.** `bulkDeleteEntities`, `bulkDeleteMemories`, `bulkDeleteEdges` and
+  `bulkDeleteChrono` were the same thirty lines in four of the largest files in the server (`R-4`). They are now
+  one function in `brain/bulk-wipe.ts` with three-line callers: `entities` 372 → 349 code lines, `memory`
+  291 → 264, `chrono` 410 → 386, `edge-bulk-delete` 33 → 3, against 38 for the shared helper.
+
+  The subtle part is why it mattered. A wipe reserves its whole tombstone seq range in ONE round trip — it used
+  to call `nextSeq()` per document, so a 100k-document wipe paid 100k awaited round trips before the delete
+  began. Gaps in the range are harmless because sync compares with `>`; reuse would not be, so the block is
+  taken up front and never rolled back. That is precisely the kind of reasoning that gets fixed in one copy of
+  four and left alone in the other three.
+
+  **What legitimately differs is kept, as options.** The entity wipe clears every face label in the space —
+  wholesale rather than by id list, because on a 100k-entity wipe an `$in` would build a 100k-element query for
+  a filter meaning "all of them" — and the memory wipe orders its tombstone range newest-first. Two
+  characterization cases were added for that ordering, because nothing covered it and the extraction was exactly
+  what could have dropped it in silence.
+
+  Seven mutants died, including the two the extraction newly made possible: a caller losing its cascade, and
+  that cascade being wired to every caller instead of one. Three dead imports came out with the old bodies —
+  `asBulk` and `reserveSeqBlock` were left naming nothing in three files, and the build never said a word.
 
 - **A graph hop is ONE query over the link records, not one per class — a 3.8× slowdown caught before
   release and removed.** The first implementation asked the links collection once per link class and then
@@ -1087,27 +1117,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The REST character default also drops from 100 000 to 50 000 (owner, 2026-08-30). MCP's 25 000 is unchanged.
 
-- **One space wipe instead of four.** `bulkDeleteEntities`, `bulkDeleteMemories`, `bulkDeleteEdges` and
-  `bulkDeleteChrono` were the same thirty lines in four of the largest files in the server (`R-4`). They are now
-  one function in `brain/bulk-wipe.ts` with three-line callers: `entities` 372 → 349 code lines, `memory`
-  291 → 264, `chrono` 410 → 386, `edge-bulk-delete` 33 → 3, against 38 for the shared helper.
-
-  The subtle part is why it mattered. A wipe reserves its whole tombstone seq range in ONE round trip — it used
-  to call `nextSeq()` per document, so a 100k-document wipe paid 100k awaited round trips before the delete
-  began. Gaps in the range are harmless because sync compares with `>`; reuse would not be, so the block is
-  taken up front and never rolled back. That is precisely the kind of reasoning that gets fixed in one copy of
-  four and left alone in the other three.
-
-  **What legitimately differs is kept, as options.** The entity wipe clears every face label in the space —
-  wholesale rather than by id list, because on a 100k-entity wipe an `$in` would build a 100k-element query for
-  a filter meaning "all of them" — and the memory wipe orders its tombstone range newest-first. Two
-  characterization cases were added for that ordering, because nothing covered it and the extraction was exactly
-  what could have dropped it in silence.
-
-  Seven mutants died, including the two the extraction newly made possible: a caller losing its cascade, and
-  that cascade being wired to every caller instead of one. Three dead imports came out with the old bodies —
-  `asBulk` and `reserveSeqBlock` were left naming nothing in three files, and the build never said a word.
-
 - **`resolveEdgeEntityNames` is `resolveEdgeEndpointNames`, and lives in `brain/edge-endpoint-names.ts`.** The
   old name described the first kind of endpoint rather than the job, which is how four call sites each came to
   resolve both ends in the entities collection. `bulkDeleteEdges` moved to `brain/edge-bulk-delete.ts` in the
@@ -1173,14 +1182,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   usually the only place the reason is written down; when the reason is wrong, the gate is what stops anyone
   noticing.
 
-- **`validateMemory`'s docblock now says the type allowlist is disputed rather than silently disagreeing with
-  three documents.** The interface docblock and two integration-guide pages state that the keys of
-  `typeSchemas.memory` are the allowed type values; the code only ever uses `type` to look one up. That looked
-  like a documented-but-unimplemented feature until the reason for the asymmetry turned up: the memories tab's
-  type control is free text with suggestions *because* the server accepts any string, and a closed select would
-  have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
-  defect, so it is filed for a ruling and the code now says where.
-
 - **Everywhere the product promises whole records, it now also says what that costs.** A budgeted search
   counts one match *together with its entire `_graph` subtree* as the unit that has to fit, and refuses to emit
   a partial one — so a match with a large subtree can push later matches out of the answer entirely. They are
@@ -1228,265 +1229,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Found while designing the benchmark's ingestion, and fixed BEFORE any measurement: repairing it after seeing
   "the graph does not help" would be indistinguishable from tuning to the benchmark.
-
-- **A processing poll whose own request FAILS keeps running, and now has a test saying so.** Seven cases
-  already stood over that poll — it re-lists while something is in flight, keeps going, leaves an idle
-  folder alone, retires itself when the file finishes, never stacks two timers, ignores which pane face is
-  open, and is cleared on destroy. None of them reached a failed request.
-
-  Retiring the poll on one failure would mean a single blip freezes the stage bar until the person navigates
-  away and back, and the file they are watching finishes with the bar stuck — which is indistinguishable
-  from the wedged pipeline the poll exists to fix. So it carries on, and the view repairs itself when the
-  server answers again. Confirmed by mutation: retiring it on a failed listing turns the case red.
-
-  This closes `G-15`, the last thing left of `G-3`, with an answer rather than a move: the poll reads
-  three stores, so any store owning it would reach into two others. A page is where something belonging to
-  no single store lives.
-
-- **The preview had no test for what it DECIDES — fourteen cases, and four of them found defects.** The block that was
-  already there covers the object URL, which is the one resource on that page that must be released. None of
-  it touches the three things below, and each was measured to have no assertion anywhere in the folder.
-
-  **Which kind a file is** — a lookup across five extension tables with `unknown` as the fallback. Lost, a
-  `.zip` would show a spinner that never stops, which reads as a hung request rather than a file type with
-  no preview. Case-folding is in there too, and so is the rule that a leading dot is not an extension.
-
-  **The failure path, which is written out THREE TIMES**, once per fetch branch. That is the shape this
-  codebase produces most — one rule, several implementations, the weakest winning silently — and nothing
-  asserted any of the three, so unifying them could have dropped one and stayed green. Also pinned: the
-  spinner clears, because a blank pane cannot be told apart from an empty file.
-
-  **What the renderer is told.** `previewModel`'s own docstring says the states are mutually exclusive and
-  that saying so in one place is what stops the child re-deriving "am I loading or erroring" from separate
-  flags. That claim now has a test, as does the null it returns when nothing is open.
-
-  Two more that were simply missing: the markdown branch's stale-response guard, which is the same race the
-  image branch was fixed for, and the six ways an `exceljs` cell can be an OBJECT — a formula with its
-  cached result, a hyperlink with its label, rich text as runs, an error, a Date and an empty cell. A preview
-  rendering `[object Object]` down a formula column does not error and looks like a sheet nobody filled in.
-
-  **And the auth header, which is the whole reason this code fetches by hand.** The file endpoint requires
-  it and a native `<img src>` cannot send one, which is what regressed image and PDF previews when the
-  `?token=` fallback was scoped to SSE-only. The DOWNLOAD path has had a case for that since the regression
-  and the preview path never did — the same rule tested in one of the two places it lives. Dropping it fails
-  every branch identically and silently: a 401 surfaces as an error message that reads like a permissions
-  problem with the file.
-
-  **Twenty-seven mutants, twenty-seven dead, and three earned their keep.** One passed because the FIXTURE
-  could not see the rule — the dotfile guard only shows itself for a file literally named `.md`. One was a
-  no-op dressed as a change. And one was the auth header, which nothing checked at all.
-
-- **The detail pane is its own component, and `file-manager.component.ts` is no longer a god file — `G-3`
-  is CLOSED.** 1 618 → 591 code lines over thirteen cuts, and the file has come off the frozen list in
-  `no-new-god-files.test.js` rather than being kept there at a low number.
-
-  `file-detail-pane.component.ts` takes the header and its tab strip, the preview body with its
-  full-screen toggle, the description block, and the three faces — preview, the Extract view and the
-  file-meta editor.
-
-  **It READS three stores, and every other child on this page takes inputs.** That is a deliberate
-  exception: rendering from three stores at once as a dumb component means about fifteen inputs, and
-  `file-preview.component.ts` argues against exactly that shape in its own docblock — *"eight inputs on a
-  presentational component is a class definition wearing a template's clothes."* Fifteen bindings is also
-  fifteen places one can be silently dropped. The stores are `providers` on the page, so the child gets the
-  same instances; nothing is shared more widely and nothing is duplicated.
-
-  **What it does not do is decide.** Every gesture is an output, because what a click MEANS belongs to the
-  page: switching to Meta re-seeds the edit model, switching to Extract fetches on the FIRST open and not on
-  every switch back, closing releases a blob URL and unhooks a key listener, and saving reloads a listing
-  that belongs to a fourth store.
-
-  `.preview-body` is DUPLICATED rather than moved, for the reason `.rename-form` already carries: two
-  elements wear the class, and the full-screen overlay's body is still on the page. Moving it to one of them
-  leaves the other an unstyled block — no error, just a preview that no longer scrolls.
-
-  **What the last four cuts actually say.** Chasing "how many API calls does this page still make" moved 65
-  lines. A THIRD of the file was its inline template and stylesheet, which no store extraction could reach,
-  and taking those out as two components is what ended it.
-
-- **The toolbar is its own component — `G-3.3`, and the first cut into the page's TEMPLATE.**
-  `file-toolbar.component.ts` takes the space selector, the breadcrumb trail, the new-folder form, the
-  upload picker and the sidebar toggle: 764 → 682 code lines.
-
-  **Its style rules travelled with its markup, which is not a tidiness point.** Angular scopes a component's
-  styles to its own template, so a rule the page declares cannot reach an element a child renders — and the
-  failure is silent: no error, no warning, just an unstyled control that still works. `.rename-form` is
-  DUPLICATED rather than moved, because the in-table rename form uses the same class from
-  `file-listing.component.ts`; two consumers, so the rule exists in both places, which is how that was
-  learned the first time.
-
-  **The new-folder form is two-way rather than local state.** A refused create has to keep what was typed —
-  losing an edit to a failed request is the one outcome trying again cannot undo — so the page closes the
-  form on the ANSWER, not on the attempt. If the component owned that flag outright it would have to be told
-  the outcome, which is a second channel for a decision the page already makes.
-
-  **Read on a screenshot, not only in a test.** An isolated instance was booted and driven through three
-  states — the root, the form open in place of its button, and a nested folder — because a moved stylesheet
-  is exactly the change that measures correctly and looks wrong. `root / reports` renders with the
-  breadcrumb's accent, separator and current-segment rules intact, the sidebar toggle still sits hard right
-  on its `margin-left: auto`, and the run logged no console errors.
-
-- **The preview group is its own store — `G-3.2`, and the biggest of the remaining cuts.**
-  `file-preview.store.ts` owns the eight signals, the view model that joins them, the fetch, both
-  renderers, the blob-URL binding and the full-screen flag — and, above the class, the five extension
-  tables, the kind decision, and the spreadsheet cell formatter that exist only for it. 939 → 764 code
-  lines.
-
-  **The spreadsheet note is a translation KEY now, not a sentence.** Five stores on this page and not one of
-  them translates: the wording of anything a person reads belongs to the renderer, which can see the locale.
-  The note is the only prose the preview produces and the PARSE is what knows the numbers, so the parse
-  returns the key and its parameters and `file-preview.component.ts` renders them. Same rule as the listing
-  store's failure keys, from the other end.
-
-  **The highlight.js language registrations moved with the call that needs them**, which is the half a move
-  like this loses. `highlight.js/lib/core` is a module singleton with an empty registry, so a call for an
-  unregistered language throws — and the ten `registerLanguage` lines were sitting in the page while
-  `hljs.highlight` left. It would have kept working for exactly as long as something imported the page
-  first: a load-order dependency nothing states. Confirmed load-bearing by deleting them and watching a case
-  go red.
-
-  Two things stayed on the page and one wrapper was deleted rather than moved. Opening a file still
-  orchestrates three stores — the extract is cleared, the metadata record is loaded, the pane switches face
-  — because none of those is the preview's to decide, and the URL is passed IN because it comes from the
-  listing store. The deleted one was a one-line `renderMarkdown` whose own docblock said it existed
-  "because the preview's tests drive it directly": a method kept alive by its own test, which is the thing
-  `preview-object-url.ts` warns about in as many words. Its case now follows the path production takes.
-
-- **The upload queue is its own store — `G-3.1`.** `file-upload.store.ts` owns the rows, the ordering, the
-  one-at-a-time rule, the subscriptions and the page's LAST `filesApi` request: 1 004 → 939 code lines, and
-  the file manager shell now makes no HTTP request of its own at all.
-
-  **A store rather than a component, and that is not a style choice.** An upload in flight owns a
-  subscription, so a component owning it would abort on destroy — navigating away from the tab, or any
-  structural change that remounted the panel, would silently cancel a running upload. Provided by the page,
-  it survives every remount inside the page and still cannot outlive the page itself.
-
-  **Two things stayed, and the store publishes what each follows from.** Asking about an overwrite is the
-  page's twice over: the set of existing names is the LISTING store's data, and the wording is a translation,
-  which this file holds none of. And a finished upload has to refresh the listing (another store's) and emit
-  `filesChanged` so the host's record counts move (an `@Output`) — so the store says only that one landed.
-
-- **The file-metadata group is its own store — `G-3`'s tenth cut, and the last of its four.** Nothing
-  user-visible changes. The record, the edit model and all three requests moved to `file-meta.store.ts`:
-  1 036 → 1 004 code lines, with the frozen ceiling lowered to match.
-
-  **The edit model stays a PLAIN OBJECT beside the signals**, which is the one piece of state on that page a
-  signal-based rewrite would silently change the semantics of — it is re-seeded wholesale on open, on cancel
-  and after a save, and the form binds into its fields. A characterization case has stood over it since the
-  fifth cut for exactly that reason.
-
-  **Three things deliberately stayed on the page**, and the store publishes what each of them follows from:
-  priming the picker's chip labels reads a `ViewChild`, so a store reaching for one would couple it to the
-  template; the toast wording is the page's, because this file holds no translations; and the directory
-  reload belongs to a different store, since tags and embedding status are shown on the list ROW.
-
-  One thing was tightened rather than moved: a failed SAVE no longer toasts. Its reason is already shown
-  inside the edit form, which is where the reader is looking, and a toast as well said the same thing twice.
-  A failed re-queue still toasts, because it has no form to show it in.
-
-- **Saving file metadata had no test at all, and now has four.** Nothing user-visible changes; this is the
-  last `filesApi` group in `G-3` being pinned before it moves. The rules: `entityIds` splits back out of the
-  comma-joined string with blanks dropped (a trailing comma would otherwise post an empty id), the
-  description is trimmed, a successful save re-seeds from the RESPONSE rather than from what was typed, it
-  leaves the edit face and reloads the DIRECTORY — tags and embedding status are shown on the list row, so a
-  save that skipped the reload would leave the row disagreeing with the pane — and a refused save keeps you
-  on the edit face with your text.
-
-  Re-seeding from the response is the one that would have gone unnoticed: the server normalises, so a version
-  that re-seeded from the model it had just sent shows what the user asked for instead of what exists, and
-  the difference only surfaces on a later reload.
-
-  Five mutants, and the fourth is worth recording: deleting the directory reload outright SURVIVED the first
-  version of that case, because the page lists the directory while it is constructing and the assertion
-  counted from zero rather than from a baseline. A count without a baseline cannot tell "it happened" from
-  "something else happened".
-
-- **The Extract face is its own store — `G-3`'s ninth cut.** Nothing user-visible changes. The three signals,
-  the one request and the two paging rules moved to `file-extract.store.ts`; the page kept the two methods the
-  template calls, because they are what resolve the space and the path, and threading those into the store
-  would give it two things to be wrong about instead of none.
-
-  The lazy-open rule stayed on the page as well: deciding to fetch on the first open and not on every switch
-  back is a judgement about a gesture, and the gesture belongs to whoever owns the detail pane. What moved is
-  the state that judgement reads — `hasNothing()` — so the page no longer has to know that "nothing to show"
-  means two signals rather than one. Reading `!extract()` alone would re-fetch while a request was in flight,
-  which is one of the four rules pinned in the change before this.
-
-  1 046 code lines, and the frozen ceiling comes down with it (1 050 → 1 036) so the list cannot drift upward.
-  Every one of the 108 cases in that folder passed with subjects re-pointed and no assertion edited.
-
-- **The extract tab's four rules are pinned before the group is extracted.** Nothing user-visible changes.
-  Three of the four had no test, and each is the kind a rewrite gets subtly wrong while every assertion it
-  kept still passes: paging APPENDS rather than replaces (a diagnostic must not throw away what the reader
-  has scrolled through) and keeps the FIRST response's `skip`, since that records where the view started;
-  the next page is asked for from what is ON SCREEN rather than from the last response, which would ask for
-  the same page for ever; the tab fetches once and lazily rather than on every switch back; and a failed
-  load says so instead of rendering an empty extract, because "no chunks" and "could not ask" are different
-  answers.
-
-  Five mutants killed — replace-instead-of-append, the newest `skip` winning, paging from the response,
-  re-fetching on every open, and a failed load leaving the spinner up.
-
-- **The directory listing is its own store, which is the eighth cut off the largest file in the repo.**
-  Internal only: no screen changes, no route changes, no parameter changes. It is here because the file it
-  came out of is the one every file-browser change lands in, and because two conditions inside it turned out
-  to be unable to decide anything.
-
-  What moved: the listing's five state signals, its five requests (list, new folder, rename, delete,
-  download URL), and the rule that decides whether a fetch is a fresh LOAD or a background REFRESH — one
-  function with six callers, kept as one function because asking each caller to classify itself is how five
-  get it right and one does not.
-
-  **The reload after a write moved with it.** It was the same statement written at three call sites, and a
-  fourth copy is how one of them ends up missing. What a write means BEYOND that reload — refresh the
-  sidebar's root, tell the host the file set changed — stays with the page, which is the only thing that
-  knows those exist.
-
-  **Two conditions retired, both found by mutating them and watching nothing fail.** The load-versus-refresh
-  test asked whether the last attempt had failed; that mattered while a failed listing kept its rows on
-  screen, and stopped mattering the moment those rows started being cleared, earlier in this same release.
-  A second one, in the same function, had never been able to matter. Neither was deleted quietly: the
-  comment in their place says what they guarded and what removed the need.
-
-  **And 105 characterization cases held it, with four ADDED rather than edited.** A refused new folder keeps
-  the name you typed and a refused rename leaves the row in edit mode — both were true before this change,
-  neither had an assertion, and the first version of this cut broke both of them silently.
-
-- **The file tree's state and requests moved into a store** — G-3's seventh cut and the first store rather than
-  a component, taking the largest file in the repo from 1 118 to 1 070 code lines.
-
-  A store because a component cannot hold them: the sidebar renders inside an `@if (sidebarOpen())`, so the tree
-  component is destroyed every time the sidebar closes, and a component owning `listFiles` would cancel it on
-  destroy and lose the loaded tree. A store the page provides has the page's lifetime. Provided per page rather
-  than application-wide, so leaving the page forgets a space's directories instead of carrying them into the
-  next.
-
-  Navigation stayed on the page deliberately. `onTreeClick` calls `navigate(path)` and then `toggle(node)` — one
-  gesture with two effects, both of them the behaviour — and the two calls sitting side by side are what keep
-  G-10's duplicate directory listing findable rather than buried inside a store method.
-
-  `joinPath` moved to `file-format.ts` at the same time: the tree and the breadcrumb are the only two things that
-  build a path in that page, and a second copy is how they start to disagree. A characterization case asserts a
-  node's path equals what that function returns, rather than a literal, for exactly that reason.
-
-  91 tests in that folder pass with their SUBJECTS re-pointed and not one assertion edited, which is the claim
-  this change is making. They failed loudly first — `c.treeRoot is not a function` — which is what a subject
-  re-point is supposed to look like.
-
-- **The file manager's directory tree is its own component.** Sixth cut of G-3: `file-tree.component.ts` takes
-  the recursive template, six CSS rules and the `TreeNode` interface, and the largest file in the repo goes
-  1 176 → 1 118 code lines. The frozen size came down with it — a ceiling far above the real size is headroom
-  the file can regrow into without the gate saying a word.
-
-  The tree's STATE and its two requests stayed on the page deliberately. The sidebar sits inside an
-  `@if (sidebarOpen())`, so a component owning the directory listing would cancel it on destroy and lose the
-  loaded tree, and reopening would re-fetch — which one of the characterization cases pins that it does not.
-  What remains on the shell is a store, not another component.
-
-  Nothing in the product changed, and the ten characterization cases from the previous change are how that is
-  known: 91 tests in that folder pass with not one assertion edited. One of them earned its keep on the first
-  run — the extracted component rendered NOTHING, because a standalone component that does not import
-  `NgTemplateOutlet` treats `*ngTemplateOutlet` as an unknown attribute and raises no error at all.
 
 - **The Search panel shows the request it would send, live, with a Copy button.** The last of the owner's
   `U-1` instruction: *"basically should be like the full json request visible on the side — so it can be
@@ -1571,15 +1313,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them. What changes today is that the gap can no longer widen quietly — and the hand count turned out to
   name four parameters `recall` does not even have.
 
-- **The token list table is its own component** (`token-table.component.ts`), with its ordering and matching
-  rules in `token-table.ts` beside a spec that names each one. The page was at its frozen size ceiling, so the
-  feature could not be added to it — and the gate's message is the argument rather than the rule: every change
-  lands in the same place because that is where the code already is. What stays behind is the page's requests,
-  its create dialog and its rights editor.
-
-  The two expiry predicates moved to the shared module in the same pass, because the table's badges and the
-  page's active/expiring/expired rollup are two consumers of one rule.
-
 - **The text-embedding API key no longer stays in `config.json`, and it was the fifth provider nobody
   checked.** `secrets.json` is `0o600`; `config.json` is not, and it is the file operators copy between
   machines, paste into issues, and mount as a ConfigMap. Since 3.0 the vision, speech-to-text, NLI and
@@ -1603,69 +1336,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The gate that asserted "no provider resolves its key from the stored config" checked four names. It
   derives the rule from the SHAPE now — any `apiKey` resolved with a `?? base…` or `?? cfg…` arm — because a
   name list is what let the fifth provider through, and would not see a sixth.
-
-- **Four config migrations are PERMANENT, not release tails — and one of them was going to be deleted.**
-  They lift a legacy `config.json` key onto its replacement at boot: the removed face-recognition switch,
-  the removed media master switch, the four `mediaEmbedding` url/model spellings, and a space's
-  `description`. All four shipped at or before the 3.0.0 floor 4.0 upgrades from, which reads as licence to
-  drop them.
-
-  **The floor is not the test, and the code says so in its own words.** Each is written as *mutate in
-  memory, then attempt to persist, and on failure warn "will retry next boot"*. That retry path means the
-  product never assumed the write succeeded — so "every instance has already been migrated" is an
-  assumption the implementation itself declines to make, and while a stale key survives on disk the
-  migration is what turns it into the right value, on every boot.
-
-  **None of the four fails by losing a value. Each leaves a WRONG DEFAULT, because the defaults moved
-  underneath them.** A stale `faceRecognition.enabled: false` under an `auto` or `recognition` image ceiling
-  would start face detection and store face embeddings — biometric data — with nobody having asked;
-  measured, not inferred. A stale `mediaEmbedding.enabled: false` would turn captioning and transcription on
-  for an instance that had media off. A stale `ollamaUrl` would drop the vision endpoint to the built-in
-  default and caption every document against whatever answers there. A stale `description` would lose a
-  space's MCP directive — and since `description` is refused at both doors since 3.0, the operator could not
-  re-send it under the old name either.
-
-  Three of those are a setting that is present, configures nothing, and produces no error, which is the
-  failure this release has now twice refused to ship. A new gate pins the WIRING rather than the behaviour,
-  because every existing test on these four passes if the migration merely stops being CALLED — a deletion
-  takes the function and its test out together and leaves nothing red. It also asserts each one runs OUTSIDE
-  its own `try`, so the in-memory fix still applies when the disk write fails, which is the only case where
-  any of this matters.
-
-- **A removed field could still be written by an internal caller.** `updateSpace` took a `description` and
-  folded it into `meta.purpose`. Correct when written, and unreachable since `refuseRemovedDescription` went
-  in front of both planners — every request carrying the field 400s, and all four internal callers pass
-  `meta`. What was left was one rule with two implementations where the survivor silently ACCEPTED what the
-  refusal exists to reject, reachable by any code going straight to `updateSpace` instead of through the
-  planners.
-
-- **Three legacy env-var spellings are now scheduled for removal at the next major**, and this page said
-  they never would be. `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` have resolved to `VISION_BASE_URL`,
-  `STT_BASE_URL` and `STT_MODEL` since 3.0, warning once at startup. The reasoning for keeping them was that
-  breaking a documented env var to improve its spelling is not a worthwhile trade — the owner has
-  reconsidered, and the notice belongs here rather than in the release that removes them.
-
-  **Nothing changes in this release, and you can act now anyway.** Both spellings resolve in every 3.x
-  build, so renaming them in your manifest today is safe and needs no coordination with an upgrade. Three
-  places in the guides said they were permanent and now say what is true instead: a promise nobody
-  retracted would surprise an operator at the major, which is the whole failure a deprecation notice
-  exists to prevent.
-
-- **A tracker exemption is now checked by its REASON, not only by the filename it names.** The local
-  pre-push check verified that each exempted page still exists — the half that cannot hurt anyone, since an
-  exemption pointing at a deleted file excuses nothing. It said so itself, in a yellow *"harmless, but tidy
-  it"*.
-
-  The half that had already caused damage was never read. A page was exempted as *"indexed by outcome rather
-  than queued"*, the outcomes moved elsewhere, and the exemption stayed — so that page collected settled
-  work filed as open for weeks while every checked page reported clean. The file existed the whole time.
-
-  *"Is this sentence still true?"* has no check. **A number in it does.** When a reason says how many steps
-  a checklist has, that is a claim about the file and the file can be counted — and the one entry subject to
-  the new rule was wrong, saying six where there are seven. A second stale count turned up beside it, in the
-  message that tells you how to rebuild the checklist if it is missing: it listed six rows, and the one it
-  left out was the documentation row. A row that is absent is not checked, so following that instruction
-  produced a checklist with one of its four real checks switched off.
 
 - **A completeness check can no longer be told to point at a collection with no screen.** The
   "go and fix these" button on the Overview and Review tabs takes a Brain TAB, and the field feeding it was
@@ -1700,6 +1370,348 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also asserts the README does NOT claim reasoning machinery Ythril has no part of — forward chaining, Rete,
   Datalog, SPARQL, PROV-O — because overselling was the other failure available.
 
+- **The detail pane is its own component, and `file-manager.component.ts` is no longer a god file — `G-3`
+  is CLOSED.** 1 618 → 591 code lines over thirteen cuts, and the file has come off the frozen list in
+  `no-new-god-files.test.js` rather than being kept there at a low number.
+
+  `file-detail-pane.component.ts` takes the header and its tab strip, the preview body with its
+  full-screen toggle, the description block, and the three faces — preview, the Extract view and the
+  file-meta editor.
+
+  **It READS three stores, and every other child on this page takes inputs.** That is a deliberate
+  exception: rendering from three stores at once as a dumb component means about fifteen inputs, and
+  `file-preview.component.ts` argues against exactly that shape in its own docblock — *"eight inputs on a
+  presentational component is a class definition wearing a template's clothes."* Fifteen bindings is also
+  fifteen places one can be silently dropped. The stores are `providers` on the page, so the child gets the
+  same instances; nothing is shared more widely and nothing is duplicated.
+
+  **What it does not do is decide.** Every gesture is an output, because what a click MEANS belongs to the
+  page: switching to Meta re-seeds the edit model, switching to Extract fetches on the FIRST open and not on
+  every switch back, closing releases a blob URL and unhooks a key listener, and saving reloads a listing
+  that belongs to a fourth store.
+
+  `.preview-body` is DUPLICATED rather than moved, for the reason `.rename-form` already carries: two
+  elements wear the class, and the full-screen overlay's body is still on the page. Moving it to one of them
+  leaves the other an unstyled block — no error, just a preview that no longer scrolls.
+
+  **What the last four cuts actually say.** Chasing "how many API calls does this page still make" moved 65
+  lines. A THIRD of the file was its inline template and stylesheet, which no store extraction could reach,
+  and taking those out as two components is what ended it.
+
+- **The upload queue is its own store — `G-3.1`.** `file-upload.store.ts` owns the rows, the ordering, the
+  one-at-a-time rule, the subscriptions and the page's LAST `filesApi` request: 1 004 → 939 code lines, and
+  the file manager shell now makes no HTTP request of its own at all.
+
+  **A store rather than a component, and that is not a style choice.** An upload in flight owns a
+  subscription, so a component owning it would abort on destroy — navigating away from the tab, or any
+  structural change that remounted the panel, would silently cancel a running upload. Provided by the page,
+  it survives every remount inside the page and still cannot outlive the page itself.
+
+  **Two things stayed, and the store publishes what each follows from.** Asking about an overwrite is the
+  page's twice over: the set of existing names is the LISTING store's data, and the wording is a translation,
+  which this file holds none of. And a finished upload has to refresh the listing (another store's) and emit
+  `filesChanged` so the host's record counts move (an `@Output`) — so the store says only that one landed.
+
+- **The file-metadata group is its own store — `G-3`'s tenth cut, and the last of its four.** Nothing
+  user-visible changes. The record, the edit model and all three requests moved to `file-meta.store.ts`:
+  1 036 → 1 004 code lines, with the frozen ceiling lowered to match.
+
+  **The edit model stays a PLAIN OBJECT beside the signals**, which is the one piece of state on that page a
+  signal-based rewrite would silently change the semantics of — it is re-seeded wholesale on open, on cancel
+  and after a save, and the form binds into its fields. A characterization case has stood over it since the
+  fifth cut for exactly that reason.
+
+  **Three things deliberately stayed on the page**, and the store publishes what each of them follows from:
+  priming the picker's chip labels reads a `ViewChild`, so a store reaching for one would couple it to the
+  template; the toast wording is the page's, because this file holds no translations; and the directory
+  reload belongs to a different store, since tags and embedding status are shown on the list ROW.
+
+  One thing was tightened rather than moved: a failed SAVE no longer toasts. Its reason is already shown
+  inside the edit form, which is where the reader is looking, and a toast as well said the same thing twice.
+  A failed re-queue still toasts, because it has no form to show it in.
+
+- **Saving file metadata had no test at all, and now has four.** Nothing user-visible changes; this is the
+  last `filesApi` group in `G-3` being pinned before it moves. The rules: `entityIds` splits back out of the
+  comma-joined string with blanks dropped (a trailing comma would otherwise post an empty id), the
+  description is trimmed, a successful save re-seeds from the RESPONSE rather than from what was typed, it
+  leaves the edit face and reloads the DIRECTORY — tags and embedding status are shown on the list row, so a
+  save that skipped the reload would leave the row disagreeing with the pane — and a refused save keeps you
+  on the edit face with your text.
+
+  Re-seeding from the response is the one that would have gone unnoticed: the server normalises, so a version
+  that re-seeded from the model it had just sent shows what the user asked for instead of what exists, and
+  the difference only surfaces on a later reload.
+
+  Five mutants, and the fourth is worth recording: deleting the directory reload outright SURVIVED the first
+  version of that case, because the page lists the directory while it is constructing and the assertion
+  counted from zero rather than from a baseline. A count without a baseline cannot tell "it happened" from
+  "something else happened".
+
+- **The Extract face is its own store — `G-3`'s ninth cut.** Nothing user-visible changes. The three signals,
+  the one request and the two paging rules moved to `file-extract.store.ts`; the page kept the two methods the
+  template calls, because they are what resolve the space and the path, and threading those into the store
+  would give it two things to be wrong about instead of none.
+
+  The lazy-open rule stayed on the page as well: deciding to fetch on the first open and not on every switch
+  back is a judgement about a gesture, and the gesture belongs to whoever owns the detail pane. What moved is
+  the state that judgement reads — `hasNothing()` — so the page no longer has to know that "nothing to show"
+  means two signals rather than one. Reading `!extract()` alone would re-fetch while a request was in flight,
+  which is one of the four rules pinned in the change before this.
+
+  1 046 code lines, and the frozen ceiling comes down with it (1 050 → 1 036) so the list cannot drift upward.
+  Every one of the 108 cases in that folder passed with subjects re-pointed and no assertion edited.
+
+- **The directory listing is its own store, which is the eighth cut off the largest file in the repo.**
+  Internal only: no screen changes, no route changes, no parameter changes. It is here because the file it
+  came out of is the one every file-browser change lands in, and because two conditions inside it turned out
+  to be unable to decide anything.
+
+  What moved: the listing's five state signals, its five requests (list, new folder, rename, delete,
+  download URL), and the rule that decides whether a fetch is a fresh LOAD or a background REFRESH — one
+  function with six callers, kept as one function because asking each caller to classify itself is how five
+  get it right and one does not.
+
+  **The reload after a write moved with it.** It was the same statement written at three call sites, and a
+  fourth copy is how one of them ends up missing. What a write means BEYOND that reload — refresh the
+  sidebar's root, tell the host the file set changed — stays with the page, which is the only thing that
+  knows those exist.
+
+  **Two conditions retired, both found by mutating them and watching nothing fail.** The load-versus-refresh
+  test asked whether the last attempt had failed; that mattered while a failed listing kept its rows on
+  screen, and stopped mattering the moment those rows started being cleared, earlier in this same release.
+  A second one, in the same function, had never been able to matter. Neither was deleted quietly: the
+  comment in their place says what they guarded and what removed the need.
+
+  **And 105 characterization cases held it, with four ADDED rather than edited.** A refused new folder keeps
+  the name you typed and a refused rename leaves the row in edit mode — both were true before this change,
+  neither had an assertion, and the first version of this cut broke both of them silently.
+
+- **The file tree's state and requests moved into a store** — G-3's seventh cut and the first store rather than
+  a component, taking the largest file in the repo from 1 118 to 1 070 code lines.
+
+  A store because a component cannot hold them: the sidebar renders inside an `@if (sidebarOpen())`, so the tree
+  component is destroyed every time the sidebar closes, and a component owning `listFiles` would cancel it on
+  destroy and lose the loaded tree. A store the page provides has the page's lifetime. Provided per page rather
+  than application-wide, so leaving the page forgets a space's directories instead of carrying them into the
+  next.
+
+  Navigation stayed on the page deliberately. `onTreeClick` calls `navigate(path)` and then `toggle(node)` — one
+  gesture with two effects, both of them the behaviour — and the two calls sitting side by side are what keep
+  G-10's duplicate directory listing findable rather than buried inside a store method.
+
+  `joinPath` moved to `file-format.ts` at the same time: the tree and the breadcrumb are the only two things that
+  build a path in that page, and a second copy is how they start to disagree. A characterization case asserts a
+  node's path equals what that function returns, rather than a literal, for exactly that reason.
+
+  91 tests in that folder pass with their SUBJECTS re-pointed and not one assertion edited, which is the claim
+  this change is making. They failed loudly first — `c.treeRoot is not a function` — which is what a subject
+  re-point is supposed to look like.
+
+- **The file manager's directory tree is its own component.** Sixth cut of G-3: `file-tree.component.ts` takes
+  the recursive template, six CSS rules and the `TreeNode` interface, and the largest file in the repo goes
+  1 176 → 1 118 code lines. The frozen size came down with it — a ceiling far above the real size is headroom
+  the file can regrow into without the gate saying a word.
+
+  The tree's STATE and its two requests stayed on the page deliberately. The sidebar sits inside an
+  `@if (sidebarOpen())`, so a component owning the directory listing would cancel it on destroy and lose the
+  loaded tree, and reopening would re-fetch — which one of the characterization cases pins that it does not.
+  What remains on the shell is a store, not another component.
+
+  Nothing in the product changed, and the ten characterization cases from the previous change are how that is
+  known: 91 tests in that folder pass with not one assertion edited. One of them earned its keep on the first
+  run — the extracted component rendered NOTHING, because a standalone component that does not import
+  `NgTemplateOutlet` treats `*ngTemplateOutlet` as an unknown attribute and raises no error at all.
+
+- **Raising a god-file's ceiling now owes a decomposition task.** Owner's rule, 2026-08-30. The ratchet in
+  `no-new-god-files.test.js` already made growth visible; it did not make anybody answer for it, and a raise
+  with a good reason and no follow-up is how a file reaches four figures one defensible increment at a time —
+  every step justified, the total justified by nobody.
+
+  Every `RAISED a -> b` now carries either `DECOMPOSE: <ID>`, naming a queued task, or
+  `NO DECOMPOSITION: <reason>` for a file where splitting is not the answer — a type file grows with the
+  domain it types, and a 343-line page is not a god file. The reason lands in a diff a person reads, next to
+  the number it excuses.
+
+  **The check is split across two gates deliberately.** The standalone one proves a marker exists; it cannot
+  check the id, because `todo/` is gitignored and absent in CI. `todo:check` proves the named task is actually
+  open. Neither is a weaker copy of the other — a `DECOMPOSE: G-9` naming nothing would satisfy the first on
+  its own, which is exactly the shape of promise this repo keeps finding.
+
+  Applying it to the six existing raises queued two real ones: the 1 999-line file manager, and the files
+  router whose bodies are inline — the shape `api/spaces.ts` already paid down from 851 to 589 by moving two
+  route bodies out and keeping their mount points.
+
+- **The preview had no test for what it DECIDES — fourteen cases, and four of them found defects.** The block that was
+  already there covers the object URL, which is the one resource on that page that must be released. None of
+  it touches the three things below, and each was measured to have no assertion anywhere in the folder.
+
+  **Which kind a file is** — a lookup across five extension tables with `unknown` as the fallback. Lost, a
+  `.zip` would show a spinner that never stops, which reads as a hung request rather than a file type with
+  no preview. Case-folding is in there too, and so is the rule that a leading dot is not an extension.
+
+  **The failure path, which is written out THREE TIMES**, once per fetch branch. That is the shape this
+  codebase produces most — one rule, several implementations, the weakest winning silently — and nothing
+  asserted any of the three, so unifying them could have dropped one and stayed green. Also pinned: the
+  spinner clears, because a blank pane cannot be told apart from an empty file.
+
+  **What the renderer is told.** `previewModel`'s own docstring says the states are mutually exclusive and
+  that saying so in one place is what stops the child re-deriving "am I loading or erroring" from separate
+  flags. That claim now has a test, as does the null it returns when nothing is open.
+
+  Two more that were simply missing: the markdown branch's stale-response guard, which is the same race the
+  image branch was fixed for, and the six ways an `exceljs` cell can be an OBJECT — a formula with its
+  cached result, a hyperlink with its label, rich text as runs, an error, a Date and an empty cell. A preview
+  rendering `[object Object]` down a formula column does not error and looks like a sheet nobody filled in.
+
+  **And the auth header, which is the whole reason this code fetches by hand.** The file endpoint requires
+  it and a native `<img src>` cannot send one, which is what regressed image and PDF previews when the
+  `?token=` fallback was scoped to SSE-only. The DOWNLOAD path has had a case for that since the regression
+  and the preview path never did — the same rule tested in one of the two places it lives. Dropping it fails
+  every branch identically and silently: a 401 surfaces as an error message that reads like a permissions
+  problem with the file.
+
+  **Twenty-seven mutants, twenty-seven dead, and three earned their keep.** One passed because the FIXTURE
+  could not see the rule — the dotfile guard only shows itself for a file literally named `.md`. One was a
+  no-op dressed as a change. And one was the auth header, which nothing checked at all.
+
+- **The toolbar is its own component — `G-3.3`, and the first cut into the page's TEMPLATE.**
+  `file-toolbar.component.ts` takes the space selector, the breadcrumb trail, the new-folder form, the
+  upload picker and the sidebar toggle: 764 → 682 code lines.
+
+  **Its style rules travelled with its markup, which is not a tidiness point.** Angular scopes a component's
+  styles to its own template, so a rule the page declares cannot reach an element a child renders — and the
+  failure is silent: no error, no warning, just an unstyled control that still works. `.rename-form` is
+  DUPLICATED rather than moved, because the in-table rename form uses the same class from
+  `file-listing.component.ts`; two consumers, so the rule exists in both places, which is how that was
+  learned the first time.
+
+  **The new-folder form is two-way rather than local state.** A refused create has to keep what was typed —
+  losing an edit to a failed request is the one outcome trying again cannot undo — so the page closes the
+  form on the ANSWER, not on the attempt. If the component owned that flag outright it would have to be told
+  the outcome, which is a second channel for a decision the page already makes.
+
+  **Read on a screenshot, not only in a test.** An isolated instance was booted and driven through three
+  states — the root, the form open in place of its button, and a nested folder — because a moved stylesheet
+  is exactly the change that measures correctly and looks wrong. `root / reports` renders with the
+  breadcrumb's accent, separator and current-segment rules intact, the sidebar toggle still sits hard right
+  on its `margin-left: auto`, and the run logged no console errors.
+
+- **The preview group is its own store — `G-3.2`, and the biggest of the remaining cuts.**
+  `file-preview.store.ts` owns the eight signals, the view model that joins them, the fetch, both
+  renderers, the blob-URL binding and the full-screen flag — and, above the class, the five extension
+  tables, the kind decision, and the spreadsheet cell formatter that exist only for it. 939 → 764 code
+  lines.
+
+  **The spreadsheet note is a translation KEY now, not a sentence.** Five stores on this page and not one of
+  them translates: the wording of anything a person reads belongs to the renderer, which can see the locale.
+  The note is the only prose the preview produces and the PARSE is what knows the numbers, so the parse
+  returns the key and its parameters and `file-preview.component.ts` renders them. Same rule as the listing
+  store's failure keys, from the other end.
+
+  **The highlight.js language registrations moved with the call that needs them**, which is the half a move
+  like this loses. `highlight.js/lib/core` is a module singleton with an empty registry, so a call for an
+  unregistered language throws — and the ten `registerLanguage` lines were sitting in the page while
+  `hljs.highlight` left. It would have kept working for exactly as long as something imported the page
+  first: a load-order dependency nothing states. Confirmed load-bearing by deleting them and watching a case
+  go red.
+
+  Two things stayed on the page and one wrapper was deleted rather than moved. Opening a file still
+  orchestrates three stores — the extract is cleared, the metadata record is loaded, the pane switches face
+  — because none of those is the preview's to decide, and the URL is passed IN because it comes from the
+  listing store. The deleted one was a one-line `renderMarkdown` whose own docblock said it existed
+  "because the preview's tests drive it directly": a method kept alive by its own test, which is the thing
+  `preview-object-url.ts` warns about in as many words. Its case now follows the path production takes.
+
+- **The extract tab's four rules are pinned before the group is extracted.** Nothing user-visible changes.
+  Three of the four had no test, and each is the kind a rewrite gets subtly wrong while every assertion it
+  kept still passes: paging APPENDS rather than replaces (a diagnostic must not throw away what the reader
+  has scrolled through) and keeps the FIRST response's `skip`, since that records where the view started;
+  the next page is asked for from what is ON SCREEN rather than from the last response, which would ask for
+  the same page for ever; the tab fetches once and lazily rather than on every switch back; and a failed
+  load says so instead of rendering an empty extract, because "no chunks" and "could not ask" are different
+  answers.
+
+  Five mutants killed — replace-instead-of-append, the newest `skip` winning, paging from the response,
+  re-fetching on every open, and a failed load leaving the spinner up.
+
+- **Three legacy env-var spellings are now scheduled for removal at the next major**, and this page said
+  they never would be. `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` have resolved to `VISION_BASE_URL`,
+  `STT_BASE_URL` and `STT_MODEL` since 3.0, warning once at startup. The reasoning for keeping them was that
+  breaking a documented env var to improve its spelling is not a worthwhile trade — the owner has
+  reconsidered, and the notice belongs here rather than in the release that removes them.
+
+  **Nothing changes in this release, and you can act now anyway.** Both spellings resolve in every 3.x
+  build, so renaming them in your manifest today is safe and needs no coordination with an upgrade. Three
+  places in the guides said they were permanent and now say what is true instead: a promise nobody
+  retracted would surprise an operator at the major, which is the whole failure a deprecation notice
+  exists to prevent.
+
+- **Four config migrations are PERMANENT, not release tails — and one of them was going to be deleted.**
+  They lift a legacy `config.json` key onto its replacement at boot: the removed face-recognition switch,
+  the removed media master switch, the four `mediaEmbedding` url/model spellings, and a space's
+  `description`. All four shipped at or before the 3.0.0 floor 4.0 upgrades from, which reads as licence to
+  drop them.
+
+  **The floor is not the test, and the code says so in its own words.** Each is written as *mutate in
+  memory, then attempt to persist, and on failure warn "will retry next boot"*. That retry path means the
+  product never assumed the write succeeded — so "every instance has already been migrated" is an
+  assumption the implementation itself declines to make, and while a stale key survives on disk the
+  migration is what turns it into the right value, on every boot.
+
+  **None of the four fails by losing a value. Each leaves a WRONG DEFAULT, because the defaults moved
+  underneath them.** A stale `faceRecognition.enabled: false` under an `auto` or `recognition` image ceiling
+  would start face detection and store face embeddings — biometric data — with nobody having asked;
+  measured, not inferred. A stale `mediaEmbedding.enabled: false` would turn captioning and transcription on
+  for an instance that had media off. A stale `ollamaUrl` would drop the vision endpoint to the built-in
+  default and caption every document against whatever answers there. A stale `description` would lose a
+  space's MCP directive — and since `description` is refused at both doors since 3.0, the operator could not
+  re-send it under the old name either.
+
+  Three of those are a setting that is present, configures nothing, and produces no error, which is the
+  failure this release has now twice refused to ship. A new gate pins the WIRING rather than the behaviour,
+  because every existing test on these four passes if the migration merely stops being CALLED — a deletion
+  takes the function and its test out together and leaves nothing red. It also asserts each one runs OUTSIDE
+  its own `try`, so the in-memory fix still applies when the disk write fails, which is the only case where
+  any of this matters.
+
+- **`validateMemory`'s docblock now says the type allowlist is disputed rather than silently disagreeing with
+  three documents.** The interface docblock and two integration-guide pages state that the keys of
+  `typeSchemas.memory` are the allowed type values; the code only ever uses `type` to look one up. That looked
+  like a documented-but-unimplemented feature until the reason for the asymmetry turned up: the memories tab's
+  type control is free text with suggestions *because* the server accepts any string, and a closed select would
+  have been stricter than the API. Two shipped promises pointing opposite ways is a product decision, not a
+  defect, so it is filed for a ruling and the code now says where.
+
+- **A processing poll whose own request FAILS keeps running, and now has a test saying so.** Seven cases
+  already stood over that poll — it re-lists while something is in flight, keeps going, leaves an idle
+  folder alone, retires itself when the file finishes, never stacks two timers, ignores which pane face is
+  open, and is cleared on destroy. None of them reached a failed request.
+
+  Retiring the poll on one failure would mean a single blip freezes the stage bar until the person navigates
+  away and back, and the file they are watching finishes with the bar stuck — which is indistinguishable
+  from the wedged pipeline the poll exists to fix. So it carries on, and the view repairs itself when the
+  server answers again. Confirmed by mutation: retiring it on a failed listing turns the case red.
+
+  This closes `G-15`, the last thing left of `G-3`, with an answer rather than a move: the poll reads
+  three stores, so any store owning it would reach into two others. A page is where something belonging to
+  no single store lives.
+
+- **A tracker exemption is now checked by its REASON, not only by the filename it names.** The local
+  pre-push check verified that each exempted page still exists — the half that cannot hurt anyone, since an
+  exemption pointing at a deleted file excuses nothing. It said so itself, in a yellow *"harmless, but tidy
+  it"*.
+
+  The half that had already caused damage was never read. A page was exempted as *"indexed by outcome rather
+  than queued"*, the outcomes moved elsewhere, and the exemption stayed — so that page collected settled
+  work filed as open for weeks while every checked page reported clean. The file existed the whole time.
+
+  *"Is this sentence still true?"* has no check. **A number in it does.** When a reason says how many steps
+  a checklist has, that is a claim about the file and the file can be counted — and the one entry subject to
+  the new rule was wrong, saying six where there are seven. A second stale count turned up beside it, in the
+  message that tells you how to rebuild the checklist if it is missing: it listed six rows, and the one it
+  left out was the documentation row. A row that is absent is not checked, so following that instruction
+  produced a checklist with one of its four real checks switched off.
+
 - **The contributor guidelines say what the code now does, and a gate reads them.** `CLAUDE.md` carried three
   claims that this release's own PRs had made false — one of them written the same morning and stale by
   lunchtime, six changes having landed between writing it and reading it back. It ships no behaviour; it is what
@@ -1730,24 +1742,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Derived from imports plus one TCP probe rather than by parsing test output: a suite that needs the harness
   cannot have run if the port is closed, and that is knowable without reading a line of the report.
 
-- **Raising a god-file's ceiling now owes a decomposition task.** Owner's rule, 2026-08-30. The ratchet in
-  `no-new-god-files.test.js` already made growth visible; it did not make anybody answer for it, and a raise
-  with a good reason and no follow-up is how a file reaches four figures one defensible increment at a time —
-  every step justified, the total justified by nobody.
-
-  Every `RAISED a -> b` now carries either `DECOMPOSE: <ID>`, naming a queued task, or
-  `NO DECOMPOSITION: <reason>` for a file where splitting is not the answer — a type file grows with the
-  domain it types, and a 343-line page is not a god file. The reason lands in a diff a person reads, next to
-  the number it excuses.
-
-  **The check is split across two gates deliberately.** The standalone one proves a marker exists; it cannot
-  check the id, because `todo/` is gitignored and absent in CI. `todo:check` proves the named task is actually
-  open. Neither is a weaker copy of the other — a `DECOMPOSE: G-9` naming nothing would satisfy the first on
-  its own, which is exactly the shape of promise this repo keeps finding.
-
-  Applying it to the six existing raises queued two real ones: the 1 999-line file manager, and the files
-  router whose bodies are inline — the shape `api/spaces.ts` already paid down from 851 to 589 by moving two
-  route bodies out and keeping their mount points.
+- **A removed field could still be written by an internal caller.** `updateSpace` took a `description` and
+  folded it into `meta.purpose`. Correct when written, and unreachable since `refuseRemovedDescription` went
+  in front of both planners — every request carrying the field 400s, and all four internal callers pass
+  `meta`. What was left was one rule with two implementations where the survivor silently ACCEPTED what the
+  refusal exists to reject, reachable by any code going straight to `updateSpace` instead of through the
+  planners.
 
 ### Removed
 
@@ -1821,33 +1821,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   peer version floor added in this release is what makes that impossible, and the release checks refuse a
   tag below 4.0 while this field is absent.
 
-- **BREAKING: the server-rendered setup form is gone, and so are `GET`/`POST /api/setup`.** Use
-  **`POST /api/setup/json`** for programmatic first-run setup — it was already the documented preference, it
-  is what the web UI posts, and it takes the same label in a JSON body instead of a form encoding.
-
-  **Two of the four endpoints had already stopped answering, and the guide still documented them.** The
-  `/setup` MOUNT was removed in an earlier release: Express matches a mount before the SPA's index fallback,
-  so mounting the setup router at `/setup` as well as `/api/setup` had made the web UI's own first-run page
-  unreachable — the legacy form was the live entry point and the SPA's page had never served one. That half
-  shipped with an end-to-end first-run proof rather than on the argument that the SPA route existed.
-
-  This is the half left behind, and it was not harmless. The form's `action="/setup"` posted to a path that
-  no longer existed and the error page linked back to it, so the file still LOOKED like the live entry point
-  on the one code path that runs before any identity exists — and `11-setup-api.md` kept promising both
-  endpoints, which is the worse failure: a reader following a guide that was correct when written concludes
-  the product is broken rather than the page is old.
-
-  **Deleting it surfaced a bound that was in the wrong handler.** `SETUP_LABEL_MAX` was enforced by the
-  form's `POST` and not by `POST /json` — one rule, two implementations, and the weaker one was the survivor.
-  Since the mount had already gone, `instanceLabel` had been unbounded on the unauthenticated boot path for a
-  release. The cap now applies where it runs, on the trimmed value that is actually stored, at the same 100
-  characters the web UI's own input carries.
-
-  Two gates tightened as a consequence rather than being adjusted around: `setup/routes.ts` leaves the
-  "errors need not be JSON" exemption list, because the exemption stopped being TRUE rather than stopping
-  being needed — and an exemption that is no longer earned is a hole nobody watches, since a file on that
-  list is a file the rule does not apply to.
-
 - **BREAKING: the MCP SSE transport is gone.** `GET /mcp` opened a stream that handed back a `sessionId`, and
   `POST /mcp/messages?sessionId=…` carried the tool calls. Use **Streamable HTTP** instead — one
   `POST /mcp` per JSON-RPC call, with an `Authorization: Bearer` header. It has been the recommended
@@ -1896,54 +1869,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   siblings are still lifted onto `vision.*` / `stt.*` and deleted, because a file the product owns can be
   fixed rather than refused. An operator's manifest is not their config.json.
 
+- **BREAKING: the server-rendered setup form is gone, and so are `GET`/`POST /api/setup`.** Use
+  **`POST /api/setup/json`** for programmatic first-run setup — it was already the documented preference, it
+  is what the web UI posts, and it takes the same label in a JSON body instead of a form encoding.
+
+  **Two of the four endpoints had already stopped answering, and the guide still documented them.** The
+  `/setup` MOUNT was removed in an earlier release: Express matches a mount before the SPA's index fallback,
+  so mounting the setup router at `/setup` as well as `/api/setup` had made the web UI's own first-run page
+  unreachable — the legacy form was the live entry point and the SPA's page had never served one. That half
+  shipped with an end-to-end first-run proof rather than on the argument that the SPA route existed.
+
+  This is the half left behind, and it was not harmless. The form's `action="/setup"` posted to a path that
+  no longer existed and the error page linked back to it, so the file still LOOKED like the live entry point
+  on the one code path that runs before any identity exists — and `11-setup-api.md` kept promising both
+  endpoints, which is the worse failure: a reader following a guide that was correct when written concludes
+  the product is broken rather than the page is old.
+
+  **Deleting it surfaced a bound that was in the wrong handler.** `SETUP_LABEL_MAX` was enforced by the
+  form's `POST` and not by `POST /json` — one rule, two implementations, and the weaker one was the survivor.
+  Since the mount had already gone, `instanceLabel` had been unbounded on the unauthenticated boot path for a
+  release. The cap now applies where it runs, on the trimmed value that is actually stored, at the same 100
+  characters the web UI's own input carries.
+
+  Two gates tightened as a consequence rather than being adjusted around: `setup/routes.ts` leaves the
+  "errors need not be JSON" exemption list, because the exemption stopped being TRUE rather than stopping
+  being needed — and an exemption that is no longer earned is a hole nobody watches, since a file on that
+  list is a file the rule does not apply to.
+
 ### Fixed
-
-- **Two more safety checks were looking at part of what their titles claimed** (`Q-5`), found by turning the
-  rule the previous change added into a search rather than waiting to trip over the next one. Nothing an
-  operator can observe changes; the code both check is correct.
-
-  One says *"every per-type count is reported back"* and looked at four of the six kinds of record a sync
-  carries. The two it skipped **should** be skipped — the count is about a record breaking the rules its
-  type declares, and neither of those two has a type to break rules from. That was right and unwritten, so it
-  read as an oversight rather than as a decision, and nothing would have noticed if it stopped being true.
-
-  The other says *no route reinvents the permission rule for itself* and read three files out of eight in
-  that folder — including none of the three added most recently. It now reads the folder, so the next route
-  somebody adds is covered on the day it appears, which is exactly when a copy of that rule would be written:
-  whoever adds one copies the nearest existing route.
-
-- **A comment told the next developer to remove a search option that must never be removed** (`Q-5`).
-  Nothing an operator or an integrator can observe changed — but of everything this audit has turned up,
-  this is the one that was pointing at a future defect rather than describing a past one.
-
-  `find_similar` takes an option that widens the search to every space you can reach. On the agent API it
-  looks redundant, because leaving the space out does the same thing. On the web API it is not: **that route
-  takes the space in its address**, so *"leave it out"* cannot be said at all, and the option is the only way
-  to ask for the same thing. Removing it would leave the two APIs able to do different things, which the
-  check that compares them exists to prevent.
-
-  That was worked out once, and the option's own description was corrected to say it is not going away — so
-  that nobody plans around a removal that will never happen. **Two comments in the code that implements it
-  kept the old wording**, and one of them said the removal was still coming. A stale sentence misinforms; a
-  stale instruction gets followed.
-
-  A new check now holds it: any option whose description claims permanence may not be called deprecated by
-  the code implementing it. Written as a rule rather than about this one option, so the next option kept for
-  the same reason is covered without anybody remembering to add it.
-
-- **A troubleshooting answer explained itself with a mechanism that has since gained a second case** (`Q-5`).
-  The integration guide answers *"my filtered search returned fewer results than I asked for"* — and the
-  answer it gives is right, but the reason it gives is now only half true.
-
-  The promise is that the result count is filled from records that actually match your filter, so a filtered
-  search cannot silently skip one. **That promise has never changed.** How it is kept depends on the filter:
-  a simple one narrows the search inside the index, while a raw MongoDB one has the whole space scored and
-  then filtered — slower, same records, still nothing missed. The guide gave the first as *the* explanation.
-
-  Three other places describing the same thing already state the promise first and the speed note second.
-  This one is the straggler, and it is the failure this project's own notes predict about explaining a
-  mechanism instead of a guarantee: the mechanism gains a case, and nobody revisits every sentence that
-  described the old one.
 
 - **"A token with no permissions reaches nothing" was true in two places out of four** (`Q-5`). The rule was
   settled in 4.0 and applied to the two places anyone had looked at. The other two were the check that decides
@@ -1965,65 +1918,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against the first place the problem was found, which is why the sweep it belonged to stopped there. It now
   asks every check that can be handed a caller with no permissions, and asks it by calling the check rather
   than reading its source.
-
-- **Three safety checks were passing while looking at part of what their own titles claimed** (`Q-5`). None
-  of them was wrong about the code it did check, and the code they all guard turned out to be correct — so
-  nothing here changes what the product does. What changes is that these three would now notice.
-
-  **Two sync checks said "every incoming record type" and looked at four of six.** When one instance sends a
-  record to another, the receiving instance validates it against a description of what that kind of record
-  may contain. There are six such descriptions. Both checks — one making sure a record marked *never make
-  this searchable* keeps that mark on arrival, the other making sure a search index built by somebody else's
-  model is never accepted as ours — looped over a hard-coded four.
-
-  The one they both skipped is **file metadata**, which is the type that needs the first check most: a file
-  has no type schema to fall back on, so the mark on the record itself is the only switch there is. It
-  carries the mark correctly today and has never carried a foreign search index; the checks simply were not
-  the reason.
-
-  **This project's own notes already record this exact failure being paid for once**, in a different check,
-  which is why the fix is a derived list rather than a corrected one: the descriptions are now read out of
-  the code that defines them, so a seventh kind is covered the day it exists. The one legitimate exemption —
-  a link record, which is two ids and a label and so has no text to make searchable — is now written down as
-  an exemption with its reason, instead of being absent from a list.
-
-  **And the check that guards the next-change plan against going stale looked for the rarer symptom.** It
-  refused a plan naming a pull request that had already merged. The plan it was watching named no pull
-  request at all: it described nine items that shipped about twenty pull requests earlier, and the check
-  reported clean every run in between. A plan is written in the project's own item ids, so those are what it
-  now reads — at least one has to be work the queue still holds.
-
-  Also corrected in the same sweep, each against the code: the integration guide told an integrator that a
-  token's pre-4.0 permission fields *"are still honoured"* — nothing reads them, and a token arriving with
-  no permission matrix now reaches nothing at all; the same page said sending `readOnly` or `admin` when
-  creating a token *"still does exactly what it always did"*, twenty lines below a table correctly saying
-  both are refused; the hosting page repeated the first of those; and a comment heading in the sync code
-  still read *"why the legacy fallback stays"* directly above the paragraph explaining that it is gone.
-
-- **A peer's retention schedule could delete this instance's records, and a peer's vectors were stored and
-  ranked as if they were ours.** Both on the PULL side of a sync, both silent, and the second is the one
-  that costs data.
-
-  Five fields on a record belong to the instance holding it: the search vector and the name of the model
-  that built it, the snippet a search matched, and the two stamps saying when this instance's retention
-  policy expires the record and its description. When another instance SENDS us a document, those five are
-  dropped — the schema that validates an arriving push does not accept them.
-
-  **When we FETCH a document from a peer instead, nothing validated it.** The fetch asks for whole records
-  and stores what comes back, so the sender's five arrived intact. The vector is the mild half: ranking one
-  model's vectors against another's does not fail, it just returns plausible answers in the wrong order.
-  The expiry stamp is the expensive half. A background sweep deletes every record whose stamp has passed,
-  in every space — so an instance keeping data for a year, syncing with one that keeps it for a week, threw
-  records away after a week. Nothing was logged, and the deletion is indistinguishable from that operator's
-  own policy working.
-
-  Both directions now drop the same five, from one list. The sending side also leaves them out of the page,
-  which is not the safeguard — the receiver's decision is — but does make a sync page materially smaller,
-  since a vector is several hundred numbers per record.
-
-  **Nothing existing had to be repaired**: a stamp that arrived from a peer was overwritten by this
-  instance's own on the record's next write, and a vector by its next embed. What could not be undone was
-  a record already deleted, which is why the fix is not a backfill.
 
 - **An administrator restricted to certain spaces could not create a token at all** — through this
   product's own Tokens page, which is the only way most people do it. The refusal said *"A
@@ -2127,6 +2021,251 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and one `routeExists` answers for everything. Five mutants — the removed `DELETE` row, the sibling-file route,
   each dead row re-added, and the glob narrowed back to one file — each fail the gate by exit code.
 
+- **The admin import wrote arbitrary documents with no validation and no embed job.** `POST
+  /api/admin/spaces/:id/import` did `replaceOne(…, { upsert: true })` on whatever it was given: zero schema
+  references anywhere in the handler, and no queue entry — so a restored backup was stored and **invisible to
+  meaning-ranked search** until somebody thought to run a reindex they were never told they needed.
+
+  **The validation half read as a decision and had been filed as one.** The tension is real: an import is how
+  you restore a backup, and a backup taken before a schema change would be refused by the instance's own
+  current rules, which makes backups unrestorable. It sat as an unasked question for the owner.
+
+  It should not have. `api/sync/_shared.ts` meets the identical problem on the identical kind of payload and
+  answers it by RECORDING rather than refusing — the document is stored and the violations are reported back.
+  Import is the other bulk ingest path into the same collections, and one rule with two answers is the defect
+  this codebase produces most. The question was withdrawn rather than put.
+
+  Each collection's result now carries `schemaViolations`, naming the documents and what was wrong with each.
+  Per record and not a count: a number tells an operator that something in a 50 000-record restore is wrong and
+  nothing about which one.
+
+  **The write goes through `ingestBrainDoc`**, which is the only thing the sync router permits to write a brain
+  document precisely so a new ingest site cannot be written without the queue. Import had grown its own
+  `replaceOne` beside it and inherited none of that. A gate now refuses a second `replaceOne` in that module.
+
+  **Two things it still does not do, and both are now stated rather than absent.** It does not reallocate
+  `seq` — an exported document keeps the one it had, so a restored instance and its peers still agree about
+  which copy is newer. And it does not check tombstones: sync refuses a document whose id was deleted so a
+  lagging peer cannot resurrect it, while a restore is the one case where resurrection is the point. The cost
+  is that a record deleted after the backup comes back and the tombstone removes it again on the next sync.
+
+  The handler moved to `api/admin-import.ts` on the way, which is what let it be exercised against a real
+  database without an HTTP server.
+
+- **Every sortable table header in the app was lower-case, alone among the tables.** The shared header renders
+  its label inside a `<button>`, and a button does not inherit `text-transform` from its `th` the way a span
+  does — nor is it part of the `font` shorthand the component was already inheriting. So the four Brain tabs
+  and the file listing had mixed-case headings while every other table in the product had uppercase ones.
+  Found by photographing the new token table, which sits directly under an uppercase one.
+
+- **The token table's empty row spanned seven of its eight columns**, so the empty state stopped one cell short
+  and the panel had a notch cut out of its right edge.
+
+- **Every start logged a warning about a repair that had already happened, and the repair it named could
+  never have worked.** On boot, a token that predates the per-space rights matrix gets one derived from
+  its old settings. That derivation is deliberately kept in memory and not written to disk — but the code
+  tried to write it anyway, using a mechanism that does not exist in this codebase, so the attempt failed
+  on every boot of every instance and left a line saying *"Could not persist derived token rights (will
+  retry next boot)"*.
+
+  **Nothing was ever wrong with your tokens.** The derivation itself always worked, and the thing that
+  failed was a write that was not supposed to happen. Access was never affected. What was affected is
+  that an operator reading their logs saw a permanent warning describing a retry that could not occur —
+  it reads like a full disk, and no amount of restarting would clear it.
+
+  **Why the obvious fix would have been the real bug.** Making that write succeed looks like a one-line
+  repair and would have quietly reversed a deliberate decision: the derived rights are held in memory on
+  purpose, because parts of the system still read the old settings directly, and writing a derivation to
+  disk before it has been checked against the behaviour it reproduces makes any mistake in it permanent.
+  So the fix is the other way round — the step now has no way to write at all, and cannot be asked to.
+  Persisting it is a separate, deliberate piece of work.
+
+  **The rollback instructions described a file change that never happened.** The hosting guide told you
+  that upgrading writes a rights matrix into `config.json`, so an older build would read tokens carrying
+  a field it does not understand. That has never occurred on any instance — the write always failed. The
+  table now says what is true: tokens are untouched, and the config file you copy before upgrading is
+  identical afterwards as far as they are concerned.
+
+  Four places in the codebase said this step writes nothing and two said it does. The ones that
+  disagreed were checks that read the source for the word "persist", found it, and passed — over a call
+  that threw every time it ran. All six now say the same thing, and they assert the absence of a write
+  rather than the presence of one.
+
+- **A per-token rate limit above 300/min could not take effect, and the API said it had.**
+  `rateLimitPerMinute` is a real per-token field with an instance ceiling, and its limiter has always been
+  mounted. What was never moved is `globalRateLimit`: a literal `max: 300` on 171 routes, keyed on a **hash of
+  the presented credential** — so it gave every token its own 300 bucket, and the real limit was
+  `min(300, whatever you set)`. Granting a token 1 000 changed nothing while `GET /api/tokens` reported
+  `rateLimitEffective: 1000`. Three different numbers for one quota.
+
+  **The global limiter now steps aside once a credential is presented**, leaving the per-token quota as the
+  only limit on an authenticated request — which is what that quota was built to be. It cannot wait for the
+  token to RESOLVE, because it runs before authentication and the limit is a property of a record that has not
+  been read yet; so the test is the credential, and both outcomes are covered: it resolves and the per-token
+  limiter governs, or it does not and auth answers 401.
+
+  **Nothing is now unbounded that was bounded before.** The global limiter never restrained a flood of
+  *invented* credentials either — it is keyed per credential, so each new string already minted a fresh
+  bucket. The per-IP flood backstop is what closes that, and it does not step aside for anything.
+
+  **And nothing moves for anyone who granted nothing:** `DEFAULT_PER_MINUTE` was deliberately kept equal to
+  the global limiter's max, so a token with no value resolves to exactly the number it used to be capped at.
+  The cap only lifts where somebody explicitly asked for more.
+
+- **Read-modify-write against `/api/admin/media-config` now works.** The GET returns the resolved
+  `documentProcessing` block and the PATCH schema is `.strict()`, so seven keys it emits and does not accept —
+  `maxTotalPages`, `vlmModel`, `vlmBaseUrl`, `repairModel`, `repairBaseUrl`, `verifyModel`, `verifyBaseUrl` —
+  made sending the block back a **400 on the whole body**. Reading a config block, changing one field and
+  putting it back is the ordinary way to use an API like this, and it did not work for any caller.
+
+  This needed no new mechanism. `SERVER_OWNED_MEDIA_PATHS` exists for exactly this shape and the route's own
+  docblock says so; three `faceRecognition` fields were declared that way and the seven document ones never
+  were. Declaring them gets both directions right at once: send back the value you were given and it is
+  stripped, so the rest of the patch applies; send a **different** value and you are refused, with prose
+  naming where that field actually is set. Quietly ignoring an attempted change would have been the
+  silent-acceptance defect this API is trying to shed.
+
+  The check derives its subject from the resolver rather than from a list of seven, so the next `DOC_*` model
+  slot is covered on the commit that adds it. The declaration table moved into its own module — the route file
+  was at its size ceiling, and a paths-and-prose table is a declaration rather than route logic.
+
+- **The same setting had two different legal ranges depending on which door it arrived through.** Nine are
+  writable both by an environment variable and by `PATCH /api/admin/media-config`, and five pairs disagreed —
+  in both directions:
+
+  | setting | env door | admin door |
+  |---|---|---|
+  | `documentProcessing.ocrTimeoutMs` | 1 000 … 3 600 000 | 10 000 … 1 800 000 |
+  | `documentProcessing.describeTimeoutMs` | 1 000 … 3 600 000 | 1 000 … 600 000 |
+  | `embedding.dimensions` | 1 … 8 192 | 1 … 16 384 |
+  | `embedding.embedConcurrency` | 1 … 256 | 1 … 32 |
+  | `mediaEmbedding.rerank.candidateMultiplier` | unvalidated | 2 … 10 |
+
+  `EMBEDDING_CONCURRENCY` shows why this is not merely untidy: **256 passed validation, was reported as
+  accepted, and was then silently clamped to 32** by the code that uses it — the ceiling existing precisely so
+  *"a typo cannot turn into hundreds of parallel requests"*. Validation that accepts a value the runtime will
+  not honour answers the operator's question wrongly, which is worse than not answering it.
+
+  **The documentation was already right on both counts** — the integration guide says *"Clamped to 1…32"* and
+  *"2–10"* — so the env door disagreed with the API and with the page describing it, and only the door nobody
+  compares was wrong. No documented range changes.
+
+  Both doors now read one table, `config/setting-bounds.ts`. Whatever the runtime actually enforces wins;
+  where nothing enforces it, the admin schema does, because that is the surface with the reasons written
+  beside it. `embedding.dimensions` is recorded there as genuinely arbitrary rather than derived — nothing
+  downstream constrains it and neither ceiling appears in the docs.
+
+  `one-setting-one-range.test.js` derives the pairs from the two doors themselves rather than from the shared
+  table, so a setting the table forgets is not invisible to the check of the table.
+
+- **Seven routes answered `5xx` and threw away the exception that caused it.** The shape was always the same —
+  `} catch (err) { res.status(500).json({ error: 'Internal error' }); }` — an error caught, named, and never
+  read. The response body is generic on purpose, and the global handler in `app.ts` never sees an exception a
+  route already caught, so **the failure existed only as a status code**: nothing in the caller's response and
+  nothing in the server log. `POST /api/brain/spaces/:spaceId/entities` was among them, so an entity write could
+  fail and leave no trace anywhere.
+
+  Found from the outside. The canary operator got `HTTP 500` in 6 ms from `DELETE /api/tokens/:id`, asked for
+  the cause twice over ten days, and when they finally captured the pod log for that exact second it held three
+  unrelated OIDC warnings and nothing else. They built a hypothesis on the only evidence present — that an
+  expired session answers 500 where 401 belongs — and it was wrong. **They were reasoning correctly from an
+  empty log; producing the empty log was ours.**
+
+  Each of those routes now reports the operation and the stack to the operator, while the response body stays
+  byte-identical — a flat body is a leak-prevention property, not an oversight. The revoke route's own
+  should-be-unreachable `500` reports too, and names the token id: a branch that cannot fire and fires anyway is
+  the most valuable line a log can carry.
+
+  A gate pins the class rather than the seven sites. Its rule is *reads its binding*, not *calls the logger*,
+  because both discharges are legitimate — report it to the operator, or return it to the caller as
+  `{ error: err.message, storageExceeded: true }` does — and a gate demanding a log call would push quota
+  refusals into the error log. It also reads the enclosing **catch**, not the innermost block: a `504` written
+  inside `catch (err) { if (err === SENTINEL) { … } }` would otherwise be reported as discarding an error it
+  reads one line up.
+
+- **The rules this codebase states about itself were checked against the code, and thirteen of them were
+  false** (`Q-1`, first slice — the audit covers nine surfaces and this is one of them).
+
+  Two would have cost a reader something real. The page said a route with no token-rights row is *"either
+  unreachable or ungoverned, and both fail silently"* — it is neither: the request is served with its reach
+  enforced and its area not, and it logs a warning naming itself on every call, which is how an operator
+  found one. It also gave one instruction where there are two answers, and following it for a route that is
+  not a view of a space's data area-scopes a route the design says must not be.
+
+  And the instruction for adding a replicated field to a FILE was wrong in the direction that hides. Five of
+  the six collections exclude fields from the space hash by naming them; files INCLUDE the fields they hash,
+  because a file record has thirty-odd fields and most are local machinery. So *"add the field, do not
+  exclude it"* leaves a file field outside the hash — two instances holding different data and agreeing they
+  match, for ever, with nothing to contradict it.
+
+  **Four of the thirteen rotted in the last few days, which is the argument for the audit rather than a
+  footnote to it.** The page named four replicated documents and there are six; claimed one ingest function
+  where there are now two; said the hash exclusion lives in two places and it is three; and described every
+  arriving document as validated by a schema that STRIPS unknown keys, when file metadata refuses them
+  instead. Each was true when written and none announced that it had stopped being.
+
+  Counts are now written as the rule that produces them — *"every `Incoming*` schema in that file"* rather
+  than *"four"* — because the gate protecting exactly this had the identical bug: a hand-written list of
+  four documents that missed the fifth when it arrived, and reported clean about a document nobody had
+  checked.
+
+- **A `Verify:` line is now checked, not just required.** The rule demanding one has always said its evidence
+  is *"mechanically checkable"*; nothing ever checked it. Each line now parses into `grep -c "<literal>"
+  <one file>` returns `<N>`, and the gate evaluates it: a line that DISAGREES with the tree is reported, and so
+  is one naming a file that no longer exists — never folded into "0 matches", which would let
+  `grep -c foo deleted.ts returns 0` pass for ever from the moment the file was deleted.
+
+  **Nothing is handed to a shell, and the pattern is refused rather than interpreted.** Preflight reaches this
+  through node, and Windows has no `grep` on PATH; the same line tokenizes three ways in bash, cmd and
+  PowerShell; and `todo/` is gitignored and reviewed by nobody, so executing a string out of it would make a
+  working-notes file an execution surface in the gate that runs before every push. Matching the pattern
+  literally instead has a quieter failure: measured on this tree, `grep -c "^export" server/src/brain/edges.ts`
+  answers **24** in a shell and **0** as a literal, and the divergence runs toward 0 — which is what every
+  clause in the corpus asserts. So a pattern containing `^ $ . * [ ] \` is REFUSED with the character named.
+  `( ) { } | + ?` are accepted, because they are ordinary characters in a basic regular expression and
+  rejecting them would push authors toward vaguer patterns that match their subject's neighbours. All nine
+  live clauses were cross-checked against real Git Bash `grep` and agree.
+
+  **The manual escape hatch is capped at three, dated, and lives in the tracked script** rather than beside the
+  item — `todo/` is reviewed by nobody, so a reason written there costs nothing, while a row in the script
+  lands in a diff. Entries expire on a date no more than 120 days out, and a stale one fails rather than warns.
+
+  **The tick says "its stated evidence still holds", not "it is still open"** — and that is the honest bound.
+  The two differ whenever a fix lands somewhere other than the file the row names, which here is the usual
+  shape, because the convention is to extract. `L-4` named `api/contradictions.ts`; its fix went into
+  `brain/edges.ts`, and that file is byte-identical from #1041 through HEAD, so every clause faithful to the
+  row's own words would still have said "holds" four days after it shipped. Six of the eight stale rows were
+  fix-in-place and would have been caught; two were extractions and would not.
+
+  Also: rule 4 caught its own `git log` and left the result empty, so a git failure was indistinguishable from
+  a pass — the gate's one independent check printing green having compared nothing. It fails now, and both git
+  calls carry a timeout.
+
+- **A peer's retention schedule could delete this instance's records, and a peer's vectors were stored and
+  ranked as if they were ours.** Both on the PULL side of a sync, both silent, and the second is the one
+  that costs data.
+
+  Five fields on a record belong to the instance holding it: the search vector and the name of the model
+  that built it, the snippet a search matched, and the two stamps saying when this instance's retention
+  policy expires the record and its description. When another instance SENDS us a document, those five are
+  dropped — the schema that validates an arriving push does not accept them.
+
+  **When we FETCH a document from a peer instead, nothing validated it.** The fetch asks for whole records
+  and stores what comes back, so the sender's five arrived intact. The vector is the mild half: ranking one
+  model's vectors against another's does not fail, it just returns plausible answers in the wrong order.
+  The expiry stamp is the expensive half. A background sweep deletes every record whose stamp has passed,
+  in every space — so an instance keeping data for a year, syncing with one that keeps it for a week, threw
+  records away after a week. Nothing was logged, and the deletion is indistinguishable from that operator's
+  own policy working.
+
+  Both directions now drop the same five, from one list. The sending side also leaves them out of the page,
+  which is not the safeguard — the receiver's decision is — but does make a sync page materially smaller,
+  since a vector is several hundred numbers per record.
+
+  **Nothing existing had to be repaired**: a stamp that arrived from a peer was overwritten by this
+  instance's own on the record's next write, and a vector by its next embed. What could not be undone was
+  a record already deleted, which is why the fix is not a backfill.
+
 - **A large file never replicated, and a file-metadata-only sync cycle never finished** (`Q-2`). Both were
   one root cause wearing different symptoms: 4.0 added a SIXTH replicated record family, and five places
   still counted five.
@@ -2208,23 +2347,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the document, and its removal deferred, on the stated grounds that *"a peer on an older build must keep
   finding the key it knows"* — while the ingest schema stripped it. The guarantee that justified carrying it
   did not exist.
-
-- **A memory's `type` was deleted whenever the memory arrived by push.** The field selects the memory's type
-  schema, so a memory that crossed a push door was then validated against nothing on the receiver and missed
-  every type filter. Kept on pull, deleted on push: same version of the code, same document, one direction, no
-  error and a 200 on the way back.
-
-- **A chrono entry lost the marks that say its description expired**, so a reader could no longer tell *"this
-  entry never had a description"* from *"it had one and its retention window lapsed"* — which is the entire
-  purpose of `contentRedacted` and `contentRedactedAt`. Same mechanism as above.
-
-  Neither of these was reported. Both were found by deriving one rule from two mechanisms already in the code:
-  **a field the divergence check hashes must replicate.** If it does not, the sender's copy has the key, the
-  receiver's does not, and the two Merkle roots differ for ever — so the sync view reports a space as divergent
-  when nothing is wrong with it, which trains an operator to ignore the one signal that means data really is
-  missing. `a-replicated-field-reaches-its-incoming-schema.test.js` now derives its exemptions from
-  `merkle.ts` rather than from a list kept by hand; the hand-kept version named none of these three and would
-  not have.
 
 - **The thirteen sync-ingest write sites are one function.** Each wrote the document and then queued its
   embedding as a separate following statement, which holds for as long as everyone writing the fourteenth
@@ -2376,6 +2498,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Now the page is written unordered and duplicate-key rejections are reported as the records they are, naming
   the ids. **Only duplicate keys are absorbed** — any other write fault still throws, because swallowing those
   would turn real corruption into a warning nobody reads, which is the opposite defect.
+
+- **Seven of the eight brain writers did not validate; now all eight do, inside the function that touches the
+  collection.** The owner ruled on 2026-08-29 that every upsert, update and insert validates. `upsertEdge` had
+  been fixed for a specific caller (#1046); the other seven — `upsertEntity`, `updateEntityById`, `remember`,
+  `updateMemory`, `createChrono`, `updateChrono` and `updateEdgeById` — enforced nothing of their own. The rule
+  lived in copies at the doors instead: the REST routes, the MCP tools and `bulk.ts`.
+
+  **That is not a tidiness argument, and the copies had already diverged.** `bulk.ts` blocked on *any*
+  violation with no `preExisting`/`introduced` split, so the same upsert was refused through `/bulk` and
+  accepted through `/entities`. The two PATCH routes each *simulated* the merge — rebuilding the merged
+  properties and re-applying `deleteFields` to a throwaway object — twenty lines from the function that does
+  the real one, and the simulation could not see a `deleteFields` that removed a required property. And
+  `updateEdgeById` accepts a new `label`, which selects a different type schema entirely, so an edge could be
+  moved onto a label whose rules its stored properties break.
+
+  **Memory had no classifier at all** — entities, edges and chrono each had one and memory never did, so both
+  memory doors validated the incoming payload rather than the record the write would produce. A required
+  property present on the stored record and absent from a converging write read as a violation the merge would
+  have supplied.
+
+  Each writer now validates the merged record *after* `deleteFields` is folded in, branches on the
+  classification's `blocked` verdict rather than on the presence of violations, and hands the classification
+  back through `onValidation` so a door never re-derives it for presentation — which would be a second lookup
+  per write, and is how the rule came to be written six times.
+
+  Removing the door copies left the three record-loading classifier wrappers with no callers, and deleting
+  them broke a runtime import cycle that adding the checks had just created — `write-validation` had imported
+  `getEntityById` back out of `entities`.
+
+  **Sync is deliberately untouched.** It writes the collections directly and records violations rather than
+  refusing them, because refusing a peer's document would wedge replication rather than fix it.
+
+  The gate asserts the property over all eight writers rather than the fix over seven, so a fifth record kind
+  is covered on the commit that adds it. It was written first and was red on 21 assertions.
+
+- **An entity referenced only by a file deleted cleanly, leaving the file pointing at a tombstone.** Under
+  `strictLinkage` an entity delete is supposed to `409` while inbound references exist, and
+  `findEntityBacklinks` scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds` and
+  `files.faceEntityId`. **`files.entityIds` was not among them.**
+
+  The comment above the face scan is the tell — *"which is why the other three scans missed them"*. That same
+  collection had already been patched once, for `faceEntityId`, and its sibling field was not added alongside.
+
+  Files now block deletion like memories and chrono do, reported as `type: "file"`. Face labels stay
+  **non-blocking**, because a face label is something the system inferred rather than a link somebody wrote —
+  both doors already filtered on that distinction, so it keeps working by construction.
+
+  The gate **derives** the collections to scan from every record type declaring `entityIds` in
+  `config/types.ts`, the same way the merge path is already guarded: a new record type carrying an entity
+  reference fails it on the day it is declared. The `409` documentation was stale in the same direction and now
+  lists every type it can return.
+
+- **A comment told the next developer to remove a search option that must never be removed** (`Q-5`).
+  Nothing an operator or an integrator can observe changed — but of everything this audit has turned up,
+  this is the one that was pointing at a future defect rather than describing a past one.
+
+  `find_similar` takes an option that widens the search to every space you can reach. On the agent API it
+  looks redundant, because leaving the space out does the same thing. On the web API it is not: **that route
+  takes the space in its address**, so *"leave it out"* cannot be said at all, and the option is the only way
+  to ask for the same thing. Removing it would leave the two APIs able to do different things, which the
+  check that compares them exists to prevent.
+
+  That was worked out once, and the option's own description was corrected to say it is not going away — so
+  that nobody plans around a removal that will never happen. **Two comments in the code that implements it
+  kept the old wording**, and one of them said the removal was still coming. A stale sentence misinforms; a
+  stale instruction gets followed.
+
+  A new check now holds it: any option whose description claims permanence may not be called deprecated by
+  the code implementing it. Written as a rule rather than about this one option, so the next option kept for
+  the same reason is covered without anybody remembering to add it.
+
+- **A troubleshooting answer explained itself with a mechanism that has since gained a second case** (`Q-5`).
+  The integration guide answers *"my filtered search returned fewer results than I asked for"* — and the
+  answer it gives is right, but the reason it gives is now only half true.
+
+  The promise is that the result count is filled from records that actually match your filter, so a filtered
+  search cannot silently skip one. **That promise has never changed.** How it is kept depends on the filter:
+  a simple one narrows the search inside the index, while a raw MongoDB one has the whole space scored and
+  then filtered — slower, same records, still nothing missed. The guide gave the first as *the* explanation.
+
+  Three other places describing the same thing already state the promise first and the speed note second.
+  This one is the straggler, and it is the failure this project's own notes predict about explaining a
+  mechanism instead of a guarantee: the mechanism gains a case, and nobody revisits every sentence that
+  described the old one.
+
+- **A memory's `type` was deleted whenever the memory arrived by push.** The field selects the memory's type
+  schema, so a memory that crossed a push door was then validated against nothing on the receiver and missed
+  every type filter. Kept on pull, deleted on push: same version of the code, same document, one direction, no
+  error and a 200 on the way back.
+
+- **A chrono entry lost the marks that say its description expired**, so a reader could no longer tell *"this
+  entry never had a description"* from *"it had one and its retention window lapsed"* — which is the entire
+  purpose of `contentRedacted` and `contentRedactedAt`. Same mechanism as above.
+
+  Neither of these was reported. Both were found by deriving one rule from two mechanisms already in the code:
+  **a field the divergence check hashes must replicate.** If it does not, the sender's copy has the key, the
+  receiver's does not, and the two Merkle roots differ for ever — so the sync view reports a space as divergent
+  when nothing is wrong with it, which trains an operator to ignore the one signal that means data really is
+  missing. `a-replicated-field-reaches-its-incoming-schema.test.js` now derives its exemptions from
+  `merkle.ts` rather than from a list kept by hand; the hand-kept version named none of these three and would
+  not have.
 
 - **A hard-filtered search returned fewer records than it could, and a flag for finding what you just
   wrote did nothing on the usual call** (`Q-3`, the last bundle of the guideline audit). Every place where
@@ -2541,37 +2764,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The gate's fixtures are German and emoji as well as ASCII, which is the part that matters: for ASCII the two
   numbers are equal, so a suite written in ASCII cannot tell the units apart at all. That is how this lasted.
-
-- **The admin import wrote arbitrary documents with no validation and no embed job.** `POST
-  /api/admin/spaces/:id/import` did `replaceOne(…, { upsert: true })` on whatever it was given: zero schema
-  references anywhere in the handler, and no queue entry — so a restored backup was stored and **invisible to
-  meaning-ranked search** until somebody thought to run a reindex they were never told they needed.
-
-  **The validation half read as a decision and had been filed as one.** The tension is real: an import is how
-  you restore a backup, and a backup taken before a schema change would be refused by the instance's own
-  current rules, which makes backups unrestorable. It sat as an unasked question for the owner.
-
-  It should not have. `api/sync/_shared.ts` meets the identical problem on the identical kind of payload and
-  answers it by RECORDING rather than refusing — the document is stored and the violations are reported back.
-  Import is the other bulk ingest path into the same collections, and one rule with two answers is the defect
-  this codebase produces most. The question was withdrawn rather than put.
-
-  Each collection's result now carries `schemaViolations`, naming the documents and what was wrong with each.
-  Per record and not a count: a number tells an operator that something in a 50 000-record restore is wrong and
-  nothing about which one.
-
-  **The write goes through `ingestBrainDoc`**, which is the only thing the sync router permits to write a brain
-  document precisely so a new ingest site cannot be written without the queue. Import had grown its own
-  `replaceOne` beside it and inherited none of that. A gate now refuses a second `replaceOne` in that module.
-
-  **Two things it still does not do, and both are now stated rather than absent.** It does not reallocate
-  `seq` — an exported document keeps the one it had, so a restored instance and its peers still agree about
-  which copy is newer. And it does not check tombstones: sync refuses a document whose id was deleted so a
-  lagging peer cannot resurrect it, while a restore is the one case where resurrection is the point. The cost
-  is that a record deleted after the backup comes back and the tombstone removes it again on the next sync.
-
-  The handler moved to `api/admin-import.ts` on the way, which is what let it be exercised against a real
-  database without an HTTP server.
 
 - **`suppressEmbeddings` was documented, worked on update, and was silently dropped on create — on all four
   record types.** A record that was never meant to be searchable had to be written twice: once embedded, once
@@ -2755,29 +2947,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stored representation. Without it the same three places disagree again — one id for both forms, two index
   keys, and a triplet filter that matches only the absent one.
 
-- **Characterization tests for the four space wipes, before they become one.** `bulkDeleteEntities`,
-  `bulkDeleteMemories`, `bulkDeleteEdges` and `bulkDeleteChrono` are the same thirty lines four times (`R-4`),
-  and before this the only assertion on any of them was in `face-label-cascade.test.js` — which covers the
-  ENTITY one incidentally, because face labels are what that file is about. The tombstone behaviour of the other
-  three, which is the entire point of a wipe on a replicated collection, was asserted nowhere.
-
-  A wipe is not a delete: it is a delete plus one tombstone per document, because a peer holding those records
-  has to be told they are gone. A wipe that empties the collection and writes no tombstones is one the next sync
-  cycle silently UNDOES, record by record, from the peer's copy.
-
-  **The pass found that the four are not identical**, which the tracker row had wrong: it said the differences
-  were webhook emissions, and none of them emits a webhook. The entity wipe also clears every face label in the
-  space — wholesale rather than by id list, for the reason its own comment gives — and the memory wipe orders
-  its tombstone range newest-first. An extraction treating the four as the same drops the first of those, and
-  what is left behind is a file-meta record pointing at an entity that no longer exists.
-
-  Twenty cases against a real MongoDB, and all five mutants died: the dropped cascade, the wrong tombstone type,
-  no tombstones at all, the lost empty-collection early return, and one seq reused for every tombstone. Two of
-  those mutants reported NO-OP on the first run and proved nothing — the working tree is CRLF, so a multi-line
-  search string written with a bare LF matches nothing while looking exactly like a pass.
-
-  Nothing in the product changed.
-
 - **`find_similar`'s `traverse` description described a shape the tool stopped having in 3.6.** It accepted
   `includeChrono`, `includeMemories` and `includeFiles` — the capability went live in #1083, which built both
   tools' schemas from one field list — while its own reference still read *"identical to `recall`'s shape:
@@ -2910,40 +3079,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Two intermediate drafts of those gates accepted a door that merely mentions the refusal, which is true but
   insufficient: an MCP tool needs no translation at all, so the tidiest doors mention nothing and were
   reported as failures for it.
-
-- **Seven of the eight brain writers did not validate; now all eight do, inside the function that touches the
-  collection.** The owner ruled on 2026-08-29 that every upsert, update and insert validates. `upsertEdge` had
-  been fixed for a specific caller (#1046); the other seven — `upsertEntity`, `updateEntityById`, `remember`,
-  `updateMemory`, `createChrono`, `updateChrono` and `updateEdgeById` — enforced nothing of their own. The rule
-  lived in copies at the doors instead: the REST routes, the MCP tools and `bulk.ts`.
-
-  **That is not a tidiness argument, and the copies had already diverged.** `bulk.ts` blocked on *any*
-  violation with no `preExisting`/`introduced` split, so the same upsert was refused through `/bulk` and
-  accepted through `/entities`. The two PATCH routes each *simulated* the merge — rebuilding the merged
-  properties and re-applying `deleteFields` to a throwaway object — twenty lines from the function that does
-  the real one, and the simulation could not see a `deleteFields` that removed a required property. And
-  `updateEdgeById` accepts a new `label`, which selects a different type schema entirely, so an edge could be
-  moved onto a label whose rules its stored properties break.
-
-  **Memory had no classifier at all** — entities, edges and chrono each had one and memory never did, so both
-  memory doors validated the incoming payload rather than the record the write would produce. A required
-  property present on the stored record and absent from a converging write read as a violation the merge would
-  have supplied.
-
-  Each writer now validates the merged record *after* `deleteFields` is folded in, branches on the
-  classification's `blocked` verdict rather than on the presence of violations, and hands the classification
-  back through `onValidation` so a door never re-derives it for presentation — which would be a second lookup
-  per write, and is how the rule came to be written six times.
-
-  Removing the door copies left the three record-loading classifier wrappers with no callers, and deleting
-  them broke a runtime import cycle that adding the checks had just created — `write-validation` had imported
-  `getEntityById` back out of `entities`.
-
-  **Sync is deliberately untouched.** It writes the collections directly and records violations rather than
-  refusing them, because refusing a peer's document would wedge replication rather than fix it.
-
-  The gate asserts the property over all eight writers rather than the fix over seven, so a fifth record kind
-  is covered on the commit that adds it. It was written first and was red on 21 assertions.
 
 - **Turning suppression on now removes the vectors already stored, which is what the product said it did.**
   `docs/userguide/02-brain.md` states it in the present tense — *"What it does is remove the record's
@@ -3191,23 +3326,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(from, to, label)` is an edge's identity — moved to `brain/edge-lookup.ts`, the same reasoning that produced
   `brain/spill-path.ts`.
 
-- **An entity referenced only by a file deleted cleanly, leaving the file pointing at a tombstone.** Under
-  `strictLinkage` an entity delete is supposed to `409` while inbound references exist, and
-  `findEntityBacklinks` scanned four things: `_edges`, `memories.entityIds`, `chrono.entityIds` and
-  `files.faceEntityId`. **`files.entityIds` was not among them.**
-
-  The comment above the face scan is the tell — *"which is why the other three scans missed them"*. That same
-  collection had already been patched once, for `faceEntityId`, and its sibling field was not added alongside.
-
-  Files now block deletion like memories and chrono do, reported as `type: "file"`. Face labels stay
-  **non-blocking**, because a face label is something the system inferred rather than a link somebody wrote —
-  both doors already filtered on that distinction, so it keeps working by construction.
-
-  The gate **derives** the collections to scan from every record type declaring `entityIds` in
-  `config/types.ts`, the same way the merge path is already guarded: a new record type carrying an entity
-  reference fails it on the day it is declared. The `409` documentation was stale in the same direction and now
-  lists every type it can return.
-
 - **A merge could write an entity its own space would have refused.** `mergeProperties` applies each
   property's `mergeFn`, so a survivor's properties are a value **neither input necessarily had** — a `sum` can
   exceed a `maximum`, a `concat` can break a `pattern`, a pick can land outside an `enum`. `brain/merge.ts`
@@ -3224,16 +3342,131 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   question is that the violation must be visible: this codebase has twice concluded that the fix is visibility
   rather than severity.
 
-- **A mermaid diagram in a markdown preview was rendering unstyled, and had been since the preview was
-  split out.** Its rule sat in the page's stylesheet while the diagram is drawn inside a child component —
-  and a page cannot style into a child's template, let alone into content that child binds with
-  `[innerHTML]`. So the two things the rule does, centring the diagram and capping its width, did neither.
-  A wide diagram overflowed its column.
+- **Merging two people emptied the survivor's face gallery.** The merge relinked memories, chrono entries,
+  edges and a file's `entityIds` — but not `faceEntityId`, the single-valued link on a face chunk. So after a
+  merge those chunks still named the absorbed entity, which the merge then deleted; a label that does not
+  resolve is silently absent from the gallery, so the faces simply stopped counting and **nothing anywhere said
+  so**.
 
-  It looked like a slightly wonky diagram rather than a missing stylesheet, which is why it survived the cut
-  that moved `.preview-body img` and `iframe` to the renderer and left this one behind. It is now
-  `.md-rendered ::ng-deep .mermaid-diagram`, beside the other rules that reach the same content, and the
-  fix was read on a screenshot: the diagram is centred and the SVG is width-capped to its container.
+  The labels are now **moved to the survivor**, not cleared. That is the opposite of what a delete does, and
+  deliberately: a delete means the person is gone so the labels are wrong, while a merge asserts the two
+  records were always the same person — clearing them would look like a fix and discard correct biometric
+  labels. `faceScore` travels with them for the same reason.
+
+  **The gate could not have caught it.** It derived the record types it checks from the interfaces that
+  *declare* `entityIds`, so a differently-named singular link was outside its scope by construction — and the
+  one field fitting that description is the biometric one. Discovery is by shape now (any field ending in
+  `entityId`/`entityIds`), and it asserts every such field per type rather than the plural one only.
+
+  A behavioural test drives a real merge rather than reading the source, because a source read proves a
+  decision was made and not that it is right. It also pins that an unlabelled face stays unlabelled, which is
+  the failure mode of a too-broad filter.
+
+  The face-recognition page now documents the label lifecycle for both paths; it described how labels are
+  acquired and never what becomes of them.
+
+- **The face pipeline wrote entity references that `strictLinkage` never checked.** `assertRefsResolve` sat
+  only at the two API doors, so the promise that a stored reference resolves held for callers who remembered it
+  and not otherwise. `files/media/face-embedder.ts` calls `updateFileMeta` directly to write an auto-labelled
+  face's `entityIds`, and was never checked — the id comes from a live match so it resolves in practice, but the
+  guarantee was structural in name only.
+
+  `updateFileMeta` now validates `entityIds`, `memoryIds` and `chronoIds` itself, still gated on
+  `isStrictLinkage` exactly as the doors were — the opt-out exists for staged imports where targets resolve in a
+  later pass, and relocating a check is precisely when such a thing gets withdrawn by accident. The gate pins
+  both the check and the gate on it.
+
+  Third instance of one shape in this release, after `upsertEdge` and `brain/merge.ts`.
+
+- **A header with a search box docked under it sat higher than its neighbours.** A filtered column is taller,
+  and the default middle alignment then centres the shorter cells against it, so the labels in one header row
+  landed at two different heights. Invisible in the Brain tabs, where nearly every column has a filter;
+  obvious on the token table, where two of seven do.
+
+  Both of these measured perfectly — the right number of columns, the right number of boxes, correct borders
+  and radii — and both are only visible in a screenshot.
+
+- **The graph panel's "no record here" message could not reach the reader, three different ways.** An empty
+  panel and an unfetchable record look identical, and only one of them is true — so a file node (addressed by
+  path, not by id) and a synthetic edge (id derived at render time, no stored row) are supposed to get a
+  sentence rather than a blank.
+
+  The message and the record were two independent conditions, so a **file node rendered the explanation
+  immediately above "Loading…"** and contradicted itself — with the second line the more believable of the
+  two, because it is the one that usually means something.
+
+  The message asked for a CSS class that **was declared nowhere**, so the one sentence explaining why a panel
+  is empty rendered as ordinary body text. Correcting the spelling was only half of it: the correct name is
+  defined in brain's stylesheet, which is scoped to brain's components and cannot reach a graph child, so the
+  rule is now declared where the cards load it. `shared-styles-reach-their-renderers` watches that pair from
+  here on — it is the gate that already existed for this exact failure, and it needed one line to see it.
+
+  And the EDGE card had no such branch at all: its message was translated into three languages and was
+  **unreachable on screen**, because the only place it rendered was inside the node card and selecting an edge
+  clears the selected node first. A synthetic edge said "Loading" indefinitely — which is not merely
+  unhelpful, it is the one message that promises something is coming.
+
+- **The graph side panel showed a blank name for a memory or a timeline entry.** A graph node is one of four
+  kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through its `entityIds` link. The
+  record card had no branch on `kind` and read `name` unconditionally — a memory has a `fact` and no name, so
+  the first row rendered EMPTY and the fact, the only thing the record says, appeared nowhere at all. A chrono
+  entry lost its `title` the same way.
+
+  Every other field happened to share a name and rendered normally, which is why the card looked populated and
+  nobody reported it.
+
+  It now asks `memoryText` and `chronoText` — the same functions the linked-records list in the SAME panel
+  already used, including their fallback to `description`. The divergence was the defect: one rule with two
+  implementations, and the weaker one on the more prominent surface.
+
+- **Tapping a chrono, memory or file node in the graph no longer opens an empty panel.** Every node tap called
+  `getEntity`, so any node that was not an entity issued a request that 404s. It is caught, so nothing broke
+  visibly — the panel simply opened blank, with no indication that anything had been asked for or refused.
+  The same for a synthetic edge: derived from a link at render time and stored nowhere, so `GET /edges/:id`
+  could never answer.
+
+  That was unreachable until the synthetic-edge id collision was fixed; before it, chrono/memory/file links
+  never reached the canvas, so nobody could tap one.
+
+  A node carries its own `kind`, and the dispatch to the right collection already existed —
+  `BrainApi.getRecord`, whose docblock says it is there so the mapping is not *"re-derived by every view that
+  meets a typed id"*. What the tap path did not do was pass the kind along.
+
+  **What cannot be fetched now says so, in all three languages.** A file's record is addressed by path and a
+  graph node carries an id; a synthetic edge has no record at all. Both are facts rather than failures, and a
+  blank panel reads as "this record has nothing in it" — a statement about the data rather than about what
+  could be fetched.
+
+- **Two source comments described their own fixed defects as open.** The MCP parity list said *"one row
+  left: `reindex`"* directly above an array that is empty and says so, and the sync ingest schema said a
+  retention stamp *"is nonetheless hashed"* after the release that stopped hashing it. Both are the failure
+  mode the audit exists for: a reader is taught to work around something that is not there, and to plan work
+  that is done.
+
+- **That fix landed on one of the two rules that needed it, and the other kept its old parser for a day.**
+  Rule 3 — *"every open item says how to verify it is still open"* — split trackers on `- [ ]` only, six lines
+  below the rule that had just learned about headings. So it covered **one item out of eleven**: its tick meant
+  "the single checkbox item in `ARCHITECTURE-TODO.md` has a verify line", and the two heading-style trackers
+  holding the other ten were exempt by formatting alone.
+
+  That is the defect this codebase produces most — one rule, two implementations, the weaker winning silently —
+  arriving inside the script whose job is to catch bookkeeping drift. Both rules now share one `openItems()`,
+  which is the extraction the repo's own convention asks for the second time you write the same rule. Rule 3
+  went from 1 item to 11 and immediately found four with no verify line at all.
+
+  **A queue row can also point at nothing, and neither end was checking.** Rule 2 runs tracker → index; nothing
+  ran index → tracker. `W-3` had sat in the ordered list naming a home file that never contained a W-3 — its
+  section was destroyed by a 2026-08-13 cleanup whose backup went to a path that did not exist, and its id was
+  later reused by an unrelated record, so grepping the folder found a hit and the row read as anchored. A
+  phantom row can never drain, which matters because the release gate is *"cut the tag when the queue is
+  empty"*. The new rule 2b resolves every row against the home it names.
+
+  **What none of this fixes, and it is the bigger half.** Every "is this done" check in the gate reads the
+  row's own status text — a vocabulary match on `SHIPPED|CLOSED|RESOLVED|DONE`, or an item that describes
+  itself as a watch. That text is written by the same pass that would have had to notice the row was finished,
+  so it can never be independent evidence. Five rows announcing completion as `✅ BUILT` and one as `- [~]`
+  passed every check, and the fix history above is four rounds of widening the word list. A green
+  `todo:check` means the folder is internally consistent — never that the statuses are true.
 
 - **A source preview could show one file's contents under another file's name.** Arrow from a large `.ts` to
   a small one and the order is: start A, start B, B comes back and is shown, A comes back and overwrites it.
@@ -3384,29 +3617,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Eight entries in the page's `imports` array outlived the markup that used them, and `formatSize` survived on
   the page only because a spec reached through to it. Both are gone.
 
-- **Merging two people emptied the survivor's face gallery.** The merge relinked memories, chrono entries,
-  edges and a file's `entityIds` — but not `faceEntityId`, the single-valued link on a face chunk. So after a
-  merge those chunks still named the absorbed entity, which the merge then deleted; a label that does not
-  resolve is silently absent from the gallery, so the faces simply stopped counting and **nothing anywhere said
-  so**.
-
-  The labels are now **moved to the survivor**, not cleared. That is the opposite of what a delete does, and
-  deliberately: a delete means the person is gone so the labels are wrong, while a merge asserts the two
-  records were always the same person — clearing them would look like a fix and discard correct biometric
-  labels. `faceScore` travels with them for the same reason.
-
-  **The gate could not have caught it.** It derived the record types it checks from the interfaces that
-  *declare* `entityIds`, so a differently-named singular link was outside its scope by construction — and the
-  one field fitting that description is the biometric one. Discovery is by shape now (any field ending in
-  `entityId`/`entityIds`), and it asserts every such field per type rather than the plural one only.
-
-  A behavioural test drives a real merge rather than reading the source, because a source read proves a
-  decision was made and not that it is right. It also pins that an unlabelled face stays unlabelled, which is
-  the failure mode of a too-broad filter.
-
-  The face-recognition page now documents the label lifecycle for both paths; it described how labels are
-  acquired and never what becomes of them.
-
 - **A long audio or video file could be re-queued while it was working, and then processed twice at once.**
   The media worker builds a heartbeat and a lease check and passed them **only** to the document pipeline. Two
   media steps are not one model call but N of them: audio transcribes one silence-delimited chunk at a time,
@@ -3458,60 +3668,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The integration guide's step table had the same error in prose, counting the legs as separate steps; it now
   carries the chained figures.
 
-- **The face pipeline wrote entity references that `strictLinkage` never checked.** `assertRefsResolve` sat
-  only at the two API doors, so the promise that a stored reference resolves held for callers who remembered it
-  and not otherwise. `files/media/face-embedder.ts` calls `updateFileMeta` directly to write an auto-labelled
-  face's `entityIds`, and was never checked — the id comes from a live match so it resolves in practice, but the
-  guarantee was structural in name only.
-
-  `updateFileMeta` now validates `entityIds`, `memoryIds` and `chronoIds` itself, still gated on
-  `isStrictLinkage` exactly as the doors were — the opt-out exists for staged imports where targets resolve in a
-  later pass, and relocating a check is precisely when such a thing gets withdrawn by accident. The gate pins
-  both the check and the gate on it.
-
-  Third instance of one shape in this release, after `upsertEdge` and `brain/merge.ts`.
-
 - **A translation key defined twice used the wrong one, silently.** `JSON.parse` keeps the last of two
   identical keys and reports nothing, so the file parses, the key count looks right, and the reader sees the
   other definition's text. A check now reads the locale files as TEXT rather than as parsed objects, because
   a parsed object cannot answer the question — which is exactly why the duplicate survived being added.
 
-- **Every sortable table header in the app was lower-case, alone among the tables.** The shared header renders
-  its label inside a `<button>`, and a button does not inherit `text-transform` from its `th` the way a span
-  does — nor is it part of the `font` shorthand the component was already inheriting. So the four Brain tabs
-  and the file listing had mixed-case headings while every other table in the product had uppercase ones.
-  Found by photographing the new token table, which sits directly under an uppercase one.
+- **A mistyped `MAX_FILE_SIZE_BYTES` removed the media file-size limit instead of raising it.** The media
+  config's own reader coerced every numeric environment variable with a bare `Number(envRaw)` and checked
+  nothing, so `1O24` became `NaN` — and `dispatch.ts` asks `input.bytes > maxBytes`, where every comparison
+  against `NaN` is false. `??` cannot rescue it either, because `NaN` is not nullish. Five settings were read
+  that way: `WORKER_CONCURRENCY`, `WORKER_POLL_INTERVAL_MS`, `WORKER_MAX_POLL_INTERVAL_MS`,
+  `MAX_FILE_SIZE_BYTES` and `STALLED_JOB_TIMEOUT_MS`.
 
-- **A header with a search box docked under it sat higher than its neighbours.** A filtered column is taller,
-  and the default middle alignment then centres the shorter cells against it, so the labels in one header row
-  landed at two different heights. Invisible in the Brain tabs, where nearly every column has a filter;
-  obvious on the token table, where two of seven do.
+  **The gate that exists to prevent exactly this could not see them.** `numeric-env-is-validated.test.js`
+  matches `Number(process.env[…])` as one expression; the reader assigns to a local first and coerces on the
+  next line. One assignment between the two halves, and a registry documented as *"exhaustive by design"* was
+  missing six settings. It now also checks the indirect spelling, scoped to the enclosing block so the four
+  call sites that coerce and then guard with `Number.isFinite` are not reported — a gate that flagged those
+  would push whoever fixed it toward deleting a real guard.
 
-  Both of these measured perfectly — the right number of columns, the right number of boxes, correct borders
-  and radii — and both are only visible in a screenshot.
+- **Fourteen source files held a stray carriage return, so git treated them as BINARY and a pull request
+  touching one showed the whole file as rewritten.** Git decides per file whether it holds text, and a
+  carriage return that is not followed by a newline makes it answer no. A binary file gets no line diff and
+  no line-ending normalisation, so a two-line import change arrives as `1 422 insertions, 1 419 deletions`.
 
-- **The token table's empty row spanned seven of its eight columns**, so the empty state stopped one cell short
-  and the panel had a notch cut out of its right edge.
+  The noise is not the damage. The damage is that a real change inside such a file is not reviewed, because
+  nobody reads a wall of unchanged lines — and `git diff` on the working tree shows nothing useful either,
+  so the state conceals the one tool you would investigate it with.
 
-- **The graph panel's "no record here" message could not reach the reader, three different ways.** An empty
-  panel and an unfetchable record look identical, and only one of them is true — so a file node (addressed by
-  path, not by id) and a synthetic edge (id derived at render time, no stored row) are supposed to get a
-  sentence rather than a blank.
+  The cause is a single regex idiom, used to insert an import line after a file's first import: matching
+  the line with `[^\n]*`. On a CRLF working tree that class matches up to and INCLUDING the carriage
+  return, because a carriage return is not a newline; the replacement then appends its own line ending, and
+  the file holds `\r\r\n`. The class has to be `[^\r\n]*`.
 
-  The message and the record were two independent conditions, so a **file node rendered the explanation
-  immediately above "Loading…"** and contradicted itself — with the second line the more believable of the
-  two, because it is the one that usually means something.
+  Two of the fourteen — `api/spaces-reembed.ts` and `mcp/tools/search.ts` — had been on `main` since an
+  earlier session, from the same idiom, and were invisible for exactly the reason above: the commit that
+  did it looked like a formatting pass. Repairing those two is why two files in this release show as fully
+  rewritten; they are returning to newline-only endings and nothing in them changed.
 
-  The message asked for a CSS class that **was declared nowhere**, so the one sentence explaining why a panel
-  is empty rendered as ordinary body text. Correcting the spelling was only half of it: the correct name is
-  defined in brain's stylesheet, which is scoped to brain's components and cannot reach a graph child, so the
-  rule is now declared where the cards load it. `shared-styles-reach-their-renderers` watches that pair from
-  here on — it is the gate that already existed for this exact failure, and it needed one line to see it.
+  `no-source-file-carries-a-lone-cr.test.js` holds the rule. It scans the working tree rather than the
+  committed blobs: reading every blob costs a `git show` per file, and by the time the bytes are committed
+  the diff is already unreviewable.
 
-  And the EDGE card had no such branch at all: its message was translated into three languages and was
-  **unreachable on screen**, because the only place it rendered was inside the node card and selecting an edge
-  clears the selected node first. A synthetic edge said "Loading" indefinitely — which is not merely
-  unhelpful, it is the one message that promises something is coming.
+- **A mermaid diagram in a markdown preview was rendering unstyled, and had been since the preview was
+  split out.** Its rule sat in the page's stylesheet while the diagram is drawn inside a child component —
+  and a page cannot style into a child's template, let alone into content that child binds with
+  `[innerHTML]`. So the two things the rule does, centring the diagram and capping its width, did neither.
+  A wide diagram overflowed its column.
+
+  It looked like a slightly wonky diagram rather than a missing stylesheet, which is why it survived the cut
+  that moved `.preview-body img` and `iframe` to the renderer and left this one behind. It is now
+  `.md-rendered ::ng-deep .mermaid-diagram`, beside the other rules that reach the same content, and the
+  fix was read on a screenshot: the diagram is centred and the SVG is width-capped to its container.
 
 - **A stale `?space=` still moved the Brain page to another space.** The fix above reached the *absent* case;
   a **present** one stayed authoritative on every emission, which is the other half of the same bug.
@@ -3545,173 +3753,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selected yet. **Deliberately not fixed by writing the space to the URL**, which would also have worked:
   Ythril is frequently embedded in an iframe, and a page that rewrites its own address inside somebody else's
   frame is doing something the host did not ask for. A test asserts the space stays out of the URL.
-
-- **The graph side panel showed a blank name for a memory or a timeline entry.** A graph node is one of four
-  kinds, and since 3.6 a chrono entry, memory or file reaches the canvas through its `entityIds` link. The
-  record card had no branch on `kind` and read `name` unconditionally — a memory has a `fact` and no name, so
-  the first row rendered EMPTY and the fact, the only thing the record says, appeared nowhere at all. A chrono
-  entry lost its `title` the same way.
-
-  Every other field happened to share a name and rendered normally, which is why the card looked populated and
-  nobody reported it.
-
-  It now asks `memoryText` and `chronoText` — the same functions the linked-records list in the SAME panel
-  already used, including their fallback to `description`. The divergence was the defect: one rule with two
-  implementations, and the weaker one on the more prominent surface.
-
-- **Tapping a chrono, memory or file node in the graph no longer opens an empty panel.** Every node tap called
-  `getEntity`, so any node that was not an entity issued a request that 404s. It is caught, so nothing broke
-  visibly — the panel simply opened blank, with no indication that anything had been asked for or refused.
-  The same for a synthetic edge: derived from a link at render time and stored nowhere, so `GET /edges/:id`
-  could never answer.
-
-  That was unreachable until the synthetic-edge id collision was fixed; before it, chrono/memory/file links
-  never reached the canvas, so nobody could tap one.
-
-  A node carries its own `kind`, and the dispatch to the right collection already existed —
-  `BrainApi.getRecord`, whose docblock says it is there so the mapping is not *"re-derived by every view that
-  meets a typed id"*. What the tap path did not do was pass the kind along.
-
-  **What cannot be fetched now says so, in all three languages.** A file's record is addressed by path and a
-  graph node carries an id; a synthetic edge has no record at all. Both are facts rather than failures, and a
-  blank panel reads as "this record has nothing in it" — a statement about the data rather than about what
-  could be fetched.
-
-- **Every start logged a warning about a repair that had already happened, and the repair it named could
-  never have worked.** On boot, a token that predates the per-space rights matrix gets one derived from
-  its old settings. That derivation is deliberately kept in memory and not written to disk — but the code
-  tried to write it anyway, using a mechanism that does not exist in this codebase, so the attempt failed
-  on every boot of every instance and left a line saying *"Could not persist derived token rights (will
-  retry next boot)"*.
-
-  **Nothing was ever wrong with your tokens.** The derivation itself always worked, and the thing that
-  failed was a write that was not supposed to happen. Access was never affected. What was affected is
-  that an operator reading their logs saw a permanent warning describing a retry that could not occur —
-  it reads like a full disk, and no amount of restarting would clear it.
-
-  **Why the obvious fix would have been the real bug.** Making that write succeed looks like a one-line
-  repair and would have quietly reversed a deliberate decision: the derived rights are held in memory on
-  purpose, because parts of the system still read the old settings directly, and writing a derivation to
-  disk before it has been checked against the behaviour it reproduces makes any mistake in it permanent.
-  So the fix is the other way round — the step now has no way to write at all, and cannot be asked to.
-  Persisting it is a separate, deliberate piece of work.
-
-  **The rollback instructions described a file change that never happened.** The hosting guide told you
-  that upgrading writes a rights matrix into `config.json`, so an older build would read tokens carrying
-  a field it does not understand. That has never occurred on any instance — the write always failed. The
-  table now says what is true: tokens are untouched, and the config file you copy before upgrading is
-  identical afterwards as far as they are concerned.
-
-  Four places in the codebase said this step writes nothing and two said it does. The ones that
-  disagreed were checks that read the source for the word "persist", found it, and passed — over a call
-  that threw every time it ran. All six now say the same thing, and they assert the absence of a write
-  rather than the presence of one.
-
-- **A per-token rate limit above 300/min could not take effect, and the API said it had.**
-  `rateLimitPerMinute` is a real per-token field with an instance ceiling, and its limiter has always been
-  mounted. What was never moved is `globalRateLimit`: a literal `max: 300` on 171 routes, keyed on a **hash of
-  the presented credential** — so it gave every token its own 300 bucket, and the real limit was
-  `min(300, whatever you set)`. Granting a token 1 000 changed nothing while `GET /api/tokens` reported
-  `rateLimitEffective: 1000`. Three different numbers for one quota.
-
-  **The global limiter now steps aside once a credential is presented**, leaving the per-token quota as the
-  only limit on an authenticated request — which is what that quota was built to be. It cannot wait for the
-  token to RESOLVE, because it runs before authentication and the limit is a property of a record that has not
-  been read yet; so the test is the credential, and both outcomes are covered: it resolves and the per-token
-  limiter governs, or it does not and auth answers 401.
-
-  **Nothing is now unbounded that was bounded before.** The global limiter never restrained a flood of
-  *invented* credentials either — it is keyed per credential, so each new string already minted a fresh
-  bucket. The per-IP flood backstop is what closes that, and it does not step aside for anything.
-
-  **And nothing moves for anyone who granted nothing:** `DEFAULT_PER_MINUTE` was deliberately kept equal to
-  the global limiter's max, so a token with no value resolves to exactly the number it used to be capped at.
-  The cap only lifts where somebody explicitly asked for more.
-
-- **Read-modify-write against `/api/admin/media-config` now works.** The GET returns the resolved
-  `documentProcessing` block and the PATCH schema is `.strict()`, so seven keys it emits and does not accept —
-  `maxTotalPages`, `vlmModel`, `vlmBaseUrl`, `repairModel`, `repairBaseUrl`, `verifyModel`, `verifyBaseUrl` —
-  made sending the block back a **400 on the whole body**. Reading a config block, changing one field and
-  putting it back is the ordinary way to use an API like this, and it did not work for any caller.
-
-  This needed no new mechanism. `SERVER_OWNED_MEDIA_PATHS` exists for exactly this shape and the route's own
-  docblock says so; three `faceRecognition` fields were declared that way and the seven document ones never
-  were. Declaring them gets both directions right at once: send back the value you were given and it is
-  stripped, so the rest of the patch applies; send a **different** value and you are refused, with prose
-  naming where that field actually is set. Quietly ignoring an attempted change would have been the
-  silent-acceptance defect this API is trying to shed.
-
-  The check derives its subject from the resolver rather than from a list of seven, so the next `DOC_*` model
-  slot is covered on the commit that adds it. The declaration table moved into its own module — the route file
-  was at its size ceiling, and a paths-and-prose table is a declaration rather than route logic.
-
-- **A mistyped `MAX_FILE_SIZE_BYTES` removed the media file-size limit instead of raising it.** The media
-  config's own reader coerced every numeric environment variable with a bare `Number(envRaw)` and checked
-  nothing, so `1O24` became `NaN` — and `dispatch.ts` asks `input.bytes > maxBytes`, where every comparison
-  against `NaN` is false. `??` cannot rescue it either, because `NaN` is not nullish. Five settings were read
-  that way: `WORKER_CONCURRENCY`, `WORKER_POLL_INTERVAL_MS`, `WORKER_MAX_POLL_INTERVAL_MS`,
-  `MAX_FILE_SIZE_BYTES` and `STALLED_JOB_TIMEOUT_MS`.
-
-  **The gate that exists to prevent exactly this could not see them.** `numeric-env-is-validated.test.js`
-  matches `Number(process.env[…])` as one expression; the reader assigns to a local first and coerces on the
-  next line. One assignment between the two halves, and a registry documented as *"exhaustive by design"* was
-  missing six settings. It now also checks the indirect spelling, scoped to the enclosing block so the four
-  call sites that coerce and then guard with `Number.isFinite` are not reported — a gate that flagged those
-  would push whoever fixed it toward deleting a real guard.
-
-- **The same setting had two different legal ranges depending on which door it arrived through.** Nine are
-  writable both by an environment variable and by `PATCH /api/admin/media-config`, and five pairs disagreed —
-  in both directions:
-
-  | setting | env door | admin door |
-  |---|---|---|
-  | `documentProcessing.ocrTimeoutMs` | 1 000 … 3 600 000 | 10 000 … 1 800 000 |
-  | `documentProcessing.describeTimeoutMs` | 1 000 … 3 600 000 | 1 000 … 600 000 |
-  | `embedding.dimensions` | 1 … 8 192 | 1 … 16 384 |
-  | `embedding.embedConcurrency` | 1 … 256 | 1 … 32 |
-  | `mediaEmbedding.rerank.candidateMultiplier` | unvalidated | 2 … 10 |
-
-  `EMBEDDING_CONCURRENCY` shows why this is not merely untidy: **256 passed validation, was reported as
-  accepted, and was then silently clamped to 32** by the code that uses it — the ceiling existing precisely so
-  *"a typo cannot turn into hundreds of parallel requests"*. Validation that accepts a value the runtime will
-  not honour answers the operator's question wrongly, which is worse than not answering it.
-
-  **The documentation was already right on both counts** — the integration guide says *"Clamped to 1…32"* and
-  *"2–10"* — so the env door disagreed with the API and with the page describing it, and only the door nobody
-  compares was wrong. No documented range changes.
-
-  Both doors now read one table, `config/setting-bounds.ts`. Whatever the runtime actually enforces wins;
-  where nothing enforces it, the admin schema does, because that is the surface with the reasons written
-  beside it. `embedding.dimensions` is recorded there as genuinely arbitrary rather than derived — nothing
-  downstream constrains it and neither ceiling appears in the docs.
-
-  `one-setting-one-range.test.js` derives the pairs from the two doors themselves rather than from the shared
-  table, so a setting the table forgets is not invisible to the check of the table.
-
-- **Seven routes answered `5xx` and threw away the exception that caused it.** The shape was always the same —
-  `} catch (err) { res.status(500).json({ error: 'Internal error' }); }` — an error caught, named, and never
-  read. The response body is generic on purpose, and the global handler in `app.ts` never sees an exception a
-  route already caught, so **the failure existed only as a status code**: nothing in the caller's response and
-  nothing in the server log. `POST /api/brain/spaces/:spaceId/entities` was among them, so an entity write could
-  fail and leave no trace anywhere.
-
-  Found from the outside. The canary operator got `HTTP 500` in 6 ms from `DELETE /api/tokens/:id`, asked for
-  the cause twice over ten days, and when they finally captured the pod log for that exact second it held three
-  unrelated OIDC warnings and nothing else. They built a hypothesis on the only evidence present — that an
-  expired session answers 500 where 401 belongs — and it was wrong. **They were reasoning correctly from an
-  empty log; producing the empty log was ours.**
-
-  Each of those routes now reports the operation and the stack to the operator, while the response body stays
-  byte-identical — a flat body is a leak-prevention property, not an oversight. The revoke route's own
-  should-be-unreachable `500` reports too, and names the token id: a branch that cannot fire and fires anyway is
-  the most valuable line a log can carry.
-
-  A gate pins the class rather than the seven sites. Its rule is *reads its binding*, not *calls the logger*,
-  because both discharges are legitimate — report it to the operator, or return it to the caller as
-  `{ error: err.message, storageExceeded: true }` does — and a gate demanding a log call would push quota
-  refusals into the error log. It also reads the enclosing **catch**, not the innermost block: a `504` written
-  inside `catch (err) { if (err === SENTINEL) { … } }` would otherwise be reported as discarding an error it
-  reads one line up.
 
 - **The guide pages now say what the code does — about forty corrections across eleven pages** (`Q-4`,
   the documentation bundle of the guideline audit). No route, parameter or default changed; every
@@ -3753,6 +3794,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Where a correction describes a DEFECT rather than a stale sentence, it says so and names the tracker row:
   the file download does not get the transfer budget it is passed, the batch ingest accepts six families
   and reports five, and `minScore` is applied after the cut to `topK` rather than before.
+
+- **Two more safety checks were looking at part of what their titles claimed** (`Q-5`), found by turning the
+  rule the previous change added into a search rather than waiting to trip over the next one. Nothing an
+  operator can observe changes; the code both check is correct.
+
+  One says *"every per-type count is reported back"* and looked at four of the six kinds of record a sync
+  carries. The two it skipped **should** be skipped — the count is about a record breaking the rules its
+  type declares, and neither of those two has a type to break rules from. That was right and unwritten, so it
+  read as an oversight rather than as a decision, and nothing would have noticed if it stopped being true.
+
+  The other says *no route reinvents the permission rule for itself* and read three files out of eight in
+  that folder — including none of the three added most recently. It now reads the folder, so the next route
+  somebody adds is covered on the day it appears, which is exactly when a copy of that rule would be written:
+  whoever adds one copies the nearest existing route.
+
+- **Three safety checks were passing while looking at part of what their own titles claimed** (`Q-5`). None
+  of them was wrong about the code it did check, and the code they all guard turned out to be correct — so
+  nothing here changes what the product does. What changes is that these three would now notice.
+
+  **Two sync checks said "every incoming record type" and looked at four of six.** When one instance sends a
+  record to another, the receiving instance validates it against a description of what that kind of record
+  may contain. There are six such descriptions. Both checks — one making sure a record marked *never make
+  this searchable* keeps that mark on arrival, the other making sure a search index built by somebody else's
+  model is never accepted as ours — looped over a hard-coded four.
+
+  The one they both skipped is **file metadata**, which is the type that needs the first check most: a file
+  has no type schema to fall back on, so the mark on the record itself is the only switch there is. It
+  carries the mark correctly today and has never carried a foreign search index; the checks simply were not
+  the reason.
+
+  **This project's own notes already record this exact failure being paid for once**, in a different check,
+  which is why the fix is a derived list rather than a corrected one: the descriptions are now read out of
+  the code that defines them, so a seventh kind is covered the day it exists. The one legitimate exemption —
+  a link record, which is two ids and a label and so has no text to make searchable — is now written down as
+  an exemption with its reason, instead of being absent from a list.
+
+  **And the check that guards the next-change plan against going stale looked for the rarer symptom.** It
+  refused a plan naming a pull request that had already merged. The plan it was watching named no pull
+  request at all: it described nine items that shipped about twenty pull requests earlier, and the check
+  reported clean every run in between. A plan is written in the project's own item ids, so those are what it
+  now reads — at least one has to be work the queue still holds.
+
+  Also corrected in the same sweep, each against the code: the integration guide told an integrator that a
+  token's pre-4.0 permission fields *"are still honoured"* — nothing reads them, and a token arriving with
+  no permission matrix now reaches nothing at all; the same page said sending `readOnly` or `admin` when
+  creating a token *"still does exactly what it always did"*, twenty lines below a table correctly saying
+  both are refused; the hosting page repeated the first of those; and a comment heading in the sync code
+  still read *"why the legacy fallback stays"* directly above the paragraph explaining that it is gone.
+
+- **Characterization tests for the four space wipes, before they become one.** `bulkDeleteEntities`,
+  `bulkDeleteMemories`, `bulkDeleteEdges` and `bulkDeleteChrono` are the same thirty lines four times (`R-4`),
+  and before this the only assertion on any of them was in `face-label-cascade.test.js` — which covers the
+  ENTITY one incidentally, because face labels are what that file is about. The tombstone behaviour of the other
+  three, which is the entire point of a wipe on a replicated collection, was asserted nowhere.
+
+  A wipe is not a delete: it is a delete plus one tombstone per document, because a peer holding those records
+  has to be told they are gone. A wipe that empties the collection and writes no tombstones is one the next sync
+  cycle silently UNDOES, record by record, from the peer's copy.
+
+  **The pass found that the four are not identical**, which the tracker row had wrong: it said the differences
+  were webhook emissions, and none of them emits a webhook. The entity wipe also clears every face label in the
+  space — wholesale rather than by id list, for the reason its own comment gives — and the memory wipe orders
+  its tombstone range newest-first. An extraction treating the four as the same drops the first of those, and
+  what is left behind is a file-meta record pointing at an entity that no longer exists.
+
+  Twenty cases against a real MongoDB, and all five mutants died: the dropped cascade, the wrong tombstone type,
+  no tombstones at all, the lost empty-collection early return, and one seq reused for every tombstone. Two of
+  those mutants reported NO-OP on the first run and proved nothing — the working tree is CRLF, so a multi-line
+  search string written with a bare LF matches nothing while looking exactly like a pass.
+
+  Nothing in the product changed.
 
 - **A third gate was decorative on the machine it runs on before pushing.** The check that every promise
   of a whole record also states its price found the paragraph around that promise by searching for a blank
@@ -3798,61 +3910,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not there, and wrote no handling for a refusal they will get. Both corrected, and both keep the part
   that is still true: `tags` really do replace on a memory and merge on an entity, and `delete_edge`
   really is the one that cannot be blocked, because an edge IS the link.
-
-- **The rules this codebase states about itself were checked against the code, and thirteen of them were
-  false** (`Q-1`, first slice — the audit covers nine surfaces and this is one of them).
-
-  Two would have cost a reader something real. The page said a route with no token-rights row is *"either
-  unreachable or ungoverned, and both fail silently"* — it is neither: the request is served with its reach
-  enforced and its area not, and it logs a warning naming itself on every call, which is how an operator
-  found one. It also gave one instruction where there are two answers, and following it for a route that is
-  not a view of a space's data area-scopes a route the design says must not be.
-
-  And the instruction for adding a replicated field to a FILE was wrong in the direction that hides. Five of
-  the six collections exclude fields from the space hash by naming them; files INCLUDE the fields they hash,
-  because a file record has thirty-odd fields and most are local machinery. So *"add the field, do not
-  exclude it"* leaves a file field outside the hash — two instances holding different data and agreeing they
-  match, for ever, with nothing to contradict it.
-
-  **Four of the thirteen rotted in the last few days, which is the argument for the audit rather than a
-  footnote to it.** The page named four replicated documents and there are six; claimed one ingest function
-  where there are now two; said the hash exclusion lives in two places and it is three; and described every
-  arriving document as validated by a schema that STRIPS unknown keys, when file metadata refuses them
-  instead. Each was true when written and none announced that it had stopped being.
-
-  Counts are now written as the rule that produces them — *"every `Incoming*` schema in that file"* rather
-  than *"four"* — because the gate protecting exactly this had the identical bug: a hand-written list of
-  four documents that missed the fifth when it arrived, and reported clean about a document nobody had
-  checked.
-
-- **Two source comments described their own fixed defects as open.** The MCP parity list said *"one row
-  left: `reindex`"* directly above an array that is empty and says so, and the sync ingest schema said a
-  retention stamp *"is nonetheless hashed"* after the release that stopped hashing it. Both are the failure
-  mode the audit exists for: a reader is taught to work around something that is not there, and to plan work
-  that is done.
-
-- **Fourteen source files held a stray carriage return, so git treated them as BINARY and a pull request
-  touching one showed the whole file as rewritten.** Git decides per file whether it holds text, and a
-  carriage return that is not followed by a newline makes it answer no. A binary file gets no line diff and
-  no line-ending normalisation, so a two-line import change arrives as `1 422 insertions, 1 419 deletions`.
-
-  The noise is not the damage. The damage is that a real change inside such a file is not reviewed, because
-  nobody reads a wall of unchanged lines — and `git diff` on the working tree shows nothing useful either,
-  so the state conceals the one tool you would investigate it with.
-
-  The cause is a single regex idiom, used to insert an import line after a file's first import: matching
-  the line with `[^\n]*`. On a CRLF working tree that class matches up to and INCLUDING the carriage
-  return, because a carriage return is not a newline; the replacement then appends its own line ending, and
-  the file holds `\r\r\n`. The class has to be `[^\r\n]*`.
-
-  Two of the fourteen — `api/spaces-reembed.ts` and `mcp/tools/search.ts` — had been on `main` since an
-  earlier session, from the same idiom, and were invisible for exactly the reason above: the commit that
-  did it looked like a formatting pass. Repairing those two is why two files in this release show as fully
-  rewritten; they are returning to newline-only endings and nothing in them changed.
-
-  `no-source-file-carries-a-lone-cr.test.js` holds the rule. It scans the working tree rather than the
-  committed blobs: reading every blob costs a `git show` per file, and by the time the bytes are committed
-  the diff is already unreviewable.
 
 - **The working-order gate found three of its rows by NUMBER, so a renumbered checklist lost checks in
   silence.** It located the tests row with a literal `2`, the CHANGELOG row with `6` and the guides row with
@@ -3949,63 +4006,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Both were found by asking whether a tracker was up to date, which the gate had been answering "yes" to for
   eleven days.
 
-- **That fix landed on one of the two rules that needed it, and the other kept its old parser for a day.**
-  Rule 3 — *"every open item says how to verify it is still open"* — split trackers on `- [ ]` only, six lines
-  below the rule that had just learned about headings. So it covered **one item out of eleven**: its tick meant
-  "the single checkbox item in `ARCHITECTURE-TODO.md` has a verify line", and the two heading-style trackers
-  holding the other ten were exempt by formatting alone.
-
-  That is the defect this codebase produces most — one rule, two implementations, the weaker winning silently —
-  arriving inside the script whose job is to catch bookkeeping drift. Both rules now share one `openItems()`,
-  which is the extraction the repo's own convention asks for the second time you write the same rule. Rule 3
-  went from 1 item to 11 and immediately found four with no verify line at all.
-
-  **A queue row can also point at nothing, and neither end was checking.** Rule 2 runs tracker → index; nothing
-  ran index → tracker. `W-3` had sat in the ordered list naming a home file that never contained a W-3 — its
-  section was destroyed by a 2026-08-13 cleanup whose backup went to a path that did not exist, and its id was
-  later reused by an unrelated record, so grepping the folder found a hit and the row read as anchored. A
-  phantom row can never drain, which matters because the release gate is *"cut the tag when the queue is
-  empty"*. The new rule 2b resolves every row against the home it names.
-
-  **What none of this fixes, and it is the bigger half.** Every "is this done" check in the gate reads the
-  row's own status text — a vocabulary match on `SHIPPED|CLOSED|RESOLVED|DONE`, or an item that describes
-  itself as a watch. That text is written by the same pass that would have had to notice the row was finished,
-  so it can never be independent evidence. Five rows announcing completion as `✅ BUILT` and one as `- [~]`
-  passed every check, and the fix history above is four rounds of widening the word list. A green
-  `todo:check` means the folder is internally consistent — never that the statuses are true.
-
-- **A `Verify:` line is now checked, not just required.** The rule demanding one has always said its evidence
-  is *"mechanically checkable"*; nothing ever checked it. Each line now parses into `grep -c "<literal>"
-  <one file>` returns `<N>`, and the gate evaluates it: a line that DISAGREES with the tree is reported, and so
-  is one naming a file that no longer exists — never folded into "0 matches", which would let
-  `grep -c foo deleted.ts returns 0` pass for ever from the moment the file was deleted.
-
-  **Nothing is handed to a shell, and the pattern is refused rather than interpreted.** Preflight reaches this
-  through node, and Windows has no `grep` on PATH; the same line tokenizes three ways in bash, cmd and
-  PowerShell; and `todo/` is gitignored and reviewed by nobody, so executing a string out of it would make a
-  working-notes file an execution surface in the gate that runs before every push. Matching the pattern
-  literally instead has a quieter failure: measured on this tree, `grep -c "^export" server/src/brain/edges.ts`
-  answers **24** in a shell and **0** as a literal, and the divergence runs toward 0 — which is what every
-  clause in the corpus asserts. So a pattern containing `^ $ . * [ ] \` is REFUSED with the character named.
-  `( ) { } | + ?` are accepted, because they are ordinary characters in a basic regular expression and
-  rejecting them would push authors toward vaguer patterns that match their subject's neighbours. All nine
-  live clauses were cross-checked against real Git Bash `grep` and agree.
-
-  **The manual escape hatch is capped at three, dated, and lives in the tracked script** rather than beside the
-  item — `todo/` is reviewed by nobody, so a reason written there costs nothing, while a row in the script
-  lands in a diff. Entries expire on a date no more than 120 days out, and a stale one fails rather than warns.
-
-  **The tick says "its stated evidence still holds", not "it is still open"** — and that is the honest bound.
-  The two differ whenever a fix lands somewhere other than the file the row names, which here is the usual
-  shape, because the convention is to extract. `L-4` named `api/contradictions.ts`; its fix went into
-  `brain/edges.ts`, and that file is byte-identical from #1041 through HEAD, so every clause faithful to the
-  row's own words would still have said "holds" four days after it shipped. Six of the eight stale rows were
-  fix-in-place and would have been caught; two were extractions and would not.
-
-  Also: rule 4 caught its own `git log` and left the result empty, so a git failure was indistinguishable from
-  a pass — the gate's one independent check printing green having compared nothing. It fails now, and both git
-  calls carry a timeout.
-
 ### Security
 
 - **A token with no permission grid reached every space. It now reaches none.**
@@ -4029,54 +4029,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- **The guideline sweep that gates this release is finished: Q-5 is complete.** It re-checked everything
-  merged since the previous audit against the places this project claims to be true: the two APIs, both
-  guides, the operator's pages, the project's own rules, and the checks that are supposed to stop each of
-  those going stale.
-
-  **It ran in six rounds, and only the first found something that had cost anything.** A record arriving
-  from another instance could bring that instance's deletion schedule with it, so an operator keeping data
-  for a year could lose it after a peer's week — silently, and indistinguishably from their own policy
-  working. Everything after that was a claim that had outlived its truth.
-
-  **The pattern worth naming, because it accounts for most of what was found:** a sentence that was correct
-  when it was written, sitting somewhere nobody re-reads. A safety check whose title claimed more than its
-  body looked at, five times over. A permission rule fixed in two places and missed in two more. A comment
-  telling the next developer to remove something that must never be removed. One explanation of a removed
-  fallback still alive in six files, each of them right on the day it was written.
-
-  **Nothing an operator can observe changed after round 1.** The remaining rounds tightened the checks that
-  are supposed to catch these, and wrote down the shape so it is looked for rather than tripped over — which
-  is how the last round found two more, and how the follow-up sweep it produced came to be scheduled rather
-  than assumed complete.
-
-- **The way this project's safety checks were going wrong is now written down as a rule of its own**
-  (`Q-5`). Nothing an operator can observe changed. It is here because the same failure appeared **four
-  times in one audit, in three unrelated parts of the codebase**, and it had already been recorded once — as
-  a footnote to a single incident, which is exactly why it kept happening.
-
-  The shape: **a check whose title is a claim about everything, whose body looks at part of it.** Both are
-  written by the same person on the same day, and the title is the half everyone afterwards believes.
-  Nothing ever contradicts it, because a check that passes is evidence of nothing in particular.
-
-  The rule it becomes has three parts, and the third is the one that gets skipped: work out the set from the
-  code rather than listing it; assert the *rule* rather than the place it currently lives, so a fifth place
-  written next year is covered; and **see the check fail before believing it** — on the part it newly
-  covers, not the part that was already checked.
-
-- **The six record types that replicate are now listed once, and both directions of a sync read that
-  list** (`A-12`). Nothing an operator can observe changed — no route, no setting, no stored shape — and
-  the entry is here because it is the kind of change that hides a defect if it goes wrong.
-
-  They were written out twice, once for the pull and once for the push. Adding a seventh type meant six
-  edits in two places, and nothing fails when one list gets it and the other does not: it builds, it runs,
-  and one direction quietly ignores a whole kind of record. That already happened once — when file
-  metadata became the sixth type, it was missing from three separate lists, and every omission was silent.
-
-  The list lives in its own file rather than inside the sync engine, because which types replicate is a
-  fact about replication and not about that loop — the integrity hash, the ingest checks and the retention
-  sweep each hold an opinion of the same set, and each has been wrong about it at least once.
-
 - **A comment that told a future reader to change a documented parameter, on a reason that was wrong.**
   Nothing an operator or integrator can observe has changed — no route, tool, parameter, default or
   stored shape — and the line is here because a source change with no user-facing effect still earns one.
@@ -4095,6 +4047,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pre-authorised a change to a documented parameter and told the reader to distrust the check that would
   have stopped it.
 
+- **The notes for this release are grouped by subject instead of by the order the work happened** (`C-1`),
+  and a check keeps them that way. Nothing in the product changed; what changed is that this section is
+  readable.
+
+  It had grown to 4 303 lines under **54 headings** — twenty separate *Fixed* blocks, eighteen *Changed*,
+  seven *Added*. That is what appending produces: every change added its own block at the top rather than
+  merging into the one already there, and each of those was individually correct. The cost lands on whoever
+  reads the notes: *"what changed about sync?"* meant reading all 4 303 lines, because sync sat in twenty
+  places. There are now six headings, one per kind, and entries about one subject run together — auth,
+  sync, brain and search, files and media, the UI, operations, then gates and tooling.
+
+  **No entry was reworded, dropped or merged** — every line of every one of the 212 is byte-for-byte what it
+  was, checked as a set before and after. Only headings and blank lines moved.
+
+  A new gate holds the heading structure of the section that is still being appended to: one `Added`,
+  `Changed`, `Removed`, `Fixed`, `Security` and `Internal`, in that order, and no near-synonym beside
+  them — `### Fixes` next to `### Fixed` would pass a uniqueness check and rebuild the same pile. Tagged
+  releases are left exactly as published. Grouping entries by subject is judgement, so no gate can hold it;
+  that half is a release step now.
+
+- **The six record types that replicate are now listed once, and both directions of a sync read that
+  list** (`A-12`). Nothing an operator can observe changed — no route, no setting, no stored shape — and
+  the entry is here because it is the kind of change that hides a defect if it goes wrong.
+
+  They were written out twice, once for the pull and once for the push. Adding a seventh type meant six
+  edits in two places, and nothing fails when one list gets it and the other does not: it builds, it runs,
+  and one direction quietly ignores a whole kind of record. That already happened once — when file
+  metadata became the sixth type, it was missing from three separate lists, and every omission was silent.
+
+  The list lives in its own file rather than inside the sync engine, because which types replicate is a
+  fact about replication and not about that loop — the integrity hash, the ingest checks and the retention
+  sweep each hold an opinion of the same set, and each has been wrong about it at least once.
+
+- **One row of a network's member list is now its own component** (`N-2`). The Networks settings page
+  looks and behaves exactly as it did; what changed is that the block of markup describing a single peer —
+  its id, its sync direction, the two warning badges, the endpoint link and the remove button — moved out
+  of the page into `network-member-row.component.ts`, with the four style rules that only that markup used.
+
+  It was owed. Every new fact we learn how to show about a peer lands in that same block — the
+  version-refusal badge was the second one in a year — so the page grows every time, and the page is where
+  the network-level state lives. The size ceiling this repo keeps on large files had been raised for that
+  badge; this pays the raise back rather than fitting under it, and the page is now 52 lines below where it
+  stood before.
+
+  The rule that guards those ceilings gained the state it was missing. It could record a raise as *queued
+  for a split* or as *not worth splitting*, and had no way to say *split, and the size is back down* — so a
+  finished decomposition had to be filed as one of the two things it was not. It can now say so, and unlike
+  the other two that claim is checked against the file's actual frozen size, because it is the only one of
+  the three with a number behind it.
+
 - **The recall-augmenting traversal is its own module** — `brain/edges.ts` from 688 code lines to 487, under
   the 650 ceiling. A-4, and the raise that owed it is paid.
 
@@ -4111,6 +4113,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Six gates read `edges.ts` for something that moved. Which gate needed which file was derived from the moved
   symbols rather than guessed, because a gate left pointing at the old file fails several assertions at once
   and reads as broken production code rather than as one moved module.
+
+- **The graph page is under the size ceiling for the first time since it joined the ratchet** — 690 code
+  lines to 641, against a limit of 650. Three things, and the third was the surprise.
+
+  The two side-panel headers were one bar written twice, differing in a title, a badge and whether the view
+  button showed at all; they are now one component. The toolbar — root search, depth, direction, labels, fit
+  and reset — is another. Its controls **report** rather than set, which is load-bearing rather than stylistic:
+  a new depth or direction re-runs the traversal and toggling labels repaints the canvas, so a two-way binding
+  would have moved the value and dropped the rest, leaving a toolbar whose controls look like they work.
+
+  **Six members were deleted because nothing read them**, and a new gate names them by asking whether anything
+  in the client mentions each one. Two shapes: `panelTitle` was computed for exactly this extraction and never
+  wired in, so the page had one right answer beside two hand-written copies of it; `toggleSort` and `sortArrow`
+  were left behind when the detail table moved to a child component that filters but does not sort — and were
+  still covered by four passing specs, which is the worse state, because green is read as "the behaviour is
+  still there". Two of those cases moved down to the module that actually owns the sorting; two went with
+  their subject.
+
+- **The graph side panel's record cards are their own components.** `graph.component.ts` was at its size
+  freeze and every behaviour change tripped it; this pays 793 → 688 code lines, and the cards become testable
+  without a cytoscape mock.
+
+  **Two components, not one with a mode.** It was two cards, not one, and ~115 lines rather than the ~87 the
+  task estimated: the node card and its near-twin for edges, which carries `weight`, shows endpoint rows with
+  a fallback, labels its first row `relation` rather than `name`, and has no unavailable branch. Unifying them
+  would have changed behaviour rather than moved it. They live in one file so the divergence stays visible.
+
+  **The style rules moved with the markup**, which is the half no test can see: a parent's styles are scoped
+  to the parent's own template, so markup moved into a child renders unstyled — and `.record-card`'s
+  `flex: 0 0 50%` is what makes the panel two columns. It applies to `:host` now, because the host is the
+  element the parent lays out.
+
+  Nothing about what the cards render changed: the characterization spec added just before this went through
+  **unedited**, which is the only evidence a template move can offer.
+
+- **The graph side panel's record cards are rendered by a test for the first time.** Preparation for splitting
+  them out of `graph.component.ts`, which sits at its size freeze — and the repo rule is characterization
+  tests first, proven against the original code, because a template move is exactly the change that silently
+  loses a binding.
+
+  An inventory of the two cards found **167 rendered things and DOM coverage of none of them**: the four
+  assertions that touch the card at all are signal-level, and neither card's populated branch had ever been
+  rendered. The new spec pins the field order, the per-row guards (an empty `properties` object hides its
+  row; a `weight` of **zero** still shows), the tag chips, the untranslated `_id` label, the date format, and
+  the edge card's endpoint fallback — which reads a different signal from the rest of the card. Five mutants
+  covering the likeliest move-damage all die.
+
+  **Three assertions pin a defect on purpose**, named as such so the extraction can neither quietly fix nor
+  quietly keep them: a memory or chrono node renders a blank name row and never shows its `fact` or `title`;
+  a file node renders the unavailable message and the loading row together; and a synthetic edge shows
+  loading for ever, because only the node card reads `recordUnavailable()`. Filed as G-5 and G-6.
+
+- **`04-brain-api.md` is split; it was sitting exactly at the 900-line doc ceiling**, so any addition to it
+  failed the gate and whoever next documented a brain-API change would have paid for a split they did not
+  cause. It is 405 lines now.
+
+  **Split by subject rather than by size.** What moved is a set of rules that were never about memories:
+  expiry, stamp integrity, what a `PATCH` does to `tags` and `properties`, optimistic concurrency, what a read
+  never sends, retiring a record from semantic search, and partial updates with `deleteFields`. Every one
+  applies to entities, edges and chrono entries too — they were filed on the memory page because memories were
+  documented first. They are **[Write & Read Semantics](docs/integration-guide/04f-write-semantics.md)**, with
+  a pointer left in reading order rather than at the end.
+
+  Moved by script, with every range asserting the heading it must start on and a **multiset** comparison of
+  prose lines before and after: zero lost. A line count alone is conserved by a split that duplicates one line
+  and drops another, which is how the last hand-split of this guide shipped `ation naming the missing
+  capability` in the docs for months.
 
 - **The file-upload route is its own module** — `api/files.ts` from 647 code lines to 455, under the ceiling
   for the first time since it was frozen. The route is 196 of those lines and by far the file's largest body:
@@ -4213,74 +4282,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — the folder in it was also the largest file, so folders-first and size-descending wanted the same order and
   deleting the rule left the test green.
 
-- **One row of a network's member list is now its own component** (`N-2`). The Networks settings page
-  looks and behaves exactly as it did; what changed is that the block of markup describing a single peer —
-  its id, its sync direction, the two warning badges, the endpoint link and the remove button — moved out
-  of the page into `network-member-row.component.ts`, with the four style rules that only that markup used.
-
-  It was owed. Every new fact we learn how to show about a peer lands in that same block — the
-  version-refusal badge was the second one in a year — so the page grows every time, and the page is where
-  the network-level state lives. The size ceiling this repo keeps on large files had been raised for that
-  badge; this pays the raise back rather than fitting under it, and the page is now 52 lines below where it
-  stood before.
-
-  The rule that guards those ceilings gained the state it was missing. It could record a raise as *queued
-  for a split* or as *not worth splitting*, and had no way to say *split, and the size is back down* — so a
-  finished decomposition had to be filed as one of the two things it was not. It can now say so, and unlike
-  the other two that claim is checked against the file's actual frozen size, because it is the only one of
-  the three with a number behind it.
-
-- **The graph page is under the size ceiling for the first time since it joined the ratchet** — 690 code
-  lines to 641, against a limit of 650. Three things, and the third was the surprise.
-
-  The two side-panel headers were one bar written twice, differing in a title, a badge and whether the view
-  button showed at all; they are now one component. The toolbar — root search, depth, direction, labels, fit
-  and reset — is another. Its controls **report** rather than set, which is load-bearing rather than stylistic:
-  a new depth or direction re-runs the traversal and toggling labels repaints the canvas, so a two-way binding
-  would have moved the value and dropped the rest, leaving a toolbar whose controls look like they work.
-
-  **Six members were deleted because nothing read them**, and a new gate names them by asking whether anything
-  in the client mentions each one. Two shapes: `panelTitle` was computed for exactly this extraction and never
-  wired in, so the page had one right answer beside two hand-written copies of it; `toggleSort` and `sortArrow`
-  were left behind when the detail table moved to a child component that filters but does not sort — and were
-  still covered by four passing specs, which is the worse state, because green is read as "the behaviour is
-  still there". Two of those cases moved down to the module that actually owns the sorting; two went with
-  their subject.
-
-- **The graph side panel's record cards are their own components.** `graph.component.ts` was at its size
-  freeze and every behaviour change tripped it; this pays 793 → 688 code lines, and the cards become testable
-  without a cytoscape mock.
-
-  **Two components, not one with a mode.** It was two cards, not one, and ~115 lines rather than the ~87 the
-  task estimated: the node card and its near-twin for edges, which carries `weight`, shows endpoint rows with
-  a fallback, labels its first row `relation` rather than `name`, and has no unavailable branch. Unifying them
-  would have changed behaviour rather than moved it. They live in one file so the divergence stays visible.
-
-  **The style rules moved with the markup**, which is the half no test can see: a parent's styles are scoped
-  to the parent's own template, so markup moved into a child renders unstyled — and `.record-card`'s
-  `flex: 0 0 50%` is what makes the panel two columns. It applies to `:host` now, because the host is the
-  element the parent lays out.
-
-  Nothing about what the cards render changed: the characterization spec added just before this went through
-  **unedited**, which is the only evidence a template move can offer.
-
-- **The graph side panel's record cards are rendered by a test for the first time.** Preparation for splitting
-  them out of `graph.component.ts`, which sits at its size freeze — and the repo rule is characterization
-  tests first, proven against the original code, because a template move is exactly the change that silently
-  loses a binding.
-
-  An inventory of the two cards found **167 rendered things and DOM coverage of none of them**: the four
-  assertions that touch the card at all are signal-level, and neither card's populated branch had ever been
-  rendered. The new spec pins the field order, the per-row guards (an empty `properties` object hides its
-  row; a `weight` of **zero** still shows), the tag chips, the untranslated `_id` label, the date format, and
-  the edge card's endpoint fallback — which reads a different signal from the rest of the card. Five mutants
-  covering the likeliest move-damage all die.
-
-  **Three assertions pin a defect on purpose**, named as such so the extraction can neither quietly fix nor
-  quietly keep them: a memory or chrono node renders a blank name row and never shows its `fact` or `title`;
-  a file node renders the unavailable message and the loading row together; and a synthetic edge shows
-  loading for ever, because only the node card reads `recordUnavailable()`. Filed as G-5 and G-6.
-
 - **The client's spec project type-checks, and nothing had been checking it.** `vitest` transpiles without
   type-checking and the production build compiles `tsconfig.app.json` only, so `tsconfig.spec.json` — 102 files,
   1 284 tests — was unchecked. It had **122 errors**. It has none, and `npm run preflight` now runs both
@@ -4309,21 +4310,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vitest types, so it reported 297 errors of which 175 were `Cannot find name 'expect'` — noise a real error
   hides inside. The two real projects are the question worth asking.
 
-- **`04-brain-api.md` is split; it was sitting exactly at the 900-line doc ceiling**, so any addition to it
-  failed the gate and whoever next documented a brain-API change would have paid for a split they did not
-  cause. It is 405 lines now.
+- **The guideline sweep that gates this release is finished: Q-5 is complete.** It re-checked everything
+  merged since the previous audit against the places this project claims to be true: the two APIs, both
+  guides, the operator's pages, the project's own rules, and the checks that are supposed to stop each of
+  those going stale.
 
-  **Split by subject rather than by size.** What moved is a set of rules that were never about memories:
-  expiry, stamp integrity, what a `PATCH` does to `tags` and `properties`, optimistic concurrency, what a read
-  never sends, retiring a record from semantic search, and partial updates with `deleteFields`. Every one
-  applies to entities, edges and chrono entries too — they were filed on the memory page because memories were
-  documented first. They are **[Write & Read Semantics](docs/integration-guide/04f-write-semantics.md)**, with
-  a pointer left in reading order rather than at the end.
+  **It ran in six rounds, and only the first found something that had cost anything.** A record arriving
+  from another instance could bring that instance's deletion schedule with it, so an operator keeping data
+  for a year could lose it after a peer's week — silently, and indistinguishably from their own policy
+  working. Everything after that was a claim that had outlived its truth.
 
-  Moved by script, with every range asserting the heading it must start on and a **multiset** comparison of
-  prose lines before and after: zero lost. A line count alone is conserved by a split that duplicates one line
-  and drops another, which is how the last hand-split of this guide shipped `ation naming the missing
-  capability` in the docs for months.
+  **The pattern worth naming, because it accounts for most of what was found:** a sentence that was correct
+  when it was written, sitting somewhere nobody re-reads. A safety check whose title claimed more than its
+  body looked at, five times over. A permission rule fixed in two places and missed in two more. A comment
+  telling the next developer to remove something that must never be removed. One explanation of a removed
+  fallback still alive in six files, each of them right on the day it was written.
+
+  **Nothing an operator can observe changed after round 1.** The remaining rounds tightened the checks that
+  are supposed to catch these, and wrote down the shape so it is looked for rather than tripped over — which
+  is how the last round found two more, and how the follow-up sweep it produced came to be scheduled rather
+  than assumed complete.
+
+- **The way this project's safety checks were going wrong is now written down as a rule of its own**
+  (`Q-5`). Nothing an operator can observe changed. It is here because the same failure appeared **four
+  times in one audit, in three unrelated parts of the codebase**, and it had already been recorded once — as
+  a footnote to a single incident, which is exactly why it kept happening.
+
+  The shape: **a check whose title is a claim about everything, whose body looks at part of it.** Both are
+  written by the same person on the same day, and the title is the half everyone afterwards believes.
+  Nothing ever contradicts it, because a check that passes is evidence of nothing in particular.
+
+  The rule it becomes has three parts, and the third is the one that gets skipped: work out the set from the
+  code rather than listing it; assert the *rule* rather than the place it currently lives, so a fifth place
+  written next year is covered; and **see the check fail before believing it** — on the part it newly
+  covers, not the part that was already checked.
 
 - **The 2.x releases moved to `changelog/CHANGELOG-2.x.md`, and a gate now holds the convention.**
   `CHANGELOG.md` was 17 082 lines while its own second sentence said it "covers the **current major series**".
@@ -4381,26 +4401,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `- [~]` alongside `- [ ]`, and the item parser matched only the latter — so marking a row in progress, the
   honest thing to do while its change is in flight, silently removed it from *"every open item is indexed"*.
   Found the first time a row was actually marked that way.
-
-- **The notes for this release are grouped by subject instead of by the order the work happened** (`C-1`),
-  and a check keeps them that way. Nothing in the product changed; what changed is that this section is
-  readable.
-
-  It had grown to 4 303 lines under **54 headings** — twenty separate *Fixed* blocks, eighteen *Changed*,
-  seven *Added*. That is what appending produces: every change added its own block at the top rather than
-  merging into the one already there, and each of those was individually correct. The cost lands on whoever
-  reads the notes: *"what changed about sync?"* meant reading all 4 303 lines, because sync sat in twenty
-  places. There are now six headings, one per kind, and entries about one subject run together — auth,
-  sync, brain and search, files and media, the UI, operations, then gates and tooling.
-
-  **No entry was reworded, dropped or merged** — every line of every one of the 212 is byte-for-byte what it
-  was, checked as a set before and after. Only headings and blank lines moved.
-
-  A new gate holds the heading structure of the section that is still being appended to: one `Added`,
-  `Changed`, `Removed`, `Fixed`, `Security` and `Internal`, in that order, and no near-synonym beside
-  them — `### Fixes` next to `### Fixed` would pass a uniqueness check and rebuild the same pile. Tagged
-  releases are left exactly as published. Grouping entries by subject is judgement, so no gate can hold it;
-  that half is a release step now.
 
 ## [3.4.0] — 2026-08-28
 

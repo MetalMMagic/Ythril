@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **One row of a network's member list is now its own component** (`N-2`). The Networks settings page
+  looks and behaves exactly as it did; what changed is that the block of markup describing a single peer —
+  its id, its sync direction, the two warning badges, the endpoint link and the remove button — moved out
+  of the page into `network-member-row.component.ts`, with the four style rules that only that markup used.
+
+  It was owed. Every new fact we learn how to show about a peer lands in that same block — the
+  version-refusal badge was the second one in a year — so the page grows every time, and the page is where
+  the network-level state lives. The size ceiling this repo keeps on large files had been raised for that
+  badge; this pays the raise back rather than fitting under it, and the page is now 52 lines below where it
+  stood before.
+
+  The rule that guards those ceilings gained the state it was missing. It could record a raise as *queued
+  for a split* or as *not worth splitting*, and had no way to say *split, and the size is back down* — so a
+  finished decomposition had to be filed as one of the two things it was not. It can now say so, and unlike
+  the other two that claim is checked against the file's actual frozen size, because it is the only one of
+  the three with a number behind it.
+
 - **The six record types that replicate are now listed once, and both directions of a sync read that
   list** (`A-12`). Nothing an operator can observe changed — no route, no setting, no stored shape — and
   the entry is here because it is the kind of change that hides a defect if it goes wrong.

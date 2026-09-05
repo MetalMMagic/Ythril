@@ -307,7 +307,15 @@ describe('NetworksComponent (characterization)', () => {
     inst.load();          // populate networks from the mocked API
     inst.expanded.set('n1'); // expand so the member rows render
     fixture.detectChanges();
-    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.member-row')];
+    /*
+     * `app-network-member-row`, not `.member-row`. `N-2` made the row its own component and the HOST is
+     * the row — `:host { display: flex }` rather than a wrapping div, because a custom element is inline
+     * by default and the border and gap would shrink-wrap.
+     *
+     * The assertions below are UNCHANGED, which is the point of a characterization test: the markup moved
+     * and the behaviour did not, so only the selector follows it.
+     */
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('app-network-member-row')];
     expect(rows.length).toBe(2);
     // Peer A (3 failures) shows the failing badge; Peer B (0) does not.
     expect(rows[0].querySelector('.member-failing')).toBeTruthy();

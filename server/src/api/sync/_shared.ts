@@ -657,17 +657,29 @@ export function peerMemberNetworks(peerInstanceId: string) {
  *
  * ## Why the legacy fallback stays for now
  *
- * A token whose record predates the matrix and has not been through the load-time backfill still expresses
- * its scope in `spaces`. Dropping that branch here would REFUSE those tokens rather than widen them, which is
- * the safe direction but still an outage. It goes with the field itself in D-8d; until then the order matters
- * and is asserted: matrix if there is one, allowlist if there is not, and an absent scope of either kind means
- * unrestricted exactly as it always did.
+ * **NO MATRIX MEANS NO REACH.** Owner, 2026-09-05: *"no matrix = refuse - no fallback no backwards
+ * compatibility anymore"*.
+ *
+ * This fell back to the pre-3.0 `spaces` allowlist and read an ABSENT one as unrestricted —
+ * `return !legacy || legacy.includes(spaceId)`. So a token carrying neither a matrix nor an allowlist
+ * reached every space on the instance. That is the absent-means-permission shape this codebase has
+ * shipped three times as an empty allowlist read as "unrestricted", arriving once more.
+ *
+ * The branch's own comment said dropping it *"would REFUSE those tokens rather than widen them, which is
+ * the safe direction but still an outage. It goes with the field itself in D-8d."* D-8d happened in 3.1:
+ * `spaces` left `TokenRecord`, and there is no token shape left that this refuses —
+ *
+ *  - a PAT gets a matrix from `createToken` (`opts.rights ?? migrateToken(…)`);
+ *  - one predating the matrix gets it from `migrateTokenRightsOnBoot`, in memory, on every start;
+ *  - an OIDC session carries `rights` as a REQUIRED field, derived per request from its claim mapping.
+ *
+ * So the branch was unreachable AND failed open, which is the worse of the two ways to be unreachable:
+ * nothing exercises it, and anything that ever did would be handed the whole instance.
  */
 export function tokenReachesSpace(authToken: Record<string, unknown> | undefined, spaceId: string): boolean {
   const rights = authToken?.['rights'] as TokenRights | undefined;
-  if (rights) return reachesSpace(rights, spaceId);
-  const legacy = authToken?.['spaces'] as string[] | undefined;
-  return !legacy || legacy.includes(spaceId);
+  if (!rights) return false;
+  return reachesSpace(rights, spaceId);
 }
 
 /**

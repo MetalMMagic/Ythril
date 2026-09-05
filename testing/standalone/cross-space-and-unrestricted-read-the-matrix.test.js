@@ -57,13 +57,28 @@ describe('"unrestricted" is answered from the matrix', () => {
     assert.equal(editorScopeFor({ rights: rights({ floor: ALL('read') }) }), undefined);
   });
 
-  it('a legacy token with no allowlist is unrestricted, exactly as before', () => {
-    assert.equal(editorScopeFor({}), undefined);
-    assert.equal(editorScopeFor(undefined), undefined);
+  it('NO MATRIX is no scope — it used to be unrestricted', () => {
+    /*
+     * Inverted 2026-09-05. Owner: *"no matrix = refuse - no fallback no backwards compatibility
+     * anymore"*.
+     *
+     * `undefined` from this function means UNRESTRICTED, and a record with no matrix used to return
+     * `record.spaces` — which is `undefined` on every token since 3.1 took the field off `TokenRecord`.
+     * So a token with no matrix read as an instance-wide administrator to every caller. `[]` is the
+     * opposite answer and the safe one: reaches nothing.
+     *
+     * `undefined` for a MISSING RECORD is unchanged and is a different question — there is no token to
+     * scope, which is the caller having nothing rather than a token having everything.
+     */
+    assert.deepEqual(editorScopeFor({}), [], 'no matrix must reach nothing, not everything');
+    assert.equal(editorScopeFor(undefined), undefined, 'no record at all is still not a scope question');
   });
 
-  it('a legacy token WITH an allowlist is not', () => {
-    assert.deepEqual(editorScopeFor({ spaces: ['qa'] }), ['qa']);
+  it('and the pre-3.0 allowlist is not consulted at all', () => {
+    // It left `TokenRecord` in 3.1, so a record carrying one is pre-3.1 data. Reading it would keep the
+    // field alive in the one place that still had an opinion about it.
+    assert.deepEqual(editorScopeFor({ spaces: ['qa'] }), [],
+      'the legacy allowlist is still being read as scope');
   });
 
   it('and the rotation route really asks it that way', () => {

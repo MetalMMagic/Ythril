@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A token with no permission grid reached every space. It now reaches none.**
+
+  Two places decided what a token could see, and both had the same fallback: if the token had no
+  per-space grid, fall back to the list of space names that older versions used — and treat an EMPTY list
+  as *everything*. That list stopped being stored on tokens in 3.1, so it was always empty, so the
+  fallback always meant unrestricted.
+
+  **Nothing could reach that fallback**, which is why it was never seen: every token has a grid. A new one
+  gets it when it is created, an old one gets it derived at startup, and a single-sign-on session builds
+  one from its claims on every request. That made it a branch nothing exercised — and one that would have
+  handed over the whole instance if anything ever had.
+
+  **No fallback and no backwards compatibility** (owner's call). A token with no grid is refused
+  everywhere, which was already described in the code as the safe direction; what has changed is that
+  there is no longer any token it would wrongly refuse.
+
+  You will notice nothing. This closes a hole that could not be reached rather than changing what a
+  working token can do.
 ### Removed
 
 - **BREAKING: the server-rendered setup form is gone, and so are `GET`/`POST /api/setup`.** Use

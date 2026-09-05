@@ -110,6 +110,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An administrator restricted to certain spaces could not create a token at all** — through this
+  product's own Tokens page, which is the only way most people do it. The refusal said *"A
+  space-restricted token cannot create an unrestricted (all-spaces) token"* about a request that was not
+  unrestricted.
+
+  The create form stopped sending the old space list some releases ago and now sends the per-space
+  permission grid instead. The check guarding against a restricted administrator handing out more access
+  than they hold was still reading the OLD field, found it missing, and read "missing" as "everything".
+
+  **An unrestricted administrator never saw it**, because the check is skipped entirely for them — so the
+  people most likely to try the form were exactly the ones it could not affect.
+
+  The mint form and the edit form now decide "outside your scope" with the same piece of code. A note on
+  the edit form had claimed for some time that they already did.
+
+### Removed
+
+- **The token API no longer accepts `spaces`, `admin` or `readOnly` when creating a token** (breaking).
+  Send `rights` instead — the per-space permission grid, which has been the real permission model since
+  2.6 and is what the Tokens page has been sending. Nothing an operator does in the interface changes.
+
+  This affects scripts that create tokens through the API with the old fields. They now get a `400` that
+  names the replacement for each one: `spaces` → `rights.perSpace`, `admin` → `rights.instanceAdmin`,
+  `readOnly` → `rights.floor` with read rungs. A plain "unrecognised field" would have told you that you
+  were wrong without telling you what to do.
+
+  **Existing tokens are untouched.** The old fields are still stored on tokens that have them and are
+  still honoured; this is about what the create endpoint accepts, not about what already exists.
+### Fixed
+
 - **Every start logged a warning about a repair that had already happened, and the repair it named could
   never have worked.** On boot, a token that predates the per-space rights matrix gets one derived from
   its old settings. That derivation is deliberately kept in memory and not written to disk — but the code

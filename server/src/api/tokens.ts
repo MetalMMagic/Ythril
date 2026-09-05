@@ -155,9 +155,16 @@ function stripServerOwnedToken(body: unknown): unknown {
 const CreateTokenBody = z.object({
   name: z.string().min(1).max(200),
   expiresAt: z.string().datetime().nullish(),
-  spaces: z.array(z.string().min(1)).max(1000).optional(),
-  admin: z.boolean().optional(),
-  readOnly: z.boolean().optional(),
+  /*
+   * `spaces`, `admin` and `readOnly` ARE GONE FROM THIS SCHEMA (`D-5`). The per-space matrix has been
+   * the permission model since 2.6 and `rights` expresses everything the three could — proven by the
+   * code rather than asserted: `migrateToken` maps every legacy shape to a matrix and `grantsMoreThan`
+   * holds that mapping to never widening.
+   *
+   * They survive as INPUTS to `createToken` itself, which is a different question: internal callers
+   * (first-run setup, OIDC) still say "read-only" and let it build the matrix. What 4.0 removes is
+   * the HTTP door accepting them, because that is the one an integrator writes against.
+   */
   peerInstanceId: z.string().uuid().optional(),
   schemaLibrary: z.boolean().optional(),
   /**
@@ -240,23 +247,43 @@ tokensRouter.get('/', requireAdminOrSpaceAdmin, (req, res) => {
 
 // POST /api/tokens — create a new PAT — admin + MFA
 // admin:true may only be set when the calling token is itself admin (enforced by requireAdminMfa above)
+/**
+ * The three inputs 4.0 removed, and what to send instead.
+ *
+ * `.strict()` alone would answer `Unrecognized key(s) in object: 'spaces'`, which tells a caller they
+ * are wrong and not what to do — and this endpoint is the one an integrator meets first. Checked on the
+ * RAW body before parsing, so the message names the field and its replacement.
+ */
+const REMOVED_MINT_OPTIONS: Record<string, string> = {
+  spaces: 'use `rights.perSpace`, keyed by space id',
+  admin: 'use `rights.instanceAdmin`',
+  readOnly: 'use `rights.floor` with read rungs',
+};
+
 tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, res) => {
+  const removed = Object.keys(REMOVED_MINT_OPTIONS)
+    .filter(k => (req.body as Record<string, unknown> | undefined)?.[k] !== undefined);
+  if (removed.length > 0) {
+    res.status(400).json({
+      error: 'The legacy token options were removed in 4.0: '
+        + removed.map(k => `\`${k}\` — ${REMOVED_MINT_OPTIONS[k]}`).join('; ') + '.',
+      removed,
+    });
+    return;
+  }
   const parsed = CreateTokenBody.safeParse(stripServerOwnedToken(req.body));
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId, schemaLibrary, mfa, rights, rateLimitPerMinute } = parsed.data;
+  const { name, expiresAt, peerInstanceId, schemaLibrary, mfa, rights, rateLimitPerMinute } = parsed.data;
 
-  // One description of access per request. A body carrying both `rights` and a legacy field describes the
-  // same thing twice, and whichever lost would do so silently — which is the failure this whole area keeps
-  // producing. Refusing costs one call; guessing costs an access nobody chose.
-  if (rights && (spaces !== undefined || admin !== undefined || readOnly !== undefined)) {
-    res.status(400).json({
-      error: 'Specify either `rights` or the legacy `spaces`/`admin`/`readOnly` fields, not both',
-    });
-    return;
-  }
+  /*
+   * The both-descriptions refusal that stood here is GONE, and its absence is the point: there is only
+   * one description of access on this route now. It refused a body carrying `rights` AND a legacy field,
+   * because whichever lost would lose silently. `REMOVED_MINT_OPTIONS` above refuses the legacy fields
+   * outright and earlier, so the ambiguity it guarded cannot be expressed.
+   */
 
   // A token may never mint above itself. Enforced HERE and not only in the UI: the grid is one API call away
   // from being bypassed, and the API is exactly where a token would be used to widen itself.
@@ -302,42 +329,65 @@ tokensRouter.post('/', authRateLimit, requireAdminOrSpaceAdminMfa, async (req, r
     res.status(quotaRefusal.includes('instance ceiling') ? 403 : 400).json({ error: quotaRefusal });
     return;
   }
-  if (admin && readOnly) {
-    res.status(400).json({ error: 'A token cannot be both admin and readOnly' });
-    return;
-  }
-  if (schemaLibrary && (admin || spaces?.length)) {
+  /*
+   * `admin && readOnly` is gone with the inputs — a matrix cannot express the contradiction, so there
+   * is nothing left to refuse.
+   *
+   * The schemaLibrary rule STAYS and is now asked of the matrix. A schema-library token has no space
+   * access by definition, so a floor or any per-space grant contradicts it — the same statement the
+   * old check made about `admin || spaces?.length`, read from the field that actually carries it.
+   */
+  if (schemaLibrary && rights
+      && (rights.instanceAdmin || rights.floor || Object.keys(rights.perSpace ?? {}).length > 0)) {
     res.status(400).json({ error: 'A schemaLibrary token cannot have admin or space access' });
     return;
   }
 
-  // Privilege-escalation guard: a space-restricted creator may only mint tokens confined to a SUBSET of its
-  // own spaces. Without this, a token scoped to space A could mint an unrestricted token (no `spaces` = all
-  // spaces, `admin: true`) and defeat its own scoping. An unrestricted creator may mint any scope.
-  //
-  // Scope from `editorScopeFor`, the same source the list filter and the PATCH guard now read. It used to be
-  // `req.authToken?.spaces` here, in the list filter, and inside `refusalsOutsideEditorScope` — three reads
-  // of a deprecated field, and the comment on the PATCH guard already claimed all three shared one rule.
-  const creatorSpaces = editorScopeFor(req.authToken);
-  if (creatorSpaces) {
-    if (schemaLibrary) {
-      // schemaLibrary tokens have no space access — always within any scope.
-    } else if (!spaces) {
-      res.status(403).json({ error: 'A space-restricted token cannot create an unrestricted (all-spaces) token' });
-      return;
-    } else {
-      const outside = spaces.filter(s => !creatorSpaces.includes(s));
-      if (outside.length > 0) {
-        res.status(403).json({ error: `Cannot grant access to space(s) outside your own scope: ${outside.join(', ')}` });
-        return;
-      }
-    }
+  /*
+   * Privilege-escalation guard: a space-restricted creator may only mint tokens confined to a SUBSET of
+   * its own spaces.
+   *
+   * **THE SHARED FUNCTION, WHICH IT WAS NOT BEFORE.** The PATCH route's comment already said *"Same
+   * rule the MINT route applies to a space-restricted creator, expressed once in
+   * `refusalsOutsideEditorScope` so the two cannot drift"* — and this route ran its own inline check
+   * instead. They had already drifted, and on the axis that matters: the copy here asked `!spaces`,
+   * the deprecated allowlist, while the shared one reads the matrix.
+   *
+   * That was not only untidy. The token-create form in this product stopped sending `spaces` some
+   * releases ago and mints with `rights` only — so `!spaces` was TRUE for every request the UI makes,
+   * and a space-restricted administrator could not mint any token at all, refused with a message about
+   * an unrestricted request that was not unrestricted. An unrestricted admin never saw it, because
+   * `editorScopeFor` answers `undefined` for them and the block was skipped entirely — so the people
+   * most likely to exercise the form are exactly the ones the defect could not reach.
+   */
+  const scopeRefusals = refusalsOutsideEditorScope({
+    editorSpaces: editorScopeFor(req.authToken),
+    target: { schemaLibrary, rights: (rights ?? null) as never },
+    rights: rights as never,
+  });
+  if (scopeRefusals.length > 0) {
+    res.status(403).json({
+      error: `A space-restricted administrator cannot mint this token — ${scopeRefusals.join('; ')}.`,
+      refusals: scopeRefusals,
+    });
+    return;
   }
 
-  // schemaLibrary tokens are always read-only and have no space access
-  const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
-  const effectiveSpaces = schemaLibrary ? [] : spaces;
-  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces: effectiveSpaces, admin, readOnly: effectiveReadOnly, peerInstanceId, schemaLibrary, mfa, rights: rights as never, rateLimitPerMinute });
+  /*
+   * `schemaLibrary` still implies read-only and no space access, and it is the one place this route
+   * still speaks the shorthand — deliberately. It is not caller input here: it is derived from the
+   * `schemaLibrary` flag, so there is no legacy option for an integrator to send.
+   */
+  const { record, plaintext } = await createToken({
+    name,
+    expiresAt: expiresAt ?? null,
+    ...(schemaLibrary ? { spaces: [], readOnly: true } : {}),
+    peerInstanceId,
+    schemaLibrary,
+    mfa,
+    rights: rights as never,
+    rateLimitPerMinute,
+  });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: withReadOnlyAlias(safeRecord), plaintext });

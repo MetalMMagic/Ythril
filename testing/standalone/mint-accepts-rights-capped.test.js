@@ -54,9 +54,24 @@ describe('minting with a rights matrix', () => {
     }
   });
 
-  it('refuses `rights` together with the legacy fields', () => {
-    assert.match(code, /Specify either `rights` or the legacy/,
-      'both descriptions are accepted, so one of them is applied silently');
+  it('refuses the legacy fields outright, rather than only alongside `rights`', () => {
+    /*
+     * This asserted a refusal of `rights` AND a legacy field together — one description of access per
+     * request, because whichever lost would lose silently. `D-5` removed the legacy fields from this
+     * door entirely, so the ambiguity cannot be expressed and the guard against it went with it.
+     *
+     * What replaces it is stronger: the fields are refused whether or not `rights` is present, and the
+     * refusal NAMES the replacement. `.strict()` alone would answer `Unrecognized key(s)`, which tells a
+     * caller they are wrong and not what to do — on the endpoint an integrator meets first.
+     */
+    assert.match(code, /REMOVED_MINT_OPTIONS/,
+      'nothing refuses the legacy mint options by name');
+    for (const legacy of ['spaces', 'admin', 'readOnly']) {
+      assert.ok(code.includes(`${legacy}:`) === false || !code.includes(`  ${legacy}: z.`),
+        `CreateTokenBody still declares \`${legacy}\``);
+    }
+    assert.match(code, /rights\.perSpace|rights\.instanceAdmin|rights\.floor/,
+      'the refusal does not say which `rights` field replaces each removed option');
   });
 
   it('calls the cap, and refuses rather than trimming', () => {
@@ -78,7 +93,16 @@ describe('minting with a rights matrix', () => {
     // storage. The caller is told 201, the token is minted, and the matrix they asked for is nowhere. Here
     // the drop would be worse than in #750 — the token would fall back to the legacy fields it was meant to
     // replace, so it would work, and work WRONGLY.
-    assert.match(code, /createToken\(\{[^}]*rights/,
+    /*
+     * BOUNDED BY THE CALL, not by `[^}]*`. The old pattern read from `createToken({` to the first `}`,
+     * which is a bet that the call stays on one line with no nested object in it. `D-5` reformatted it
+     * and added a conditional spread, so the window closed before `rights` and the gate failed over a
+     * property that still held. A gate written against a SPELLING fails when the spelling improves.
+     */
+    const callAt = code.indexOf('createToken({');
+    assert.ok(callAt > 0, 'the createToken call is gone — re-point this gate');
+    const call = code.slice(callAt, code.indexOf('});', callAt) + 3);
+    assert.match(call, /rights:/,
       'createToken is called without `rights`, so an accepted matrix is silently discarded');
     const store = withoutComments(readFileSync(join(ROOT, 'server/src/auth/tokens.ts'), 'utf8'));
     // The PROPERTY: an explicitly supplied matrix is what gets stored. The old anchor was the conditional

@@ -20,6 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Use separate instances to avoid exhausting rate limits:
@@ -97,14 +98,28 @@ describe('JSON body size limits (application/json endpoints)', () => {
     assert.ok(r.status >= 400, `Expected 4xx for deeply-nested JSON, got ${r.status}`);
   });
 
-  it('Array bomb: 1001-element spaces array → 400 (max 1000)', async () => {
+  it('Array bomb: a matrix naming 1001 spaces → 400 (max 1000)', async () => {
     const r = await fetch(`${INSTANCES.b}/api/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenB}` },
-      body: JSON.stringify({ name: 'array-bomb', spaces: Array(1001).fill('general') }),
+      /*
+       * THE SUBJECT MOVED AND THIS CASE WOULD HAVE PASSED ANYWAY, which is why it is spelled out.
+       *
+       * It used to send a 1001-element `spaces` array, which carried `.max(1000)`. 4.0 removed that
+       * field from this route, so the old body now answers 400 for being a removed field — the same
+       * status, a different reason, and the size limit would have gone unguarded with nothing red.
+       *
+       * `perSpace` is where scope lives now and it gained the same cap. Sent through `legacyRights`,
+       * so the body is what the old input would have produced rather than a matrix written by hand to
+       * be over the line.
+       */
+      body: JSON.stringify({
+        name: 'array-bomb',
+        rights: legacyRights({ spaces: Array(1001).fill(0).map((_, i) => `bomb-${i}`) }),
+      }),
     });
     assert.ok(r.status === 400 || r.status === 413,
-      `Expected 4xx for array bomb (1001 spaces), got ${r.status}`);
+      `Expected 4xx for a matrix naming 1001 spaces, got ${r.status}`);
   });
 });
 

@@ -205,12 +205,38 @@ POST /api/tokens
 | Field | Notes |
 |---|---|
 | `name` | Required. Human-readable label. |
-| `admin` | `true` for full admin scope. Mutually exclusive with `schemaLibrary`. Still accepted and still returned; **no longer stored** — see below. |
-| `readOnly` | Block all writes. Ignored when `schemaLibrary` is `true` (always read-only). Still accepted and still returned; **no longer stored** — see below. |
-| `spaces` | Array of space IDs to scope this token. Omit for all-spaces access. Must be empty or omitted when `schemaLibrary` is `true`. |
+| `rights` | The per-space permission matrix. **This is how scope, admin and read-only are all expressed since 4.0** — see *The three fields 4.0 removed* below. |
 | `expiresAt` | ISO 8601 expiry timestamp. Omit for non-expiring. |
 | `peerInstanceId` | Bind this token to a network peer (UUID). Required for tokens a peer will present on the `/api/sync/*` **data-write** endpoints in manually-configured networks — the invite handshake sets it automatically. Peer identity is server-issued and cannot be self-declared by the caller. |
 | `schemaLibrary` | `true` to issue a **library access token**. See below. |
+
+#### The three fields 4.0 removed
+
+**`POST /api/tokens` no longer accepts `spaces`, `admin` or `readOnly`.** Sending any of them is a `400`
+naming its replacement:
+
+| Removed | Send instead |
+|---|---|
+| `spaces: ['a','b']` | `rights.perSpace`, keyed by space id |
+| `admin: true` | `rights.instanceAdmin: true` |
+| `readOnly: true` | `rights.floor` with read rungs |
+
+The matrix has been the permission model since 2.6 and can express everything the three could — that is
+not a claim, it is what the upgrade path does: every pre-matrix token has its matrix derived from exactly
+those three fields, and a check holds that derivation to never granting more than the original.
+
+**The refusal names the replacement rather than answering *unrecognised field*.** A strict schema alone
+would tell you that you are wrong without telling you what to do, on the endpoint most integrations meet
+first.
+
+**Existing tokens are untouched.** The old fields are still stored on tokens that carry them and are
+still honoured. This is about what the create endpoint accepts.
+
+**One behaviour changed with them, and it was a defect rather than a policy.** A space-restricted
+administrator minting a token was refused unless the body carried a `spaces` array — so a matrix-only
+request, which is what this product's own interface sends, was read as unrestricted and refused with a
+message about being unrestricted. The mint route now decides *outside your scope* with the same function
+the edit routes use.
 
 > **`readOnly` is no longer STORED on a token — 3.1. Nothing you send or read changes.** Sending it still
 > does exactly what it always did: the token is created with `read` in every area of every space it reaches.

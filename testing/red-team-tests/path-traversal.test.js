@@ -205,6 +205,7 @@ describe('Valid relative paths within space are allowed', () => {
 // tested to ensure operator injection via query params is inert.
 
 import { post as helpersPost } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 describe('File metadata — injection and oversized field rejection', () => {
   const RUN = Date.now();
@@ -312,7 +313,7 @@ describe('File metadata — injection and oversized field rejection', () => {
     // non-general space — should return 403, not 200 with leaked data.
     const tr = await helpersPost(INSTANCES.a, token, '/api/tokens', {
       name: 'rt-meta-scope-' + RUN,
-      spaces: ['general'],
+      rights: legacyRights({ spaces: ['general'] })
     });
     assert.equal(tr.status, 201, `Failed to create scoped token: ${JSON.stringify(tr.body)}`);
     const scopedToken = tr.body.plaintext;

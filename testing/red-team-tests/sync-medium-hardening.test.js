@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, dockerExec } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -83,8 +84,8 @@ async function makeNetwork(spaces, type = 'club') {
 async function addMember(networkId, peerInstanceId, direction = 'both') {
   const pt = await post(INSTANCES.a, adminToken, '/api/tokens', {
     name: `sync-med-peer-${peerInstanceId}-${RUN}`,
-    spaces: undefined,
     peerInstanceId,
+    rights: legacyRights({ spaces: undefined })
   });
   assert.equal(pt.status, 201, `create peer token: ${JSON.stringify(pt.body)}`);
   const add = await post(INSTANCES.a, adminToken, `/api/networks/${networkId}/members`, {

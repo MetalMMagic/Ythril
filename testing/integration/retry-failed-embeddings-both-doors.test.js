@@ -29,6 +29,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post } from '../sync/helpers.js';
 import { openMcpSession } from '../sync/mcp-session.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -90,7 +91,7 @@ describe('retry_failed_media_embeddings answers the same as its route', () => {
     // nothing, which is worse than not writing it. `mcp-tools.test.js` already had the recipe.
     const minted = await post(INSTANCES.a, token(), '/api/tokens', {
       name: `readonly-retry-failed-${RUN}`,
-      readOnly: true,
+      rights: legacyRights({ readOnly: true })
     });
     assert.equal(minted.status, 201, `minting a read-only token: ${JSON.stringify(minted.body)}`);
     const roToken = minted.body.plaintext;

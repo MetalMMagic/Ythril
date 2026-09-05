@@ -27,6 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get } from '../sync/helpers.js';
 import { openMcpSession } from '../sync/mcp-session.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -108,11 +109,21 @@ describe('a write token deletes one record on both doors', () => {
   });
 });
 
-describe('a token minted without rights is not exempt from the rung', () => {
-  it('it gets a derived matrix, so the schema area is still refused', async () => {
-    // Before: no matrix meant `enforceAreaRung` returned early and the rung was never consulted. The token is
-    // minted with legacy `spaces` only, so its matrix has to come from the derivation.
-    const tok = await mint(`rung-derived-${RUN}`, { spaces: ['general'] });
+describe('a token carrying a DERIVED matrix is not exempt from the rung', () => {
+  it('the derived matrix is consulted, so the schema area is still decided', async () => {
+    /*
+     * Before: no matrix meant `enforceAreaRung` returned early and the rung was never consulted.
+     *
+     * **The premise moved with `D-5` and the subject survived it.** This minted with legacy `spaces`
+     * only, so the matrix came from the server-side derivation. `POST /api/tokens` no longer accepts
+     * that shape, so the derivation now runs at the CALLER — `legacyRights` is the same `migrateToken`
+     * the server used, so the token under test carries exactly the matrix it carried before.
+     *
+     * What is no longer reachable through the API is a token with NO matrix at all. That state now
+     * arises only from a record predating the matrix, which `every-token-carries-a-rights-matrix`
+     * covers at the unit level. Asserted here because it is worth saying which half moved.
+     */
+    const tok = await mint(`rung-derived-${RUN}`, { rights: legacyRights({ spaces: ['general'] }) });
     const r = await fetch(`${INSTANCES.a}/api/spaces/general/schema`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${tok.plaintext}`, 'Content-Type': 'application/json' },

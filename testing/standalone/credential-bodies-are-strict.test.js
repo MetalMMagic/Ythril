@@ -100,9 +100,20 @@ describe('token route bodies reject unknown keys', () => {
     }
   });
 
-  it('the create schema still declares the real scope field', () => {
-    // Strictness is only protective while `spaces` is the name it accepts. If the field were renamed and
-    // this test kept passing, every previously-correct caller would start getting 400s instead.
-    assert.match(code, /spaces:\s*z\.array/, 'CreateTokenBody no longer declares `spaces` — re-point this');
+  it('the create schema still declares a real field, so strictness is being tested on something', () => {
+    /*
+     * The vacuity guard for the strictness rule: `.strict()` on a schema with no fields refuses
+     * everything and would pass every test below for the wrong reason.
+     *
+     * It used to name `spaces`, which `D-5` removed from this door — the matrix replaced it. Re-pointed
+     * at `rights`, which is the field that now carries scope, so the guard names the thing it is
+     * guarding rather than a field that happened to be there.
+     */
+    const at = code.indexOf('const CreateTokenBody');
+    assert.ok(at > 0, 'CreateTokenBody is gone — re-point this gate');
+    const createBody = code.slice(at, code.indexOf('});', at));
+    assert.match(createBody, /rights/,
+      'CreateTokenBody no longer declares `rights` — re-point this guard at whatever now carries scope, '
+      + 'or the strictness assertions below are passing over an empty schema');
   });
 });

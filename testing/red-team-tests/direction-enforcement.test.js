@@ -20,6 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -249,7 +250,7 @@ describe('S10: non-peer user PATs are refused on sync data writes', () => {
 
     const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: `s10-user-pat-${Date.now()}`,
-      spaces: ['general'],
+      rights: legacyRights({ spaces: ['general'] })
     });
     assert.equal(t.status, 201);
     userPat = t.body.plaintext;

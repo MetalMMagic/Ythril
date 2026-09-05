@@ -550,6 +550,7 @@ describe('Error cases', () => {
 // ── Chunked upload (Content-Range) ──────────────────────────────────────────
 
 import { createHash } from 'crypto';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 /** Upload a chunk with Content-Range header */
 async function uploadChunk(token, spaceId, filePath, buffer, start, end, total) {
@@ -897,7 +898,7 @@ describe('Media embedding — retry_embedding endpoint', () => {
     const tokRes = await fetch(`${INSTANCES.a}/api/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
-      body: JSON.stringify({ name: `retry-readonly-${RUN}`, readOnly: true }),
+      body: JSON.stringify({ name: `retry-readonly-${RUN}`, rights: legacyRights({ readOnly: true }) }),
     });
     assert.equal(tokRes.status, 201, 'read-only token creation failed');
     const readOnlyToken = (await tokRes.json()).plaintext;

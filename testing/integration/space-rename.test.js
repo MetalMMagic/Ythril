@@ -21,6 +21,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, patch, delWithBody } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -250,7 +251,8 @@ describe('Space rename', () => {
 
     // Create a space-scoped token
     const tokenR = await post(INSTANCES.a, tokenA, '/api/tokens', {
-      name: `Scoped token ${RUN_ID}`, spaces: [oldId],
+      name: `Scoped token ${RUN_ID}`,
+      rights: legacyRights({ spaces: [oldId] })
     });
     assert.equal(tokenR.status, 201, JSON.stringify(tokenR.body));
     const tokenId = tokenR.body.token?.id;
@@ -291,7 +293,8 @@ describe('Space rename', () => {
     await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Reach Rename' });
 
     const tokenR = await post(INSTANCES.a, tokenA, '/api/tokens', {
-      name: `Reach token ${RUN_ID}`, spaces: [oldId],
+      name: `Reach token ${RUN_ID}`,
+      rights: legacyRights({ spaces: [oldId] })
     });
     assert.equal(tokenR.status, 201, JSON.stringify(tokenR.body));
     const scoped = tokenR.body.plaintext;

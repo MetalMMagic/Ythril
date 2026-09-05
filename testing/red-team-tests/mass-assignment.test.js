@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -69,7 +70,7 @@ describe('Mass assignment — token creation', () => {
   it('Spaces list containing empty string is rejected → 400', async () => {
     const r = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: 'empty-space-test',
-      spaces: ['general', ''],
+      rights: legacyRights({ spaces: ['general', ''] })
     });
     assert.equal(r.status, 400, `Empty string in spaces should be rejected, got ${r.status}: ${JSON.stringify(r.body)}`);
   });

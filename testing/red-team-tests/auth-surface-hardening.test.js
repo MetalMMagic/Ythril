@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, dockerExec } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -143,7 +144,7 @@ describe('M9 — list_peers / sync_now require an admin token', () => {
     await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'M9' });
     const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: `m9-plain-${RUN}`,
-      spaces: [spaceId],
+      rights: legacyRights({ spaces: [spaceId] })
     });
     assert.equal(t.status, 201, JSON.stringify(t.body));
     plainToken = t.body.plaintext;
@@ -267,7 +268,7 @@ describe('L2 — POST /api/conflicts/seed requires an admin token', () => {
     await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'L2' });
     const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
       name: `l2-plain-${RUN}`,
-      spaces: [spaceId],
+      rights: legacyRights({ spaces: [spaceId] })
     });
     assert.equal(t.status, 201, JSON.stringify(t.body));
     plainToken = t.body.plaintext;

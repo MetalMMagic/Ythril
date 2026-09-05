@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, patch, waitFor } from '../sync/helpers.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -32,8 +33,7 @@ describe('Audit Log', () => {
   it('Audit log endpoint requires admin token', async () => {
     // Create a non-admin token
     const create = await post(INSTANCES.a, tokenA, '/api/tokens', {
-      name: 'non-admin-audit-test',
-      admin: false,
+      name: 'non-admin-audit-test'
     });
     assert.equal(create.status, 201);
     const nonAdminToken = create.body.plaintext;

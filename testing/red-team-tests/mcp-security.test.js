@@ -30,6 +30,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, reqJson } from '../sync/helpers.js';
 import { openMcpSession as openSharedMcpSession } from '../sync/mcp-session.js';
+import { legacyRights } from '../_shared/legacy-token-rights.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -82,7 +83,7 @@ describe('MCP security — every request is authorized on its own bearer', () =>
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     // A second, distinct token (different id) valid on instance A, with no write rights.
-    const r = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s2-readonly-${Date.now()}`, readOnly: true });
+    const r = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s2-readonly-${Date.now()}`, rights: legacyRights({ readOnly: true })});
     readOnlyToken = r?.body?.plaintext;
   });
 

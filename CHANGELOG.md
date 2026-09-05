@@ -1898,6 +1898,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A troubleshooting answer explained itself with a mechanism that has since gained a second case** (`Q-5`).
+  The integration guide answers *"my filtered search returned fewer results than I asked for"* — and the
+  answer it gives is right, but the reason it gives is now only half true.
+
+  The promise is that the result count is filled from records that actually match your filter, so a filtered
+  search cannot silently skip one. **That promise has never changed.** How it is kept depends on the filter:
+  a simple one narrows the search inside the index, while a raw MongoDB one has the whole space scored and
+  then filtered — slower, same records, still nothing missed. The guide gave the first as *the* explanation.
+
+  Three other places describing the same thing already state the promise first and the speed note second.
+  This one is the straggler, and it is the failure this project's own notes predict about explaining a
+  mechanism instead of a guarantee: the mechanism gains a case, and nobody revisits every sentence that
+  described the old one.
+
 - **"A token with no permissions reaches nothing" was true in two places out of four** (`Q-5`). The rule was
   settled in 4.0 and applied to the two places anyone had looked at. The other two were the check that decides
   which *area* of a space a call may touch — and it has a copy on each door, so both the web API and the agent
@@ -3981,6 +3995,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   working token can do.
 
 ### Internal
+
+- **The way this project's safety checks were going wrong is now written down as a rule of its own**
+  (`Q-5`). Nothing an operator can observe changed. It is here because the same failure appeared **four
+  times in one audit, in three unrelated parts of the codebase**, and it had already been recorded once — as
+  a footnote to a single incident, which is exactly why it kept happening.
+
+  The shape: **a check whose title is a claim about everything, whose body looks at part of it.** Both are
+  written by the same person on the same day, and the title is the half everyone afterwards believes.
+  Nothing ever contradicts it, because a check that passes is evidence of nothing in particular.
+
+  The rule it becomes has three parts, and the third is the one that gets skipped: work out the set from the
+  code rather than listing it; assert the *rule* rather than the place it currently lives, so a fifth place
+  written next year is covered; and **see the check fail before believing it** — on the part it newly
+  covers, not the part that was already checked.
 
 - **The six record types that replicate are now listed once, and both directions of a sync read that
   list** (`A-12`). Nothing an operator can observe changed — no route, no setting, no stored shape — and

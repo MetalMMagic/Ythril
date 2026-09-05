@@ -106,6 +106,41 @@ it: the four were not identical, and the two real differences became parameters 
 apart — entities run an `afterDelete` for the face-label cascade, memories need a `sort`. **A difference that small is
 exactly what argues for four copies and against extracting them**, which is why the count keeps climbing.
 
+## A gate concludes about MORE than it checks, and its title is where the gap hides
+
+Promoted to its own section by `Q-5`, 2026-09-05, after the same failure turned up **four times in one sweep,
+across three unrelated subsystems**. It had been recorded once, as a footnote to a sync incident — *"a gate
+scoped to one mechanism concludes about all of them"* — and being a footnote is why it kept happening.
+
+**The shape: a gate whose TITLE is a claim about a whole set, whose BODY reads part of it.** Both halves are
+written by the same person on the same day, and the title is the half everybody afterwards believes. Nothing
+ever contradicts it, because a gate that passes is evidence of nothing in particular.
+
+| the gate | what its title claimed | what it actually looked at |
+|---|---|---|
+| `a-receiver-embeds-by-its-own-rules` | the receiver never trusts an arriving vector | the ingest ROUTER; the second ingest site was outside it |
+| the same file, a different case | *"all four ingest schemas declare the flag"* | four hard-coded names, of six |
+| `sync-carries-suppressed-memories` | *"NO incoming schema declares a vector"* | the same four |
+| `todo-consistency.mjs` rule 4 | the plan does not describe work that shipped | only a merged PR NUMBER — the plan that rotted named tracker ids |
+| `no-matrix-reaches-nothing-not-everything` | a token with no matrix reaches NOTHING | one function, so two of four guards kept failing open |
+
+**Three rules for writing one, and the third is the one that gets skipped.**
+
+1. **Derive the set, never list it.** A corrected list is the same defect with a later expiry date. Read it
+   out of the module, the registry, or `git ls-files` — and assert a FLOOR on what you found, because an
+   empty set passes every loop written over it.
+2. **Assert the rule, not the site.** *"Every guard that can be handed X answers the same way"* survives a
+   fifth guard being written next year; a case that names ONE function does not — and the two read
+   identically in a diff, which is why this is the part that gets talked past in review.
+3. **See it red before you believe it.** A gate written after the fix has never been observed failing, and a
+   gate that has never failed is a claim. Mutate the thing it guards — the NEWLY covered part, not the part
+   that was already checked — and put the original string back **by hand**, never with git.
+
+**And when the title says "every", the count belongs nowhere.** Every number written into a title, a docblock
+or an assertion message is a second copy of a fact the code already holds. `Q-5` corrected *"five ingest
+schemas"* to six in an assertion message that was otherwise doing everything right, and that message is the
+best case: the bad case is the loop.
+
 ## A field on a replicated document is HASHED and replicated, or excluded from the hash — never neither
 
 Found while shipping M-1 and finished by W-10, 2026-09-01. A rule rather than an incident because both halves
@@ -121,6 +156,13 @@ paragraph named four documents and there are six; the two it did not name arrive
 gate had the identical bug and it is what the derivation cost was paid for**: its hand-written list of four
 missed `LinkDoc`, so every assertion ran over the old four and reported clean about a document nobody had
 checked. Never count them here — the file is the list.
+
+**It then happened twice more to the same six schemas, in two other gates, and `Q-5` found them both**
+(2026-09-05). One asserted *"all four ingest schemas declare the flag"* and the other *"NO incoming schema
+declares a vector"*; both looped over the same hard-coded four. Neither could see `IncomingFileMetaDoc` —
+the schema that needs the suppression flag MOST, because a file has two tiers and not three. The derivation
+now lives in `testing/_shared/incoming-sync-schemas.mjs` so there is one place to be wrong instead of three.
+See *A gate concludes about MORE than it checks*.
 
 **One of the six refuses instead of stripping.** `IncomingFileMetaDoc` is `.strict()`, so an undeclared key
 fails the push with a 400 rather than vanishing from it. That is the loud version of the same defect and it is

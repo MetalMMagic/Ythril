@@ -74,8 +74,13 @@ message is rarely textually similar to the message's subject.
 ## Combining them: the two-call pattern that beats one clever call
 
 **Filter first, rank second — in one call.** `recall`'s `filter` accepts the same grammar `query` does, including
-`$or` and `$regex` nested to depth 8. It is a **pre**-filter: it narrows the candidate set *inside* the vector
-index rather than discarding results after the cut, so a filtered `topK: 10` still returns ten.
+`$or` and `$regex` nested to depth 8. **`topK` is filled from records that satisfy the filter**, never applied to
+an already-cut shortlist — so a filtered `topK: 10` still returns ten, and nothing matching is silently dropped.
+
+That promise holds however the filter is written; only the speed differs. A simple condition on an allowlisted
+key becomes a native pre-filter inside the vector index. **Raw MongoDB — including the `$or` above — cannot**, so
+the whole space is scored and then filtered: slower, same records. Declaring a heavily-filtered property in the
+space schema is what keeps it on the fast path.
 
 ```json
 { "query": "who owns the vault service",
@@ -143,7 +148,7 @@ a moment. It costs an extra scan per type, so it is opt-in rather than the defau
 | counts that keep growing | paging `recall` with `topK`/an unsupported `offset` | `query` with `skip` and `total` |
 | a phrase search finds nothing | `$regex` over prose | `recall` |
 | "this record has no relationships" | a truncated traversal, before the spill | check `truncated` / `graphTruncated`, fetch `complete` |
-| a filtered recall returns fewer than `topK` | assuming a post-filter | it is a pre-filter — that is not the cause; the candidates genuinely ran out |
+| a filtered recall returns fewer than `topK` | assuming a post-filter | `topK` is filled from records that SATISFY the filter, so nothing matching was dropped — the candidates genuinely ran out |
 | slow, wide answers | `traverse` 2+ with a large `topK` | narrow the seeds first |
 
 ---

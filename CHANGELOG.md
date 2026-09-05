@@ -4029,6 +4029,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The guideline sweep that gates this release is finished: Q-5 is complete.** It re-checked everything
+  merged since the previous audit against the places this project claims to be true: the two APIs, both
+  guides, the operator's pages, the project's own rules, and the checks that are supposed to stop each of
+  those going stale.
+
+  **It ran in six rounds, and only the first found something that had cost anything.** A record arriving
+  from another instance could bring that instance's deletion schedule with it, so an operator keeping data
+  for a year could lose it after a peer's week — silently, and indistinguishably from their own policy
+  working. Everything after that was a claim that had outlived its truth.
+
+  **The pattern worth naming, because it accounts for most of what was found:** a sentence that was correct
+  when it was written, sitting somewhere nobody re-reads. A safety check whose title claimed more than its
+  body looked at, five times over. A permission rule fixed in two places and missed in two more. A comment
+  telling the next developer to remove something that must never be removed. One explanation of a removed
+  fallback still alive in six files, each of them right on the day it was written.
+
+  **Nothing an operator can observe changed after round 1.** The remaining rounds tightened the checks that
+  are supposed to catch these, and wrote down the shape so it is looked for rather than tripped over — which
+  is how the last round found two more, and how the follow-up sweep it produced came to be scheduled rather
+  than assumed complete.
+
 - **The way this project's safety checks were going wrong is now written down as a rule of its own**
   (`Q-5`). Nothing an operator can observe changed. It is here because the same failure appeared **four
   times in one audit, in three unrelated parts of the codebase**, and it had already been recorded once — as

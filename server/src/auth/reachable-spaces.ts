@@ -45,9 +45,15 @@ import type { TokenRights, SpaceArea, Rung } from '../config/rights-shape.js';
  * record without a matrix reaches a handler. `a-token-without-a-matrix-reaches-nothing.test.js` asserts each
  * of those, because "cannot happen" is worth exactly what the thing preventing it is worth.
  *
- * The legacy fields themselves are NOT removed — they are still on the record type, still written, still
- * returned by the tokens API. What is gone is their last use as a SCOPING INPUT, which was the second
- * implementation of this rule.
+ * **What is gone is their last use as a SCOPING INPUT**, which was the second implementation of this rule.
+ *
+ * This used to end *"the legacy fields are NOT removed — still on the record type, still written, still
+ * returned by the tokens API"*, and two of those three had stopped being true. `spaces`, `admin` and
+ * `readOnly` left `TokenRecord` in 3.1 (`D-8d`), so nothing stores them. They are still RETURNED, but
+ * derived per response by `withReadOnlyAlias` from the matrix — a compatibility alias, not a stored value.
+ *
+ * The distinction is what a reader does with it: a sentence saying the field is written invites
+ * `if (token.spaces)`, and three separate scoping holes in this codebase were exactly that line.
  */
 export function spacesWhereTokenMay(
   rights: TokenRights | undefined,

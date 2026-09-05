@@ -1898,6 +1898,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A peer's retention schedule could delete this instance's records, and a peer's vectors were stored and
+  ranked as if they were ours.** Both on the PULL side of a sync, both silent, and the second is the one
+  that costs data.
+
+  Five fields on a record belong to the instance holding it: the search vector and the name of the model
+  that built it, the snippet a search matched, and the two stamps saying when this instance's retention
+  policy expires the record and its description. When another instance SENDS us a document, those five are
+  dropped — the schema that validates an arriving push does not accept them.
+
+  **When we FETCH a document from a peer instead, nothing validated it.** The fetch asks for whole records
+  and stores what comes back, so the sender's five arrived intact. The vector is the mild half: ranking one
+  model's vectors against another's does not fail, it just returns plausible answers in the wrong order.
+  The expiry stamp is the expensive half. A background sweep deletes every record whose stamp has passed,
+  in every space — so an instance keeping data for a year, syncing with one that keeps it for a week, threw
+  records away after a week. Nothing was logged, and the deletion is indistinguishable from that operator's
+  own policy working.
+
+  Both directions now drop the same five, from one list. The sending side also leaves them out of the page,
+  which is not the safeguard — the receiver's decision is — but does make a sync page materially smaller,
+  since a vector is several hundred numbers per record.
+
+  **Nothing existing had to be repaired**: a stamp that arrived from a peer was overwritten by this
+  instance's own on the record's next write, and a vector by its next embed. What could not be undone was
+  a record already deleted, which is why the fix is not a backfill.
+
 - **An administrator restricted to certain spaces could not create a token at all** — through this
   product's own Tokens page, which is the only way most people do it. The refusal said *"A
   space-restricted token cannot create an unrestricted (all-spaces) token"* about a request that was not

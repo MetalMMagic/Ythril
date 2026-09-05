@@ -103,6 +103,22 @@ export function itemIdIn(text) {
 }
 
 /**
+ * EVERY item id in a block of prose, deduplicated and in first-seen order.
+ *
+ * Read with the same grammar as `itemIdIn` rather than a second pattern, because a checker that recognises
+ * a `G-3.1` in one rule and not in another is the shape this script was found to be full of on 2026-08-30.
+ *
+ * **It over-matches on purpose and the caller must be safe under that.** `UTF-8`, `ISO-8601` and anything
+ * else shaped like LETTERS-ALNUM comes back as an "id". A caller asking *"is any of these still open?"* is
+ * unharmed — a false id is simply not in the queue. A caller asking *"is any of these closed?"* would be
+ * wrong on every one of them, so do not write that caller.
+ */
+export function itemIdsIn(text) {
+  const re = new RegExp(String.raw`\b(${ID})\b`, 'g');
+  return [...new Set([...text.matchAll(re)].map(m => m[1]))];
+}
+
+/**
  * Does `ordered` name this id — as a WHOLE TOKEN, not as a substring?
  *
  * `ordered.includes(id)` reported `L-1` as indexed because the string appears inside `L-13`, so deleting

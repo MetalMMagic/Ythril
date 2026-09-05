@@ -780,9 +780,14 @@ rather than "removed".
 
 **`tokens[].rights` is not a file change at all, and this paragraph used to say it was.** The upgrade derives a
 per-space rights matrix for every token from its legacy `admin`/`readOnly`/`spaces` fields — **in memory, on
-every start, and it is never written to `config.json`.** The legacy fields stay, they remain what enforcement
-reads, and the file an operator copies before upgrading is byte-identical afterwards as far as tokens are
-concerned.
+every start, and it is never written to `config.json`.** The legacy fields stay in the file, and the copy an
+operator takes before upgrading is byte-identical afterwards as far as tokens are concerned.
+
+**They are not what enforcement reads, and this paragraph used to say they were.** `spaces`, `admin` and
+`readOnly` left the token record in 3.1; 4.0 removed the last fallback to them, so a token reaching the
+instance with no rights matrix now reaches nothing at all. Nothing is lost by that here, because the matrix
+is derived from those same three fields on every start — which is why this is still a row about a rollback
+costing nothing rather than a row about a migration.
 
 It is kept in this table because it is the row people ask about: a rollback needs no token work, and there is
 no shape change to explain.

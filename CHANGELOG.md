@@ -1898,6 +1898,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three safety checks were passing while looking at part of what their own titles claimed** (`Q-5`). None
+  of them was wrong about the code it did check, and the code they all guard turned out to be correct — so
+  nothing here changes what the product does. What changes is that these three would now notice.
+
+  **Two sync checks said "every incoming record type" and looked at four of six.** When one instance sends a
+  record to another, the receiving instance validates it against a description of what that kind of record
+  may contain. There are six such descriptions. Both checks — one making sure a record marked *never make
+  this searchable* keeps that mark on arrival, the other making sure a search index built by somebody else's
+  model is never accepted as ours — looped over a hard-coded four.
+
+  The one they both skipped is **file metadata**, which is the type that needs the first check most: a file
+  has no type schema to fall back on, so the mark on the record itself is the only switch there is. It
+  carries the mark correctly today and has never carried a foreign search index; the checks simply were not
+  the reason.
+
+  **This project's own notes already record this exact failure being paid for once**, in a different check,
+  which is why the fix is a derived list rather than a corrected one: the descriptions are now read out of
+  the code that defines them, so a seventh kind is covered the day it exists. The one legitimate exemption —
+  a link record, which is two ids and a label and so has no text to make searchable — is now written down as
+  an exemption with its reason, instead of being absent from a list.
+
+  **And the check that guards the next-change plan against going stale looked for the rarer symptom.** It
+  refused a plan naming a pull request that had already merged. The plan it was watching named no pull
+  request at all: it described nine items that shipped about twenty pull requests earlier, and the check
+  reported clean every run in between. A plan is written in the project's own item ids, so those are what it
+  now reads — at least one has to be work the queue still holds.
+
+  Also corrected in the same sweep, each against the code: the integration guide told an integrator that a
+  token's pre-4.0 permission fields *"are still honoured"* — nothing reads them, and a token arriving with
+  no permission matrix now reaches nothing at all; the same page said sending `readOnly` or `admin` when
+  creating a token *"still does exactly what it always did"*, twenty lines below a table correctly saying
+  both are refused; the hosting page repeated the first of those; and a comment heading in the sync code
+  still read *"why the legacy fallback stays"* directly above the paragraph explaining that it is gone.
+
 - **A peer's retention schedule could delete this instance's records, and a peer's vectors were stored and
   ranked as if they were ours.** Both on the PULL side of a sync, both silent, and the second is the one
   that costs data.

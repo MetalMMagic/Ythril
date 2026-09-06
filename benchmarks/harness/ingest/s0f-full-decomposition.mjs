@@ -217,6 +217,24 @@ export const MAX_SESSION_SHARE = 0.5;
 export const MAX_TERMS_PER_WINDOW = 3;
 
 /**
+ * WHICH terms survive the cap, and getting this backwards built a graph with no cross-links in it.
+ *
+ * The first version kept the RAREST terms a window named, reasoning that a rare term discriminates. It does —
+ * and a term named in two sessions is, by definition, linked to almost nothing else. Every joint led back to
+ * the record it came from and nowhere further. A walk returned the seed's own terms and stopped, which was
+ * measured, published, and reported as "the graph does not pay". It was a tree wearing a graph's shape.
+ *
+ * **A joint is worth having in proportion to how many records it CONNECTS.** The frequency floors above
+ * already exclude both useless extremes — a term in one session cannot bridge anything, a term in most of
+ * them joins everything to everything — so what is left is a band of genuine joints, and the cap should keep
+ * the most connected of those rather than the least.
+ *
+ * `false` restores the old behaviour, kept because the two are one axis and the sweep should be able to move
+ * along it rather than argue about it.
+ */
+export const LINK_MOST_CONNECTED = process.env['BENCH_LINK_RAREST'] !== '1';
+
+/**
  * The things worth naming — DERIVED from how they are distributed, not from a list and not from capitalisation.
  *
  * ## Two wrong answers came first, and they are why this is written this way
@@ -268,13 +286,23 @@ function linkTerms(conversation) {
   return kept;
 }
 
-/** The terms a passage names, rarest first — the rarest discriminate, and the cap keeps those. */
+/**
+ * The terms a passage names, ordered so the cap keeps the ones worth keeping — see `LINK_MOST_CONNECTED`.
+ *
+ * `kept` maps a term to how many sessions name it, so sorting descending puts the best-connected joints
+ * first. The alphabetical tiebreak is there to make the corpus reproducible: two terms with the same spread
+ * would otherwise be ordered by whatever `Set` iteration happened to give, and a benchmark corpus that
+ * differs between runs is not a corpus.
+ */
 function termsIn(text, kept) {
   const found = new Set();
   for (const m of text.toLowerCase().matchAll(/\b([a-z]{4,})\b/g)) {
     if (kept.has(m[1])) found.add(m[1]);
   }
-  return [...found].sort((a, b) => (kept.get(a) - kept.get(b)) || a.localeCompare(b));
+  const bySpread = LINK_MOST_CONNECTED
+    ? (a, b) => (kept.get(b) - kept.get(a)) || a.localeCompare(b)
+    : (a, b) => (kept.get(a) - kept.get(b)) || a.localeCompare(b);
+  return [...found].sort(bySpread);
 }
 
 /**
@@ -339,10 +367,24 @@ export async function ingest({ conversation, ythril, space }) {
         type: 'utterance',
         // The people who spoke and the things they spoke about. Free, in ranking terms: `entityIds` never
         // reaches the embedded text.
-        entityIds: [
-          ...speakers.map(s => personId.get(s)).filter(Boolean),
-          ...named.map(t => thingId.get(t)),
-        ],
+        /*
+         * THE THINGS ONLY. The speakers are deliberately not linked from here, and that is the difference
+         * between a graph and a fully-connected blob.
+         *
+         * With two participants, linking every record to its speaker means BOTH people are named by every
+         * record in the conversation — so one hop from any match reaches all 186 of them. Measured: mean
+         * records reachable per record went to 185 of 185, whichever way the term cap was pointed. That is
+         * not a neighbourhood, it is the corpus, and a budget then trims it to whichever neighbours came back
+         * first.
+         *
+         * `S0L`'s docblock states this exactly — *"one hop from any match reaches the entire conversation —
+         * not a neighbourhood but the whole corpus behind a node cap"* — and it was written before this rung
+         * existed. The warning was read, agreed with, and then walked into anyway.
+         *
+         * Who spoke is not lost: it is the first word of every line of the record's own text, and the
+         * `talks_about` edges below still carry person-to-thing.
+         */
+        entityIds: named.map(t => thingId.get(t)),
         properties: {
           session: session.index,
           turn: window.map(t => t.id).join(','),

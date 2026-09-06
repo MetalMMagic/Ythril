@@ -497,6 +497,51 @@ Raw model outputs — every question, every candidate answer, every judge verdic
 Append here, dated, with the reason and what was re-run. A silent edit elsewhere in this file invalidates the
 runs it covers; this section is how a change stays legitimate.
 
+### Amendment 6 — the retrieval headline is a RANK, because coverage can be brute-forced
+
+**2026-09-06.** Owner's ruling, after reading a Tier 0-R score that had been raised from 66% to 90%: *"do not
+cheat... first answer must be right - it must reflect reality, not brute force."*
+
+Amendment 4 defined Tier 0-R's metric as **all evidence** — every turn the gold answer cites appeared somewhere
+in the `topK` results. That metric is accurate and it is nearly meaningless, which is a worse combination than
+being wrong. A retrieval score can be raised two ways:
+
+1. **Rank the right record first.** Hard, and it is what retrieval means.
+2. **Return more of the conversation per record**, so the evidence gets swept up somewhere inside `topK`.
+   Trivial, produces a much larger number, and is not retrieval at all — a caller still has to read every
+   result to find the answer.
+
+The second is not cheating in the sense of breaking a rule. It is worse: it satisfies the metric exactly as
+written, so it survives every review by being *true*. **A benchmark whose metric can be satisfied without doing
+the work is not measuring the work.**
+
+**What the tier reports from here.** The headline is `all at rank 1` — did the single top-ranked record hold
+every turn the answer cites. There is only one first result, so nothing can be padded into it.
+
+| column | what it answers | why it is in the headline |
+|---|---|---|
+| `all at rank 1` | did result 1 hold all the evidence | the only score no amount of coverage can inflate |
+| `top record chars` | how big result 1 was | closes the one cheat rank-1 still has, below |
+| `MRR` | reciprocal of the first evidence hit's rank | a miss counts 0, never dropped from the mean |
+| `mean depth` | how far down the caller had to read for all of it | what a reader actually pays |
+| `all evidence` | the Amendment 4 metric | retained, demoted, never quoted alone |
+
+**`all at rank 1` has exactly one cheat, and the column beside it closes it.** A rung that put the entire
+transcript into one record would rank it first, and it would contain every evidence turn — 100%, with no
+retrieval performed. So the size of that first record is printed next to the score it earned. A high rank-1
+score beside a large top record is a transcript being handed back. Read together or neither means anything.
+
+**The two are not the same measurement, and the divergence is measured rather than argued.** On a
+single-conversation run, the strategy with the MOST coverage — 94.9 source turns reached per query, against 47.4
+and 71.5 for the other two — scored the WORST at rank 1, 6.3% against 43.8% and 75.0%. Gathering more text near
+a query is not the same as ranking the right text first, and under the old metric that strategy would have
+looked competitive.
+
+**Re-run: everything.** Every Tier 0-R number produced before this date was a coverage number, and no coverage
+number is republished without its rank columns beside it. The rows already on disk are kept and re-scored where
+the run recorded enough to do so; where it did not, the run is repeated rather than the number being carried
+forward.
+
 ### Amendment 5 — the grid's axis values, pinned before the first cell ran
 
 **2026-08-29.** The grid was specified by its axes and not by its values. `topK` named four numbers, but

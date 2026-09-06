@@ -29,8 +29,11 @@ import { makeYthril } from './ythril.mjs';
 import * as s0 from './ingest/s0-raw-turns.mjs';
 import * as s0plus from './ingest/s0plus-deterministic-structure.mjs';
 import * as s0g from './ingest/s0g-turns-as-graph-nodes.mjs';
+import * as s0l from './ingest/s0l-linked-memories.mjs';
+import * as s0w from './ingest/s0w-windowed-turns.mjs';
+import * as s0e from './ingest/s0e-entity-anchored.mjs';
 
-const RUNGS = [s0, s0plus, s0g];
+const RUNGS = [s0, s0plus, s0g, s0l, s0w, s0e];
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -68,16 +71,37 @@ function stratifiedSample(questions, n, seed) {
   return out;
 }
 
-/** Which retrieved records correspond to source turns, by the `turn` property S0 writes. */
-function retrievedTurnIds(results) {
-  const ids = new Set();
-  const walk = r => {
+/**
+ * Where each source turn appeared in the ranked results — turn id to 1-based rank, first appearance wins.
+ *
+ * ## Why a RANK and not a set
+ *
+ * A set answers "did the evidence come back anywhere in `topK`", and that question rewards breadth: a rung
+ * that packs more of the conversation into each record scores better without ever having ranked the right
+ * thing first. Owner's ruling, 2026-09-06: *"first answer must be right - it must reflect reality, not brute
+ * force"*. Reading twenty records to find the evidence in the twentieth is not retrieval working; it is the
+ * caller doing the retrieval by hand.
+ *
+ * So the rank is recorded per turn and the report leads with rank-1, which no amount of coverage can fake —
+ * there is only one first result, and either it holds what the question needed or it does not.
+ *
+ * A record's graph expansions carry that record's own rank, because they were returned as part of its payload
+ * and a caller reading result 1 reads them with it.
+ */
+function turnRanks(results) {
+  const ranks = new Map();
+  const walk = (r, rank) => {
     const t = r?.properties?.turn;
-    if (typeof t === 'string') for (const one of t.split(',')) ids.add(one.trim());
-    for (const g of r?._graph ?? []) walk(g.node ?? g);
+    if (typeof t === 'string') {
+      for (const one of t.split(',')) {
+        const id = one.trim();
+        if (!ranks.has(id)) ranks.set(id, rank);
+      }
+    }
+    for (const g of r?._graph ?? []) walk(g.node ?? g, rank);
   };
-  for (const r of results ?? []) walk(r);
-  return ids;
+  (results ?? []).forEach((r, i) => walk(r, i + 1));
+  return ranks;
 }
 
 async function main() {
@@ -90,7 +114,16 @@ async function main() {
   if (!token) throw new Error('--token or YTHRIL_TOKEN required — the harness talks over the real REST door');
 
   const ythril = makeYthril({ baseUrl, token });
-  const conversations = await loadConversations(dataPath);
+  /*
+   * `--conversations` takes the first N, for proving a new rung ingests at all before spending an hour on it.
+   *
+   * FIRST N and not a sample, deliberately: a smoke run is not a measurement and must not look like one. A
+   * stratified subset would produce a number that reads as comparable to a full pass and is not, which is a
+   * more expensive mistake than an unrepresentative smoke test.
+   */
+  const maxConversations = Number(arg('conversations', '0'));
+  const allConversations = await loadConversations(dataPath);
+  const conversations = maxConversations > 0 ? allConversations.slice(0, maxConversations) : allConversations;
   const questions = await loadQuestions(dataPath);
 
   // Excluded, with the count printed rather than a total that quietly does not add up.
@@ -114,6 +147,29 @@ async function main() {
    * pooled.
    */
   const traverseDepth = Number(arg('traverse', '0'));
+  /*
+   * `--max-chars` gives every rung the SAME answer budget, which is the only way a chunking strategy can be
+   * compared with one record per turn.
+   *
+   * Without it, a rung whose records are ten turns long returns ten times the text for the same `topK` and
+   * scores accordingly — the protocol's own warning that "a configuration that returns everything scores
+   * perfectly and is useless", arriving through the record SIZE rather than through `topK`. With a budget,
+   * a windowed rung has to give up records to fit, and what is left is the question actually worth asking:
+   * per byte returned, which shape of record finds more of the evidence?
+   */
+  const maxChars = arg('max-chars', '');
+  /*
+   * `--topk` exists so two rungs can be compared at equal BYTES rather than at equal record counts.
+   *
+   * Measured, and it is why the first equal-budget run settled nothing: one record per turn returned 20
+   * records for 10 435 characters and was truncated on NONE of the 199 questions — it never reached the
+   * budget, because `topK` bound it first. The windowed rung spent 24 138 and was truncated on ALL of them.
+   * Calling that an equal-cost comparison would have credited chunking with an advantage it was simply
+   * being handed.
+   */
+  const topK = Number(arg('topk', '20'));
+  // Skip the ingest and ask against what is already stored — see the guard at the call site.
+  const reuse = process.argv.includes('--reuse-spaces');
   const only = arg('rungs', '').split(',').filter(Boolean);
   const selected = only.length === 0 ? RUNGS : RUNGS.filter(r => only.includes(r.rung));
   if (selected.length === 0) {
@@ -125,11 +181,41 @@ async function main() {
     for (const conv of conversations) {
       const space = `bench-${rung.rung.replace('+', 'plus')}-${conv.id}`.toLowerCase();
       process.stdout.write(`\n[${rung.rung}] ${conv.id}: `);
-      await ythril.deleteSpace(space).catch(() => {});
-      await ythril.createSpace(space);
+      /*
+       * `--reuse-spaces` skips the ingest and asks against what is already stored.
+       *
+       * ## Why it exists, and why it is guarded rather than trusted
+       *
+       * Ingest is the expensive half — ~2 minutes per conversation per rung, so a full pass is over an hour —
+       * and it is IDENTICAL at every traverse depth. Without this flag, measuring traverse 0 against 1 and 2
+       * means paying for the same records three times, which is why the traverse axis had never been swept
+       * for a rung that needs it.
+       *
+       * The guard is the point. A reused space that is missing, empty or half-written produces a LOW score
+       * that looks like a finding about retrieval — the most expensive way to be wrong here. So the space is
+       * required to exist and to hold records, and the run stops naming the space if it does not, rather than
+       * quietly measuring an empty store.
+       */
+      let records = null;
+      let modelCalls = 0;
       const t0 = Date.now();
-      const { records, modelCalls } = await rung.ingest({ conversation: conv, ythril, space });
-      process.stdout.write(`${records} records (${modelCalls} model calls) `);
+      if (reuse) {
+        const stats = await ythril.spaceStats(space).catch(() => null);
+        const held = stats ? (stats.memories ?? 0) + (stats.entities ?? 0) + (stats.chrono ?? 0) : 0;
+        if (held === 0) {
+          throw new Error(
+            `--reuse-spaces was given but '${space}' holds no records (${stats ? 'empty' : 'absent'}). `
+            + 'Re-run without the flag to ingest it; measuring an empty space reports a low score that reads '
+            + 'as a finding about retrieval.');
+        }
+        records = held;
+        process.stdout.write(`${records} records REUSED `);
+      } else {
+        await ythril.deleteSpace(space).catch(() => {});
+        await ythril.createSpace(space);
+        ({ records, modelCalls } = await rung.ingest({ conversation: conv, ythril, space }));
+        process.stdout.write(`${records} records (${modelCalls} model calls) `);
+      }
       await ythril.waitForEmbeddings(space, { timeoutMs: 20 * 60_000 });
       const ingestMs = Date.now() - t0;
       process.stdout.write(`embedded in ${(ingestMs / 1000).toFixed(0)}s, `);
@@ -142,14 +228,36 @@ async function main() {
         const started = Date.now();
         const res = await ythril.recall(space, {
           query: q.question,
-          topK: 20,
+          topK,
           // The rung says which record types carry its content; see `recallTypes` on each ingest module.
           ...(rung.recallTypes ? { types: rung.recallTypes } : {}),
-          ...(traverseDepth > 0 ? { traverse: { depth: traverseDepth } } : {}),
+          /*
+           * `traverseExtra` is the rung's OWN traverse options, merged in — see `s0l`, where it carries
+           * `includeMemories: true`.
+           *
+           * Without it that rung measures NOTHING. The walk starts correctly from a matched memory's
+           * `entityIds` and reaches the session entity at hop 1, then cannot bring the sibling turns back,
+           * because returning non-entity records is opt-in and defaults to false. The recall would look
+           * expanded and report `graphNodes > 0` while containing no additional evidence — a plausible
+           * number measuring the wrong thing, which is worse than a failure.
+           */
+          ...(maxChars ? { maxChars: Number(maxChars) } : {}),
+          ...(traverseDepth > 0
+            ? { traverse: { depth: traverseDepth, ...(rung.traverseExtra ?? {}) } }
+            : {}),
         });
-        const got = retrievedTurnIds(res.results);
+        const ranks = turnRanks(res.results);
+        const got = new Set(ranks.keys());
         const want = q.evidence;
         const hit = want.filter(e => got.has(e));
+        /*
+         * How far down the list a caller had to read before holding ALL the evidence — the deepest rank over
+         * the wanted turns, and null when even one never came back. This is the number the coverage metric
+         * hides: a rung can take `allEvidence` from 66% to 90% while pushing this from 4 to 18, which is
+         * worse retrieval sold as better.
+         */
+        const depth = hit.length === want.length ? Math.max(...want.map(e => ranks.get(e))) : null;
+        const firstHit = hit.length > 0 ? Math.min(...hit.map(e => ranks.get(e))) : null;
         rows.push({
           rung: rung.rung,
           conversationId: conv.id,
@@ -157,6 +265,33 @@ async function main() {
           evidenceCount: want.length,
           allEvidence: hit.length === want.length,
           anyEvidence: hit.length > 0,
+          /*
+           * The rank-sensitive half, and the half that cannot be won by returning more.
+           *
+           * `allAtRank1` is the strictest thing this tier can ask: the single top-ranked record held every
+           * turn the answer cites. `depth` and `firstHitRank` are null on a miss rather than defaulted,
+           * because a 0 here would average in as a perfect score.
+           */
+          /*
+           * The size of the top-ranked record, which is what stops `allAtRank1` becoming the next thing to
+           * brute-force. A rung that put the whole conversation in one record would hold every evidence turn
+           * at rank 1 and score perfectly — and this column would read 40 000 characters, which is not a
+           * retriever answering a question, it is a transcript being handed back.
+           */
+          topChars: (res.results?.[0]?.fact ?? res.results?.[0]?.text ?? '').length || null,
+          allAtRank1: depth === 1,
+          anyAtRank1: firstHit === 1,
+          depth,
+          firstHitRank: firstHit,
+          /*
+           * TWO different numbers, and conflating them flatters any rung whose records cover more than one
+           * turn. `records` is what the retriever actually returned and what a byte budget holds; `retrieved`
+           * is how many distinct source turns those records account for. They are equal only when a record is
+           * one turn, which was true of every rung until `s0w`.
+           */
+          records: (res.results ?? []).length,
+          chars: res.charsReturned ?? null,
+          truncated: res.truncated ?? false,
           retrieved: got.size,
           ms: Date.now() - started,
           /*

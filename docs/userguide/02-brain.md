@@ -245,7 +245,13 @@ The Query tab has two modes, switched with the buttons at the top: **Semantic Se
 #### Semantic Search
 
 Type a natural-language query and press Enter (or click **Search**) to find the most relevant records
-across the space.
+across the space. **The question sits beside two cards — a JSON filter and a JSON projection** — because
+those three are what decide *what* is searched; everything below them decides how much comes back and in
+what shape.
+
+**A search that matches nothing says so.** If you see "no records matched", the search ran and the space
+holds nothing that fits — try a broader question, fewer filters, or a lower minimum score. An error message
+means something different: the search did not finish, so it found nothing because it never looked.
 
 **It matches meaning *and* exact wording.** Two rankings run and are combined: one by meaning (so
 "how do we handle a data breach" finds a passage titled "incident reporting"), and one by the words

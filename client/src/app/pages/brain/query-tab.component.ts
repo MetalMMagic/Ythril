@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
-import { groupRecallResults, chunkLabel, passageText, flattenRecallItems } from './recall-grouping';
+import { groupRecallResults, chunkLabel, passageText, relatedOf } from './recall-grouping';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -80,6 +80,14 @@ import { BrainStore } from './brain-store.service';
       word-break: break-all;
       color: var(--text-secondary);
     }
+    .rel-block { margin-top:10px; border-top:1px solid var(--border); padding-top:8px; }
+    .rel-head { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted);
+      margin-bottom:6px; }
+    .rel-kind { font-size:11px; color:var(--text-secondary); font-weight:550; margin:6px 0 3px; }
+    .rel-item { border-left:2px solid var(--border); padding-left:8px; margin-bottom:6px; }
+    .rel-meta { display:flex; gap:6px; align-items:center; font-size:11px; color:var(--text-muted);
+      margin-bottom:2px; }
+    .rel-via { font-family:var(--font-mono, monospace); }
     .query-empty {
       text-align: center;
       padding: 40px 20px;
@@ -121,6 +129,13 @@ import { BrainStore } from './brain-store.service';
                   <div style="font-size:12px; margin-top:4px;">{{ 'brain.query.truncated.body' | transloco }}</div>
                   <div style="font-size:12px; margin-top:4px;">{{ 'brain.query.truncated.what' | transloco }}</div>
                 </div>
+              }
+
+              <!-- A SEARCH THAT MATCHED NOTHING SAYS SO. Without this the panel showed exactly what it
+                   shows before the first search — nothing — so a reader could not tell an answered question
+                   from an unasked one, and the natural reading is that the button did not work. -->
+              @if (recallRan() && !recallResults().length && !recallError()) {
+                <div class="query-empty">{{ 'brain.query.noMatches' | transloco }}</div>
               }
 
               @if (recallResults().length) {
@@ -181,6 +196,46 @@ import { BrainStore } from './brain-store.service';
                         }
                       </div>
                       <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(g.hits[0]) }}</div>
+                    }
+
+                    <!--
+                      WHAT THE WALK REACHED, under the match that reached it.
+
+                      These used to be appended to the result list as if they were matches — in rank order,
+                      counted in the total, indistinguishable from a record that actually answered the
+                      question. A neighbour has no score of its own and did not answer anything; it is only
+                      meaningful beside the record that reached it.
+
+                      Grouped by kind and showing the WHOLE record, because this panel is where queries are
+                      tested before they are sent by something else: what is on screen has to be what the API
+                      returned, or the panel teaches a contract the product does not have.
+                    -->
+                    @if (relatedOf(g.hits[0]); as rel) {
+                      @if (rel.total > 0) {
+                        <div class="rel-block">
+                          <div class="rel-head">{{ 'brain.query.related' | transloco: { count: rel.total } }}</div>
+                          @for (bucket of [
+                            { label: 'brain.query.related.entities', items: rel.entities },
+                            { label: 'brain.query.related.memories', items: rel.memories },
+                            { label: 'brain.query.related.chronos', items: rel.chronos },
+                            { label: 'brain.query.related.files', items: rel.files }
+                          ]; track bucket.label) {
+                            @if (bucket.items.length) {
+                              <div class="rel-kind">{{ bucket.label | transloco: { count: bucket.items.length } }}</div>
+                              @for (r of bucket.items; track $index) {
+                                <div class="rel-item">
+                                  <div class="rel-meta">
+                                    <span class="badge">{{ r.kind }}</span>
+                                    <span>{{ 'brain.query.related.hops' | transloco: { hops: r.hops } }}</span>
+                                    @if (r.label) { <span class="rel-via">{{ r.label }}</span> }
+                                  </div>
+                                  <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(r.record) }}</div>
+                                </div>
+                              }
+                            }
+                          }
+                        </div>
+                      }
                     }
                   </div>
                 }
@@ -349,6 +404,16 @@ export class QueryTabComponent {
    * an operator cannot see is a capability they do not know they have. Groups replace it, and the row
    * this came from says so in as many words — the answer is not a second disclosure.
    */
+  /**
+   * Whether a search has COMPLETED, which an empty result list cannot say on its own.
+   *
+   * `recallResults()` is `[]` both before the first search and after one that matched nothing, so the panel
+   * rendered the same thing for both: nothing at all. The advanced-query side has never had this problem —
+   * it keeps the whole response, so `res.results.length === 0` is a state it can render. Semantic search
+   * keeps only the array, and an array cannot distinguish the two.
+   */
+  recallRan = signal(false);
+
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
@@ -362,6 +427,9 @@ export class QueryTabComponent {
    * list they are built around.
    */
   recallGroups = computed(() => groupRecallResults(this.recallResults()));
+
+  /** A match's neighbourhood, grouped by kind — rendered under the match, never beside it in the ranking. */
+  relatedOf(hit: RecallResult) { return relatedOf(hit); }
 
   /** The heading a passage sits under, when the chunker recorded one. */
   chunkHeading(r: RecallResult): string | undefined {
@@ -431,23 +499,40 @@ export class QueryTabComponent {
     this.recallError.set('');
     this.recallResults.set([]);
     this.recallTruncated.set(null);
+    this.recallRan.set(false);   // a stale "no matches" must not describe the search now running
     this.brainApi.recallBrain(this.spaceId(), body).subscribe({
-      // Flattened on arrival: any traversal depth returns each item wrapped in an envelope, and the grouping and
-      // rendering below both read the record's own fields directly.
+      /*
+       * STORED AS THE SERVER SENT IT. Not flattened, and that is the fix rather than a refactor.
+       *
+       * This used to append every `_graph` node to the result list, so a traversed neighbour arrived looking
+       * exactly like a match: in rank order, counted in the total, carrying a `source: 'traverse'` marker
+       * that nothing here rendered. Reported by the owner — *"the graph entries seem to be included in rank
+       * and handed as main result instead of part of a graph"* — along with the reason it matters more here
+       * than it would elsewhere: **this panel is the surface people test queries on.** A request tried here
+       * and then sent by an MCP client has to come back the same shape, or the panel is teaching a contract
+       * the product does not have.
+       *
+       * So the list holds exactly what the server ranked, each record keeps its own `_graph`, and the
+       * neighbourhood renders beneath the match that reached it.
+       */
       next: (res) => {
         this.recallRunning.set(false);
-        this.recallResults.set(flattenRecallItems(res.results));
+        this.recallRan.set(true);
+        this.recallResults.set(res.results);
         // `=== true` rather than truthy: the field is optional on the type (an older server sends none), and an
         // absent one must read as "not truncated" rather than as "unknown".
         this.recallTruncated.set(res.truncated === true
           ? { returned: res.returned ?? res.results.length, count: res.count }
           : null);
       },
+      // NOT `recallRan` on an error: a failed search did not find nothing, it did not finish. Saying "no
+      // matches" beside an error message would tell the reader two different things about one click.
       error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },
     });
   }
 
   clearRecall(): void {
+    this.recallRan.set(false);
     this.recallResults.set([]);
     this.recallError.set('');
     this.recallTruncated.set(null);

@@ -4,7 +4,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainApi } from '../../core/brain-api.service';
 import { BrainStore } from './brain-store.service';
@@ -49,6 +49,114 @@ describe('QueryTabComponent', () => {
     const fixture = create();
     const panel = fixture.nativeElement.querySelector('.query-panel');
     expect(panel, 'the query panel should render').toBeTruthy();
+  });
+
+  it('a traversed neighbour is NOT a result — the ranked list holds what the server ranked', () => {
+    /*
+     * Reported by the owner: *"the graph entries seem to be included in rank and handed as main result
+     * instead of part of a graph"*. The panel used to append every `_graph` node to the result list, so a
+     * neighbour arrived looking exactly like a match — in rank order, counted in the total, carrying a
+     * `source: 'traverse'` marker that nothing rendered.
+     *
+     * It matters more here than it would elsewhere, and that is the owner's second point: **this panel is
+     * the surface people test queries on.** A request tried here and then sent by an MCP client has to come
+     * back the same shape, or the panel teaches a contract the product does not have.
+     */
+    TestBed.resetTestingModule();
+    const match = {
+      _id: 'e1', type: 'entity', name: 'Vault', score: 0.9,
+      _graph: [
+        { node: { _id: 'm1', kind: 'memory', fact: 'a note' }, edge: { label: 'memory.entityIds' }, paths: [['e1', 'm1']] },
+        { node: { _id: 'c1', kind: 'chrono', title: 'an event' }, edge: { label: 'chrono.entityIds' }, paths: [['e1', 'c1']] },
+      ],
+    };
+    TestBed.configureTestingModule({
+      imports: [QueryTabComponent, getTranslocoModule()],
+      providers: [
+        BrainStore,
+        { provide: BrainApi, useValue: {
+          queryBrain: () => of({ results: [], count: 0 }),
+          recallBrain: () => of({ results: [match] }),
+        } as never },
+      ],
+    });
+    const fixture = TestBed.createComponent(QueryTabComponent);
+    fixture.componentRef.setInput('spaceId', 'work');
+    fixture.detectChanges();
+
+    const c = fixture.componentInstance;
+    c.recallForm.query = 'vault';
+    c.runRecall();
+    fixture.detectChanges();
+
+    expect(c.recallResults().length, 'two neighbours were counted as matches').toBe(1);
+    expect(c.recallResults()[0]!['_id']).toBe('e1');
+
+    // …and the record keeps its own graph, so what the panel shows is what the API returned.
+    const rel = c.relatedOf(c.recallResults()[0]!);
+    expect(rel.total).toBe(2);
+    expect(rel.memories.map(r => r.record['_id'])).toEqual(['m1']);
+    expect(rel.chronos.map(r => r.record['_id'])).toEqual(['c1']);
+  });
+
+  it('a search that matched nothing SAYS so, and an unasked one stays quiet', () => {
+    /*
+     * The bug this pins, reported by the owner: semantic search rendered nothing at all when a search
+     * matched nothing — identical to the panel before any search — so the natural reading was that the
+     * button had not worked. The advanced-query side never had this, because it keeps the whole response
+     * and can render `results.length === 0`; this side keeps only the array, and an empty array cannot say
+     * which of the two states it is.
+     *
+     * Both directions are asserted. A message that is simply always present would pass a test for the bug
+     * and be a different bug.
+     */
+    const fixture = create();
+    const c = fixture.componentInstance;
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.query-empty'), 'nothing has been searched yet').toBeFalsy();
+
+    c.recallForm.query = 'something that matches nothing';
+    c.runRecall();
+    fixture.detectChanges();
+
+    expect(c.recallRan()).toBe(true);
+    expect(c.recallResults()).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.query-empty'),
+      'a completed search with no matches must say so').toBeTruthy();
+
+    // …and clearing puts it back to "not asked", rather than leaving a stale verdict on screen.
+    c.clearRecall();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.query-empty')).toBeFalsy();
+  });
+
+  it('an ERROR is not reported as "no matches" — the search did not finish', () => {
+    // Two different things about one click. A failed search found nothing because it never ran, and saying
+    // "no records matched" beside an error message tells the reader the opposite of what happened.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [QueryTabComponent, getTranslocoModule()],
+      providers: [
+        BrainStore,
+        { provide: BrainApi, useValue: {
+          queryBrain: () => of({ results: [], count: 0 }),
+          recallBrain: () => throwError(() => ({ error: { error: 'boom' } })),
+        } as never },
+      ],
+    });
+    const fixture = TestBed.createComponent(QueryTabComponent);
+    fixture.componentRef.setInput('spaceId', 'work');
+    fixture.detectChanges();
+
+    const c = fixture.componentInstance;
+    c.recallForm.query = 'anything';
+    c.runRecall();
+    fixture.detectChanges();
+
+    expect(c.recallError()).toBe('boom');
+    expect(c.recallRan()).toBe(false);
+    expect(fixture.nativeElement.querySelector('.query-empty')).toBeFalsy();
   });
 
   it('runRecall is a no-op for a blank query (no API call)', () => {

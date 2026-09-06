@@ -167,6 +167,72 @@ export function passageText(r: RecallResult): string | undefined {
  * `hops`, the reaching edge's `label`, and `graphParentId`. Nothing is computed that the response did not
  * already state.
  */
+/** One traversed neighbour, kept as the whole record with what placed it in the graph. */
+export interface RelatedRecord {
+  record: RecallResult;
+  kind: string;
+  hops: number;
+  label?: string;
+}
+
+/** A match's neighbourhood, grouped the way a reader asks for it. */
+export interface RelatedGroups {
+  entities: RelatedRecord[];
+  memories: RelatedRecord[];
+  chronos: RelatedRecord[];
+  files: RelatedRecord[];
+  total: number;
+}
+
+/**
+ * A match's `_graph`, flattened to a list per KIND, with each node kept whole.
+ *
+ * This replaces `flattenRecallItems` at the call site, and the difference is the bug it fixes. That function
+ * appended every graph node to the RESULT list — so a traversed neighbour arrived looking exactly like a
+ * match, in rank order, counted in the result total, with a `source: 'traverse'` marker that the panel never
+ * rendered. Reported by the owner: *"the graph entries seem to be included in rank and handed as main result
+ * instead of part of a graph"*.
+ *
+ * A neighbour is not a match. It has no score of its own, it did not answer the question, and it is only
+ * meaningful BESIDE the record that reached it. So it stays under its match, and the ranked list holds
+ * exactly what the server ranked.
+ *
+ * Depth-first, and a node reached at hop 2 sits in the same list as one at hop 1 — with its `hops` recorded,
+ * so the reader can see which is which without the tree being rebuilt in the markup.
+ */
+export function relatedOf(match: RecallResult): RelatedGroups {
+  const out: RelatedGroups = { entities: [], memories: [], chronos: [], files: [], total: 0 };
+  const walk = (nodes: unknown): void => {
+    if (!Array.isArray(nodes)) return;
+    for (const raw of nodes) {
+      if (raw === null || typeof raw !== 'object') continue;
+      const entry = raw as Record<string, unknown>;
+      const node = entry['node'];
+      if (node === null || typeof node !== 'object' || Array.isArray(node)) continue;
+      const rec = node as Record<string, unknown>;
+      const edge = (entry['edge'] ?? {}) as Record<string, unknown>;
+      const paths = Array.isArray(entry['paths']) ? (entry['paths'] as unknown[]) : [];
+      const primary = Array.isArray(paths[0]) ? (paths[0] as unknown[]) : [];
+      const kind = typeof rec['kind'] === 'string' ? (rec['kind'] as string) : 'entity';
+      const item: RelatedRecord = {
+        record: rec as RecallResult,
+        kind,
+        hops: Math.max(1, primary.length - 1),
+        ...(typeof edge['label'] === 'string' ? { label: edge['label'] as string } : {}),
+      };
+      const bucket = kind === 'memory' ? out.memories
+        : kind === 'chrono' ? out.chronos
+        : kind === 'file' ? out.files
+        : out.entities;
+      bucket.push(item);
+      out.total++;
+      walk(rec['_graph'] ?? entry['_graph']);
+    }
+  };
+  walk((match as Record<string, unknown>)['_graph']);
+  return out;
+}
+
 export function flattenRecallItems(results: RecallResult[]): RecallResult[] {
   const out: RecallResult[] = [];
   for (const match of results) {

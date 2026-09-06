@@ -50,6 +50,7 @@ const ghost = `trav-ghost-${RUN}`; // referenced by an edge but never created as
 // is not embedded: it must be reached structurally, never by matching the query itself.
 const memLinked = `trav-mem-${RUN}`;
 let seedMemId = null;   // an embedded MEMORY seed, whose own entityIds names B
+let siblingMemId = null; // a SECOND memory naming the same entity — the far side of the memory→entity→memory walk
 const DENSE_LEAVES = Array.from({ length: 30 }, (_, i) => `dense-leaf-${i}-${RUN}`);
 
 function token() { return tokenA; }
@@ -185,6 +186,24 @@ before(async () => {
     });
     assert.equal(seedMem.status, 201, `memory seed create failed: ${JSON.stringify(seedMem.body)}`);
     seedMemId = seedMem.body?._id ?? null;
+
+    /*
+     * A SECOND memory naming the same entity, and the whole point of it is the case below.
+     *
+     * Every existing case here covers one leg: an entity seed reaching a memory that names it, a memory seed
+     * reaching the entity it names, and a memory seed reaching another ENTITY across an edge. Nothing
+     * connected two of them — memory to entity to a DIFFERENT memory — which is the shape 4.0 promised when
+     * it said a search that matches a memory is no longer a dead end.
+     *
+     * Deliberately worded not to match the seed's query: if it ranked on its own, its presence in the answer
+     * would prove nothing about the walk.
+     */
+    const sibling = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
+      fact: `Quarterly badge inventory ${RUN} for the north annexe`,
+      entityIds: [seedAId], tags: [],
+    });
+    assert.equal(sibling.status, 201, `sibling memory create failed: ${JSON.stringify(sibling.body)}`);
+    siblingMemId = sibling.body?._id ?? null;
   }
 
   // Dense graph: hub H → 30 leaves (all one hop away).
@@ -387,6 +406,33 @@ describe('Recall traverse — links, which are not edges', () => {
     const b = nested(r.body.results, entB);
     assert.ok(b, `A→B must be reached at depth 2: ${JSON.stringify(allNested(r.body.results).map(n => n.node?._id))}`);
     assert.equal(b.paths[0].length - 1, 2, 'the edge neighbour of a linked entity is TWO hops from the match');
+  });
+
+  it('a memory seed reaches ANOTHER MEMORY through the entity they share', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    /*
+     * The case the other three do not make. Each of them covers one leg — an entity seed reaching a memory
+     * that names it, a memory seed reaching the entity it names, a memory seed reaching another entity across
+     * an edge — and read together they look like coverage of the whole walk. None joins two legs, which is
+     * the shape 4.0 led with: a search that matches a memory is no longer a dead end.
+     *
+     * `topK: 1` IS THE ASSERTION, not a tidiness. A match is deliberately never repeated as its own graph
+     * node, so any memory that ranks for this query cannot appear in the graph however well the walk works.
+     * At topK 5 the sibling ranked, the graph held only entities, and that reads exactly like a broken walk —
+     * it cost several hours and a wrong bug report before the `topK` was the thing that changed.
+     */
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: 'wombat marsupial burrow relocation checklist',
+      types: ['memory'], topK: 1, traverse: { depth: 2, includeMemories: true },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.results?.length, 1, 'more than one match makes this test unable to fail honestly');
+
+    const reached = nested(r.body.results, siblingMemId);
+    assert.ok(reached, 'the walk stopped at the entity: a memory naming the same entity was NOT returned. '
+      + `Reached: ${JSON.stringify(allNested(r.body.results).map(n => `${n.node?.kind}:${n.node?._id}`))}`);
+    assert.equal(reached.node.kind, 'memory');
+    assert.equal(reached.paths[0].length - 1, 2, 'the sibling memory is TWO hops from the match');
   });
 
   it('the echo reports the flags, so a caller can see what the server did', async (t) => {

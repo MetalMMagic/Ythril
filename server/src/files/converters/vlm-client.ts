@@ -15,7 +15,7 @@ import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
-import { slotTimeoutMs } from '../../config/model-slots.js';
+import { slotTimeoutMs, reasoningEffortBody } from '../../config/model-slots.js';
 import { getModelSlots } from '../../config/loader.js';
 
 export interface VlmTranscription {
@@ -69,6 +69,9 @@ async function postChat(
       model: endpoint.model,
       temperature: 0,
       max_tokens: MAX_OUTPUT_TOKENS,
+      // Only when the operator set one for this slot: absent sends no field at all, because a model never
+      // trained for it ignores the parameter at best and fails the request at worst.
+      ...reasoningEffortBody(endpoint.slot, getModelSlots()),
       // OpenAI carries images as data URIs in a content array. `image/png` because the render sidecar
       // emits PNG; a wrong type here is what broke external vision in 2.0.0 (see files/mime.ts).
       messages: turns.map(t => (t.images
@@ -261,6 +264,7 @@ export async function repairMarkdownExternal(
         model: opts.model,
         temperature: 0,
         max_tokens: MAX_OUTPUT_TOKENS,
+        ...reasoningEffortBody('assist', getModelSlots()),
         messages: [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }],
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? slotTimeoutMs('assist', getModelSlots())),

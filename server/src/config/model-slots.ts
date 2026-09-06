@@ -54,7 +54,7 @@ export const MODEL_SLOTS = [
 
 export type ModelSlot = (typeof MODEL_SLOTS)[number];
 
-/** Per-slot tuning an operator may set. One field today; the shape is what keeps a second one from needing a second home. */
+/** Per-slot tuning an operator may set. The shape is what kept the second field from needing a second home. */
 export interface ModelSlotTuning {
   /**
    * Wall-clock budget for ONE call to this slot, in milliseconds. Absent means the built-in default.
@@ -64,6 +64,14 @@ export interface ModelSlotTuning {
    * purpose, and both legs take it.
    */
   timeoutMs?: number;
+
+  /**
+   * How hard a thinking model should think on this slot. Absent means the field is not sent at all.
+   *
+   * See `REASONING_EFFORTS` below for the vocabulary and for why it is llama.cpp's rather than a neutral
+   * three — one of the values the neutral scale would have shipped breaks the model this was reported from.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -119,3 +127,65 @@ export function slotTimeoutMs(slot: ModelSlot, cfg: ModelSlotsConfig | undefined
   const set = cfg?.[slot]?.timeoutMs;
   return typeof set === 'number' && Number.isFinite(set) && set > 0 ? set : MODEL_SLOT_DEFAULT_MS[slot];
 }
+/**
+ * How hard a thinking model should think, per slot — the values llama.cpp's own server accepts.
+ *
+ * ## Why this is settable at all
+ *
+ * Reported by a fleet operator 2026-09-06 with the measurement that makes the case: their 27B answers, and
+ * it takes **3m32.79s** at its template default. Nothing was misconfigured and it was never unreachable — it
+ * thinks for three and a half minutes and there was no seam to ask it for less. Around that one success three
+ * callers were losing at three different deadlines against the same endpoint: two at 3m00 on `describe`, an
+ * api-gateway at 15m00 on chat. **None of them could ask for less thinking, so each one only had a deadline
+ * to fail on.** A longer timeout is not a fix for that shape.
+ *
+ * ## Why the vocabulary is llama.cpp's and not a neutral three
+ *
+ * The reporter asked for `low` / `medium` / `high`, arguing that the OpenAI scale outlives a model swap —
+ * which is a good argument and would have shipped a value that breaks the model they actually run.
+ * **Qwen3.8's chat template accepts `low`, `medium` and `xhigh`, and throws on `minimal`, `high` and `max`.**
+ * The server starts, and then every request fails.
+ *
+ * So the set here is the one `llama-server` documents for `--reasoning-effort`, and the operator picks what
+ * their model supports. `low` and `medium` are in both vocabularies, so the reporter's argument still holds
+ * for the two values it actually rests on.
+ *
+ * ## `none` is here, and it is not the fourth value they declined
+ *
+ * They argued against an `off` because it would be Qwen's template vocabulary. It is not: llama.cpp handles
+ * `none` ITSELF — *"if none, reasoning/thinking is disabled; otherwise the value is made available to the
+ * jinja template"* — so it is the one value that does not depend on the model having been trained for it.
+ * Their own answer, that a slot which must not think should point at a model that does not, remains the
+ * better arrangement where a second model is available. This is for where one is not.
+ *
+ * ## Absent means SEND NOTHING
+ *
+ * Not a default of `medium`. A model that was never trained for this ignores the field at best and errors at
+ * worst, and an instance that starts sending a new parameter to every endpoint after an upgrade would be
+ * changing behaviour nobody asked it to change. The operator turns it on per slot.
+ */
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * The `reasoning_effort` field to merge into an OpenAI-shaped request body, or nothing at all.
+ *
+ * Returns an object to SPREAD rather than a value to test, so a call site cannot accidentally send
+ * `reasoning_effort: undefined` — which serialises to a key some servers reject and others ignore, and is the
+ * shape that makes a parameter look supported when it is not.
+ *
+ * An unrecognised value is dropped rather than forwarded. `config.json` is hand-editable, so the admin PATCH
+ * is not the only way in, and forwarding a typo would fail EVERY request to that slot with an error naming
+ * the model rather than the setting.
+ */
+export function reasoningEffortBody(
+  slot: ModelSlot,
+  cfg: ModelSlotsConfig | undefined,
+): { reasoning_effort: ReasoningEffort } | Record<string, never> {
+  const set = cfg?.[slot]?.reasoningEffort;
+  return typeof set === 'string' && (REASONING_EFFORTS as readonly string[]).includes(set)
+    ? { reasoning_effort: set as ReasoningEffort }
+    : {};
+}
+

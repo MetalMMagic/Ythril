@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Added
+
+- **A slot can ask a thinking model to think less.** Each model slot gains a **Reasoning effort** setting,
+  sent as `reasoning_effort` on the OpenAI-shaped request. Blank means the field is not sent at all, which is
+  what every installation did before this existed.
+
+  **The case it was reported from, with the number.** A 27B model answers, and takes **3 minutes 32 seconds**
+  at its own default effort — nothing misconfigured, it is thinking. Three callers around it were failing at
+  three different deadlines against that one endpoint, and none of them could ask for less, so each had only a
+  timeout to fail on. A longer budget is not a fix for that shape.
+
+  **Check which values your model accepts.** Only `none` is handled by the inference server (it turns thinking
+  off outright, whatever the model). `minimal`, `low`, `medium`, `high`, `xhigh` and `max` are passed to the
+  model's own chat template, and **a template that does not know a value rejects the request** — the server
+  starts normally and then fails every call. Qwen3.8 accepts `low`, `medium` and `xhigh` and errors on
+  `minimal`, `high` and `max`; on it, `medium` cuts the wait by about a third.
+
+  Where a second model is available, pointing the slot at one that does not think is still better than asking
+  one that does to stop.
+
+
 ### Changed
 
 - **Every benchmark ingest strategy declares what its corpus may contain, and the instance enforces it.**
@@ -20,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer budget a `traverse: 2` recall returned 6.0 records where the same query without the walk returned
   19.7. Filed as `F-24` — a caller cannot cap how far one match spreads.
 
+
 ### Fixed
 
 - **The benchmark's own bookkeeping was inside the records it was ranking.** A memory's embedded text is
@@ -31,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
   fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
   were affected. The harness now waits until a search actually returns something.
+
 
 ## [4.0.1] — 2026-09-06
 

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every benchmark ingest strategy declares what its corpus may contain, and the instance enforces it.**
+  The spaces were created bare: `validationMode` defaults to strict, but with no `typeSchemas` there is
+  nothing to validate, so every malformed record was accepted. A missing field then scores low and reads as a
+  finding about retrieval rather than as a bug.
+
+- **Linking a record to what it is about costs its ranking nothing** (measured, 199 questions). Three
+  strategies in the benchmark folder claimed it cost 1.5 points by prepending linked entity names to the
+  fact; `entityIds` never reaches the embedded text. Walking those links is a different matter: at a fixed
+  answer budget a `traverse: 2` recall returned 6.0 records where the same query without the walk returned
+  19.7. Filed as `F-24` — a caller cannot cap how far one match spreads.
+
+### Fixed
+
+- **The benchmark's own bookkeeping was inside the records it was ranking.** A memory's embedded text is
+  built from its fact, tags, description and properties — key and value both — so every benchmark record
+  carried `turn D3:1,D3:2,D3:3 speaker Caroline,Melanie statedOn 2023-06-27 turns 5` in its vector. That is
+  how a result was joined back to the answer key, not something any deployment would store. It now lives
+  outside the corpus.
+
+- **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
+  fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
+  were affected. The harness now waits until a search actually returns something.
+
 ## [4.0.1] — 2026-09-06
 
 A patch for one defect: a schema rule the server would not run rejected every record it was supposed to check.

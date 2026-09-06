@@ -39,7 +39,32 @@
  * Conversation in, records out. No import can reach the question set, and a gate enforces it.
  */
 
+import { TURN_PROPERTIES, STRUCTURE_ENTITIES, SESSION_CHRONO } from './_schemas.mjs';
+
 import * as s0 from './s0-raw-turns.mjs';
+
+/**
+ * What this corpus may contain, declared so the instance enforces it.
+ *
+ * A space defaults to `validationMode: 'strict'` and a declared collection's keys are an ALLOWLIST, so an
+ * undeclared type is a 400 and a missing `required` property is a 400. Without a declaration strict mode
+ * validates NOTHING: there is no rule for an undeclared type, so nothing can be violated.
+ *
+ * A benchmark needs that more than an application does. An application with a broken corpus throws; a
+ * benchmark reports a NUMBER, and a corpus missing a field scores low and reads as a finding about retrieval.
+ */
+export const typeSchemas = {
+  memory: {
+    /* Its turns are written through S0's ingest, so they carry S0's properties exactly. */
+    utterance: { propertySchemas: TURN_PROPERTIES },
+  },
+  entity: STRUCTURE_ENTITIES,
+  chrono: SESSION_CHRONO,
+  edge: {
+    /* A speaker took part in a session. A hop, so it is never embedded. */
+    spoke_in: { endpoints: { from: ['person'], to: ['session'] }, suppressEmbeddings: true },
+  },
+};
 
 export const rung = 's0+';
 

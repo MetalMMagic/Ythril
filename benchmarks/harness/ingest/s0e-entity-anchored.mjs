@@ -62,6 +62,36 @@
  * in fact the worst thing here. Deleting the losing arm leaves only the numbers that flatter, which is the
  * failure the protocol exists to prevent.
  */
+
+import { TURN_IDS } from './_schemas.mjs';
+/**
+ * What this corpus may contain, declared so the instance enforces it.
+ *
+ * A space defaults to `validationMode: 'strict'` and a declared collection's keys are an ALLOWLIST, so an
+ * undeclared type is a 400 and a missing `required` property is a 400. Without a declaration strict mode
+ * validates NOTHING: there is no rule for an undeclared type, so nothing can be violated.
+ *
+ * A benchmark needs that more than an application does. An application with a broken corpus throws; a
+ * benchmark reports a NUMBER, and a corpus missing a field scores low and reads as a finding about retrieval.
+ */
+export const typeSchemas = {
+  memory: {
+    /*
+     * One record per recurring subject. `subject` is what the record is about and `covered` is how many of
+     * its mentions were kept — both required, because a record missing either is not this strategy.
+     */
+    subject: {
+      propertySchemas: {
+        subject: { type: 'string', required: true },
+        turn: { type: 'string', required: true, pattern: TURN_IDS },
+        sessions: { type: 'string', required: true },
+        mentions: { type: 'number', required: true, minimum: 1 },
+        covered: { type: 'number', required: true, minimum: 1 },
+      },
+    },
+  },
+};
+
 export const rung = 's0e';
 export const recallTypes = ['memory'];
 export const needsModel = false;

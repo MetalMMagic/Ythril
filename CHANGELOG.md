@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A schema pattern the server would not run was reported as though your data were wrong, and it rejected
+  every record of that type for ever.** The ordinary way to write *"one or more of these, comma-separated"*
+  uses a repeated group — `^D[0-9]+:[0-9]+(,D[0-9]+:[0-9]+)*$`. The server declines to evaluate a pattern
+  that can backtrack exponentially, and said so by answering *"does not match"*: identical to a value that
+  genuinely failed. The schema was accepted when saved, and nothing anywhere said it had never been applied.
+
+  Such a pattern is now **refused when the schema is saved**, naming the construct so it can be rewritten —
+  on `namingPattern` as well as on a property. A pattern already stored reports `pattern not evaluated, so
+  nothing was checked`, so the operator is sent to the schema rather than to a record that is correct. The
+  safety check itself is unchanged: a stored schema still cannot hang the server on a hostile value.
+
+
+
 - **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
   fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
   were affected. The harness now waits until a search actually returns something.

@@ -218,7 +218,11 @@ This tab lists all schema definitions on this instance.
 - **Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
 - **Knowledge Type** — which kind of data this schema applies to.
 - **Description** — optional, surfaced to AI assistants.
-- **Naming pattern** — an optional regular expression that entity names must match.
+- **Naming pattern** — an optional regular expression that entity names must match. A pattern that could
+  take exponential time to run is **refused when you save it**, naming the part to rewrite: a repeated
+  group such as `(,abc)*` is the usual cause, and a character class normally does the same job. Ythril
+  will not store a rule it cannot apply, because a rule that is never applied silently rejects every
+  record instead of checking them.
 - **Property schemas** — click **+ Add property** to define properties with optional type, constraints, and whether they are required.
 
 Click anywhere on a card to open and edit it. Changes save and close automatically.

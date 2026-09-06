@@ -243,25 +243,33 @@ describe('operator-supplied regex is guarded — a bad pattern fails closed', ()
       'properties.code', 'does not match pattern');
   });
 
-  it('an INVALID regex fails closed — reported, never thrown', () => {
+  it('an INVALID regex fails closed, and says the pattern was the problem', () => {
     // A malformed pattern is operator input. Throwing would 500 the write; passing would make the
-    // constraint silently optional. It is reported as a violation instead.
+    // constraint silently optional. It is reported as a violation instead — and the violation names the
+    // PATTERN, because the value here is not what is wrong with this write (`Q-7`).
     has(validateEntity(withPattern('^[unterminated'), { type: 'thing', properties: { code: 'x' } }),
-      'properties.code', 'does not match pattern');
+      'properties.code', 'not evaluated');
   });
 
-  it('a ReDoS-risky pattern is refused rather than run', () => {
+  it('a ReDoS-risky pattern is refused rather than run, and SAYS it was not run', () => {
     // The value here MATCHES the pattern. That is the point: if the guard were removed the regex
     // would run and pass, so the violation below can only come from the guard declining to run it.
     // An earlier version used a non-matching value, which produced a violation either way and
     // therefore proved nothing — it survived the mutation that disables the guard.
+    //
+    // The REASON is asserted as well, and that half is `Q-7`: this test used to require the wording
+    // "does not match pattern", which is what a value that genuinely failed would produce. A schema that
+    // could never be applied therefore reported the same thing as bad data, and every record of the type
+    // was rejected for ever with an error naming the operator's value. The test encoded the bug.
     has(validateEntity(withPattern('^(a+)+$'), { type: 'thing', properties: { code: 'aaaa' } }),
-      'properties.code', 'does not match pattern');
+      'properties.code', 'not evaluated');
   });
 
   it('an over-long value is refused rather than run', () => {
+    // Same three-way answer: the pattern is fine and the value is simply too long to test safely, so the
+    // violation says the check did not happen rather than claiming the value failed it.
     has(validateEntity(withPattern('^[a-z]+$'), { type: 'thing', properties: { code: 'a'.repeat(10_001) } }),
-      'properties.code', 'does not match pattern');
+      'properties.code', 'not evaluated');
   });
 });
 

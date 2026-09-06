@@ -15,7 +15,7 @@
 
 import type { SpaceMeta, PropertySchema, TypeSchema, KnowledgeType } from '../config/types.js';
 import { getSchemaLibrary, getConfig } from '../config/loader.js';
-import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
+import { hasReDoSRisk, MAX_PATTERN_LENGTH, REDOS_REFUSAL } from '../util/redos.js';
 
 // ── Violation type ─────────────────────────────────────────────────────────
 
@@ -117,9 +117,24 @@ export function validateEntity(
   violations.push(...checkUnresolvedRef(typeSchema));
   if (typeSchema?._unresolvedRef) return violations;
 
-  // Naming pattern for the entity's type
+  /*
+   * Naming pattern for the entity's type — THE SECOND PLACE A PATTERN IS RUN, and it has to answer the same
+   * way as the first.
+   *
+   * `Q-7` was fixed in `validateValue` first, and this site would have kept reporting a declined pattern as
+   * "does not match naming pattern" — one rule, two implementations, and the weaker one wins silently for
+   * whichever collection happens to use it.
+   */
   if (entity.name && entity.type && typeSchema?.namingPattern) {
-    if (!safeRegexTest(typeSchema.namingPattern, entity.name)) {
+    const outcome = testPattern(typeSchema.namingPattern, entity.name);
+    if (outcome === 'not-evaluated') {
+      violations.push({
+        field: 'name',
+        value: entity.name,
+        reason: `naming pattern for type '${entity.type}' not evaluated, so nothing was checked: `
+          + `${typeSchema.namingPattern} — ${REDOS_REFUSAL}`,
+      });
+    } else if (outcome === 'no-match') {
       violations.push({
         field: 'name',
         value: entity.name,
@@ -526,7 +541,21 @@ function validateValue(field: string, value: unknown, schema: PropertySchema): S
 
   // String pattern (also applies to 'date' values stored as strings)
   if (typeof value === 'string' && schema.pattern) {
-    if (!safeRegexTest(schema.pattern, value)) {
+    /*
+     * THREE outcomes, not two, and collapsing the first two into "does not match" was `Q-7`.
+     *
+     * A pattern the instance declines to run — too long, or a backtracking risk — used to report exactly what
+     * a genuinely non-matching value reports. Every record of that type was then rejected, permanently, with
+     * an error naming the operator's DATA while the cause was a schema that had never been applied.
+     *
+     * Saving such a pattern is now refused (`SchemaPatternZ` in `spaces/body-schemas.ts`), so this path is
+     * for schemas stored before that existed. It stays honest about them rather than assuming they cannot
+     * occur.
+     */
+    const outcome = testPattern(schema.pattern, value);
+    if (outcome === 'not-evaluated') {
+      violations.push({ field, value, reason: `pattern not evaluated, so nothing was checked: ${schema.pattern} — ${REDOS_REFUSAL}` });
+    } else if (outcome === 'no-match') {
       violations.push({ field, value, reason: `does not match pattern: ${schema.pattern}` });
     }
   }
@@ -535,19 +564,27 @@ function validateValue(field: string, value: unknown, schema: PropertySchema): S
 }
 
 /**
- * Test a regex pattern against a value with comprehensive ReDoS protection:
- * 1. Length limits on both pattern (500) and value (10K)
- * 2. Structural analysis rejecting nested quantifiers / alternation+quantifier
- *    (`hasReDoSRisk`, shared via util/redos.ts)
- * 3. Fail-safe: returns false (non-matching → reported as violation) on any issue
+ * Test a pattern against a value, distinguishing "did not match" from "was never run".
+ *
+ * The protections are unchanged and deliberately kept — a length cap on both sides, and a structural check
+ * for the backtracking shapes (`hasReDoSRisk`, shared via `util/redos.ts`) — because a stored schema must not
+ * be able to hang the server on a hostile value.
+ *
+ * **What changed is the ANSWER, and that was the whole of `Q-7`.** Returning `false` for a pattern that was
+ * declined said the same thing as returning `false` for a value that failed it, so a schema which could never
+ * be applied looked exactly like data that was wrong. Three outcomes make the two separable by the caller,
+ * and by the operator reading the violation.
  */
-function safeRegexTest(pattern: string, value: string): boolean {
-  if (pattern.length > MAX_PATTERN_LENGTH || value.length > 10_000) return false;
-  if (hasReDoSRisk(pattern)) return false;
+type PatternOutcome = 'match' | 'no-match' | 'not-evaluated';
+
+function testPattern(pattern: string, value: string): PatternOutcome {
+  if (pattern.length > MAX_PATTERN_LENGTH || value.length > 10_000) return 'not-evaluated';
+  if (hasReDoSRisk(pattern)) return 'not-evaluated';
   try {
-    return new RegExp(pattern).test(value);
+    return new RegExp(pattern).test(value) ? 'match' : 'no-match';
   } catch {
-    return false;
+    // An invalid regex is a broken schema, not a failing value, and it is reported the same way.
+    return 'not-evaluated';
   }
 }
 

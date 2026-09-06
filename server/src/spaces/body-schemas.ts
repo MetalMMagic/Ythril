@@ -43,6 +43,7 @@ import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { SPACE_PURPOSE_MAX } from './_shared.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS } from '../config/types.js';
 import { KNOWLEDGE_TYPES } from '../config/types-knowledge.js';
+import { hasReDoSRisk, REDOS_REFUSAL } from '../util/redos.js';
 import type { KnowledgeType } from '../config/types.js';
 import { RECORD_TYPES } from '../config/types.js';
 
@@ -53,12 +54,25 @@ import { RECORD_TYPES } from '../config/types.js';
  * `mergeFn` is refined against `type` rather than accepted freely: an `avg` on a string is not a merge strategy,
  * it is a silent no-op at merge time.
  */
+/**
+ * A regex a schema may store — refused here if the instance would decline to RUN it.
+ *
+ * `Q-7`. `safeRegexTest` will not evaluate a pattern with a quantified group containing a quantifier, and it
+ * signals that by returning `false` — indistinguishable from "the value does not match". Accepted at save
+ * time, such a pattern rejects EVERY record of its type for ever, with an error naming the value. So the
+ * refusal belongs here, where the author is standing and can fix it.
+ *
+ * ONE definition, used by `propertySchemas.*.pattern` and by `namingPattern`. Written twice, the second copy
+ * is the one that gets forgotten — and a schema is only as safe as the weaker of its two pattern fields.
+ */
+const SchemaPatternZ = z.string().max(500).refine(p => !hasReDoSRisk(p), { message: REDOS_REFUSAL });
+
 export const PropertySchemaZ = z.object({
   type: z.enum(['string', 'number', 'boolean', 'date']).optional(),
   enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
   minimum: z.number().optional(),
   maximum: z.number().optional(),
-  pattern: z.string().max(500).optional(),
+  pattern: SchemaPatternZ.optional(),
   mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
   required: z.boolean().optional(),
   default: z.union([z.string(), z.number(), z.boolean()]).optional(),
@@ -107,7 +121,7 @@ export const TypeSchemaZ = z.union([
   }).strict(),
   // Inline schema definition
   z.object({
-    namingPattern: z.string().max(500).optional(),
+    namingPattern: SchemaPatternZ.optional(),
     propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
     // The schema tier of record > schema > space. `.strict()` above means an unlisted key is REJECTED, so
     // without this the field would be stripped from every PATCH and the feature would silently not exist.

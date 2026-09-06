@@ -100,7 +100,8 @@ Click the gear icon on any space row to open its settings panel. Changes save an
   > the result, so fixing the named field in any later save repairs the record.
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
 - **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
-  - **Naming pattern** — a regex the name must match.
+  - **Naming pattern** — a regex the name must match. Refused on save if it could run exponentially
+    (typically a repeated group like `(,abc)*`); the message names what to change.
   - **Retention** — how long records of *this type* are kept, overriding the space-wide window on the Danger tab. Leave **Delete records after** empty to inherit it; the hint names the number you would inherit. A type with a window carries a yellow **ttl** badge in the list, so what expires is visible without opening each type.
     - **Drop detail after (days)** appears for **chrono types only**. It removes the description, matched text and embedding at that point — the record stops competing in search — while its properties, title, type and dates stay queryable. Useful for telemetry that crowds out real answers but whose fields are still worth having. It must be **shorter** than the delete window, or it could never happen; the editor says so if it isn't.
     - A type **linked to the Schema Library** has no retention of its own: a library entry cannot carry a window (it would apply to every space using it). **Unlink** first, or set the window on the space-wide default instead. Saving a type *to* the library also leaves its window behind, and says so when it does.

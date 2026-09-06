@@ -406,6 +406,17 @@ PATCH /api/spaces/flows
                              "memory": {}, "edge": {}, "chrono": {} } } }
 ```
 
+**A regex that cannot be evaluated is refused here, with a `400` naming the construct.** `namingPattern` and
+`propertySchemas.*.pattern` are both checked when the schema is saved: a quantified group containing a
+quantifier — `^D[0-9]+:[0-9]+(,D[0-9]+:[0-9]+)*$`, the ordinary way to write "a comma-separated list of
+these" — can backtrack exponentially, so the server will not run it against a value. Rewrite it without the
+group; a character class usually does the same job (`^D[0-9]+:[0-9,:D]*$`).
+
+The refusal is at save time because the alternative is worse and used to be the behaviour: the pattern was
+stored, never applied, and every write of that type was rejected with `does not match pattern` — naming the
+caller's value for a check that never ran. A pattern stored before this now reports `pattern not evaluated,
+so nothing was checked`, which points at the schema instead.
+
 `typeSchemasMode` defaults to `merge`, which is the behaviour this endpoint has always had. Under `replace`, a knowledge type sent as `{}` clears it, and omitting a knowledge type entirely also clears it — so send all four keys unless you mean to empty the ones you leave out. Omitting `meta.typeSchemas` altogether still changes nothing, in either mode; `replace` says how to apply schemas that are present, not that absent ones should be erased.
 
 ```json

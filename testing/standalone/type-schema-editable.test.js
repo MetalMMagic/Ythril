@@ -83,7 +83,15 @@ function apiTypeSchemaKeys() {
   // The $ref branch comes first and holds only `$ref`; everything after it is the inline branch.
   const inline = block.slice(block.indexOf('// Inline schema definition'));
   assert.ok(inline.length > 100, 'the inline branch of TypeSchemaZ could not be isolated');
-  return [...inline.matchAll(/^\s{4}([a-zA-Z][\w]*):\s*z\./gm)].map(m => m[1]);
+  /*
+   * A field is `name: z.something` OR `name: SomeZ...` — a named zod schema reused across fields.
+   *
+   * Matching only `z.` made this gate depend on how a field happened to be SPELLED rather than on whether
+   * it exists: extracting `namingPattern`'s regex into a shared `SchemaPatternZ` (so that one rule could
+   * not be written twice) made the field vanish from this list, and the gate reported that the UI no
+   * longer covers a field nothing had touched.
+   */
+  return [...inline.matchAll(/^\s{4}([a-zA-Z][\w]*):\s*(?:z\.|[A-Z][\w]*Z\b)/gm)].map(m => m[1]);
 }
 
 describe('a space type schema is editable in the UI', () => {

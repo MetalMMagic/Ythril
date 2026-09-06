@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every shell script in the repository was checked out with Windows line endings, which breaks it on Linux.**
+  A `sh` on Linux reads the trailing carriage return as part of the option name, so `set -e`
+  becomes an option that does not exist and the script dies on its first line — inside a container,
+  as one line with no context. It bit the benchmark runner; it would equally have bitten
+  `scripts/enable-networks-workstation.sh`, which an operator runs. `.gitattributes` now pins `*.sh` to LF.
+
 - **The benchmark's own bookkeeping was inside the records it was ranking.** A memory's embedded text is
   built from its fact, tags, description and properties — key and value both — so every benchmark record
   carried `turn D3:1,D3:2,D3:3 speaker Caroline,Melanie statedOn 2023-06-27 turns 5` in its vector. That is

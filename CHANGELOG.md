@@ -30,7 +30,158 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.0.0] — 2026-09-05
 
+**4.0 is the release where a link became a record.**
+
+Until now, two records could only be related if both were entities: an edge's endpoints were entity ids, so a
+memory, a timeline entry or a file could be *named* by something but could never be walked to. The arrays that
+were supposed to express those relationships — `chrono.memoryIds`, `file.memoryIds`, `file.chronoIds` — were
+stored and read by nothing.
+
+Now a relationship is a record in its own right. A search that matches a memory is no longer a dead end: the
+walk continues through what that memory names. Graph expansion follows links as well as edges, an edge can say
+what KIND each of its ends is, and the scan that refuses a delete can finally see a reference from a memory, a
+timeline entry or a file instead of only from another entity.
+
+The six entries that describe it open **Added**, directly below. Everything else in this release is smaller
+than they are.
+
+**Breaking, and what to do about each.**
+
+| what changed | what to do |
+|---|---|
+| `OLLAMA_URL`, `WHISPER_URL`, `WHISPER_MODEL` **refuse the boot** | rename to `VISION_BASE_URL`, `STT_BASE_URL`, `STT_MODEL`. A manifest written for 4.0 also runs on 3.x; one using the old names starts on 3.x and will not start on 4.0 |
+| `POST /api/tokens` refuses `spaces`, `admin`, `readOnly` | send `rights`; the refusal names the replacement for each |
+| a token with **no rights matrix reaches nothing** | nothing to do — every token gets one at mint, at boot, or per request. Listed because it removes a fallback, not because it should bite |
+| `excludeFromVectorSearch` is gone | it is `suppressEmbeddings`, and has been since 3.1 |
+| the **MCP SSE transport** is gone (`GET /mcp`) | use `POST /mcp`, recommended throughout 3.x |
+| the two `syncSchedule` shorthands are gone | write real cron. An unrunnable schedule is now refused rather than ignored |
+| the server-rendered setup form is gone, with `GET`/`POST /api/setup` | use the SPA, or `POST /api/setup/json` |
+| a peer's retention stamp no longer sets **your** expiry | nothing to do. If records vanished earlier than your policy allows while syncing with a shorter-retention peer, this was why |
+
+**Docs:** 31 files changed. A size-idempotent re-ingest should `--force` this tag rather than diffing a file
+list.
+
 ### Added
+
+- **A converted space refuses an array write, and points at the link door instead.** Once
+  `npm run links:convert` has finished a space, sending `entityIds`, `memoryIds` or `chronoIds` to any of
+  the seven write doors answers `400` naming `POST .../links`. Left open, the arrays are a second write
+  surface for the same fact, and on a converted space the two can then disagree — which is the defect the
+  whole migration exists to remove, reintroduced by its own compatibility.
+
+  **The fields are still READ, still stored and still replicated.** Nothing you have is lost, and a space
+  you have not converted is untouched.
+
+  **Three things it deliberately never does**, each of which would break something that works:
+
+  - it is not hung off `validationMode: strict` — that governs schema rules and is already on live spaces,
+    so every one of them would start refusing the moment it upgraded, before anybody ran anything.
+  - it never applies to a record arriving from a peer. Sync ingest is validated, counted and let in, and a
+    refusal there would hold the watermark: the channel stops and the space silently falls behind.
+  - it never applies to a write that does not MENTION an array. Editing a memory's text on a record that
+    still carries a legacy array succeeds, or every unconverted record would become uneditable.
+
+- **Three link fields that have never been read now work — `chrono.memoryIds`, `file.memoryIds` and
+  `file.chronoIds`.** They have been accepted, checked for resolvability, stored, replicated and documented
+  since 3.x. Nothing walked them. A traverse from a memory did not reach the timeline entry that named it;
+  a traverse from a timeline entry did not reach the file about it.
+
+  **That was never a decision.** It was three fields nobody had written a reader for, and it was invisible
+  from the outside precisely because the data was all there — you could see the ids on the record and get
+  nothing back from the graph.
+
+  A link class is a `(fromKind, toKind)` PAIR now rather than a record kind. Keyed on the from kind alone,
+  a caller asking about a chrono entry's MEMORY links was silently handed the class for its ENTITY links
+  and scanned the wrong column — no error, and a plausible empty answer.
+
+- **A converted space answers adjacency from link records, and an unconverted one keeps the array walk.**
+  One selector decides, for every reader — a reader choosing for itself is how five of them came to follow
+  five different subsets. Reading records alone would answer about whatever was written since the upgrade
+  and silently drop the rest; the arrays are complete on every space, always, which is what makes them the
+  safe side of the branch.
+
+  **Both shapes answer all six classes**, so the three fields above start working on every space
+  immediately. Running `npm run links:convert` is a speed and consistency upgrade — one indexed lookup in
+  place of a collection scan per class — and never a correctness prerequisite.
+
+- **An edge can now say what KIND of record each endpoint is, so a link is no longer entity-to-entity only.**
+  `from` and `to` were bare entity ids, and every reader knew where to look them up because there was only one
+  place. `fromKind` and `toKind` name one of `entity`, `memory`, `chrono` or `file`, on `POST /edges`,
+  `PATCH /edges/:id`, `upsert_edge`, `update_edge`, and both bulk doors.
+
+  The case it exists for is a photo taken at a party: its file meta wants to point at the people in it
+  (entity), at the party (chrono) and at what happened there (memory). Three collections, and a bare `to` says
+  nothing about which one to search — and trying each in turn is not a fix, because two records in different
+  collections can share an id, so the answer would depend on the order the code happened to try them.
+
+  **Omitting the field is correct for an entity and is not the same as sending `"entity"`.** An omitted kind is
+  stored as nothing at all and read as entity everywhere, so every edge written before this release, and every
+  ordinary entity-to-entity edge written after it, is byte-identical. Nothing was migrated, which is the
+  standing rule for a collection that syncs: a data migration over replicated documents would ship a whole
+  space's worth of edges to every peer as changes.
+
+  A file endpoint is the space-relative PATH rather than a UUID — that is what a file's `_id` is — so the shape
+  check branches on kind. It refuses a leading slash, a backslash and a `..` segment, because those can never
+  match a stored `_id` and a traversal segment must not be storable. Under `strictLinkage` the endpoint is
+  looked up in the collection its kind names, so a stated kind that is wrong is a `400` rather than a dead
+  link. A kind that is not one of the four is a `400` in every space.
+
+  **Both fields are declared on the sync ingest schema, in this same commit, and that is the load-bearing
+  part.** `IncomingEdgeDoc` is a zod object, and zod strips what it does not declare — so a field added to a
+  replicated document and not added there is kept when the record arrives by pull and deleted when the same
+  record arrives by push. Same version, one direction, no error and no statistic. The rule now has a gate:
+  every field on `EdgeDoc` is either declared by `IncomingEdgeDoc` or listed as deliberately not replicated
+  with a reason.
+
+  **What an edge embeds follows the kind.** Its vector is built from `from label to` with the endpoints
+  resolved to names — an entity's `name`, a chrono entry's `title`, a memory's `fact`, a file's path — capped at
+  200 characters so a long fact cannot crowd out the relationship itself. Four paths reach that resolver (the
+  inline upsert, the queued embed job, the reindex job, the edge list route) and it was entity-only in all
+  four; it is one function taking the kind now, which is the arrangement that stopped `reindex` embedding raw
+  ids while the writer embedded names.
+
+  The Edges table displays them: a memory endpoint shows its fact, a chrono endpoint its title, a file endpoint
+  its path. The tab's **pickers still offer entities only** — edges with other endpoint kinds are written
+  through the API, and `docs/userguide/02-brain.md` says so rather than leaving it to be discovered.
+
+- **`recall`'s graph expansion can follow links, not only edges.** Two records can be related two ways: a
+  stored **edge**, or the `entityIds` field a memory, chrono entry or file carries naming what it is about.
+  The standalone `traverse` tool has followed both for two releases. `recall`'s expansion followed edges
+  alone, so in a space whose relationships are mentions rather than edge records — which is most spaces,
+  because mentions happen automatically and edges are written on purpose — `recall(traverse: n)` returned an
+  empty graph. Not an error and not a warning: the graph simply looked empty, which reads as a statement
+  about the data.
+
+  Three flags, inside the `traverse` object, on both doors:
+
+  ```json
+  { "traverse": { "depth": 2, "includeChrono": true, "includeMemories": true, "includeFiles": true } }
+  ```
+
+  **All three default to false**, so no existing response changes. That is a decision rather than caution: a
+  recall caller asked for semantic matches, expansion is decoration on them, and the answer is budgeted — a
+  match is counted together with its whole `_graph` subtree, so every record admitted by default would be
+  paid for in matches that no longer fit. The standalone tool defaults `includeChrono` on because its caller
+  is explicitly exploring a graph rather than searching.
+
+  A linked node arrives carrying `kind` (`chrono`, `memory` or `file`) and the fields that say what it is —
+  never file chunk text, which is the largest thing the product stores and is not what a structural walk is
+  for. The reaching edge is **synthetic**: id `<label>:<from>:<to>`, label `chrono.entityIds` /
+  `memory.entityIds` / `file.entityIds`, and no `author`, `createdAt` or `seq`, because a derived edge has
+  none and inventing them would put fabricated timestamps in a response. `edgeLabels` filters them exactly
+  like any other label.
+
+- **A non-entity recall match is no longer a dead end.** An edge's endpoints are entity ids, so a memory,
+  chrono entry or file that matched semantically had nothing to follow and came back with an empty `_graph`
+  at any depth. Both doors documented that and told the caller to lift the `entityIds` off the match and
+  traverse from one of those by hand — which is a query, performed by the caller because the server declined
+  to make it. With the matching flag on, the walk now starts from the entities the match names: they are hop
+  1 and everything an edge reaches from there is hop 2.
+
+  The docs that carried the limit, and the gate that pinned those sentences, are gone. That gate was written
+  to fail the day the limit was lifted, and it is worth recording that it did not: its probe was the literal
+  collection name inside `traverseFromSeeds`, and the scan had moved into a shared helper, so it passed while
+  enforcing a warning that had become false.
 
 - **The divergence check hashes a file's metadata too, and only the authored half.** Both halves of that
   sentence are load-bearing, and they fail in opposite directions.
@@ -225,37 +376,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `delete_edge` is unchanged and now says why rather than citing the old asymmetry: links run FROM a
   memory, timeline entry or file TO what it is about, so **nothing can point at an edge**.
 
-- **A converted space refuses an array write, and points at the link door instead.** Once
-  `npm run links:convert` has finished a space, sending `entityIds`, `memoryIds` or `chronoIds` to any of
-  the seven write doors answers `400` naming `POST .../links`. Left open, the arrays are a second write
-  surface for the same fact, and on a converted space the two can then disagree — which is the defect the
-  whole migration exists to remove, reintroduced by its own compatibility.
-
-  **The fields are still READ, still stored and still replicated.** Nothing you have is lost, and a space
-  you have not converted is untouched.
-
-  **Three things it deliberately never does**, each of which would break something that works:
-
-  - it is not hung off `validationMode: strict` — that governs schema rules and is already on live spaces,
-    so every one of them would start refusing the moment it upgraded, before anybody ran anything.
-  - it never applies to a record arriving from a peer. Sync ingest is validated, counted and let in, and a
-    refusal there would hold the watermark: the channel stops and the space silently falls behind.
-  - it never applies to a write that does not MENTION an array. Editing a memory's text on a record that
-    still carries a legacy array succeeds, or every unconverted record would become uneditable.
-
-- **Three link fields that have never been read now work — `chrono.memoryIds`, `file.memoryIds` and
-  `file.chronoIds`.** They have been accepted, checked for resolvability, stored, replicated and documented
-  since 3.x. Nothing walked them. A traverse from a memory did not reach the timeline entry that named it;
-  a traverse from a timeline entry did not reach the file about it.
-
-  **That was never a decision.** It was three fields nobody had written a reader for, and it was invisible
-  from the outside precisely because the data was all there — you could see the ids on the record and get
-  nothing back from the graph.
-
-  A link class is a `(fromKind, toKind)` PAIR now rather than a record kind. Keyed on the from kind alone,
-  a caller asking about a chrono entry's MEMORY links was silently handed the class for its ENTITY links
-  and scanned the wrong column — no error, and a plausible empty answer.
-
 - **The scan that refuses a delete can see references to a memory, a timeline entry or a file, not just to
   an entity.** Nothing blocked deleting a memory that a timeline entry named, even under the strictest
   linkage setting on offer, because that link had no reader. The scan sees it now; the refusal itself
@@ -264,95 +384,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The edge half of that scan also compares the endpoint KIND. An edge endpoint has carried its own kind
   since 3.7, so matching on the id alone could block a delete because of an edge pointing at a different
   record that happened to share it.
-
-- **A converted space answers adjacency from link records, and an unconverted one keeps the array walk.**
-  One selector decides, for every reader — a reader choosing for itself is how five of them came to follow
-  five different subsets. Reading records alone would answer about whatever was written since the upgrade
-  and silently drop the rest; the arrays are complete on every space, always, which is what makes them the
-  safe side of the branch.
-
-  **Both shapes answer all six classes**, so the three fields above start working on every space
-  immediately. Running `npm run links:convert` is a speed and consistency upgrade — one indexed lookup in
-  place of a collection scan per class — and never a correctness prerequisite.
-
-- **An edge can now say what KIND of record each endpoint is, so a link is no longer entity-to-entity only.**
-  `from` and `to` were bare entity ids, and every reader knew where to look them up because there was only one
-  place. `fromKind` and `toKind` name one of `entity`, `memory`, `chrono` or `file`, on `POST /edges`,
-  `PATCH /edges/:id`, `upsert_edge`, `update_edge`, and both bulk doors.
-
-  The case it exists for is a photo taken at a party: its file meta wants to point at the people in it
-  (entity), at the party (chrono) and at what happened there (memory). Three collections, and a bare `to` says
-  nothing about which one to search — and trying each in turn is not a fix, because two records in different
-  collections can share an id, so the answer would depend on the order the code happened to try them.
-
-  **Omitting the field is correct for an entity and is not the same as sending `"entity"`.** An omitted kind is
-  stored as nothing at all and read as entity everywhere, so every edge written before this release, and every
-  ordinary entity-to-entity edge written after it, is byte-identical. Nothing was migrated, which is the
-  standing rule for a collection that syncs: a data migration over replicated documents would ship a whole
-  space's worth of edges to every peer as changes.
-
-  A file endpoint is the space-relative PATH rather than a UUID — that is what a file's `_id` is — so the shape
-  check branches on kind. It refuses a leading slash, a backslash and a `..` segment, because those can never
-  match a stored `_id` and a traversal segment must not be storable. Under `strictLinkage` the endpoint is
-  looked up in the collection its kind names, so a stated kind that is wrong is a `400` rather than a dead
-  link. A kind that is not one of the four is a `400` in every space.
-
-  **Both fields are declared on the sync ingest schema, in this same commit, and that is the load-bearing
-  part.** `IncomingEdgeDoc` is a zod object, and zod strips what it does not declare — so a field added to a
-  replicated document and not added there is kept when the record arrives by pull and deleted when the same
-  record arrives by push. Same version, one direction, no error and no statistic. The rule now has a gate:
-  every field on `EdgeDoc` is either declared by `IncomingEdgeDoc` or listed as deliberately not replicated
-  with a reason.
-
-  **What an edge embeds follows the kind.** Its vector is built from `from label to` with the endpoints
-  resolved to names — an entity's `name`, a chrono entry's `title`, a memory's `fact`, a file's path — capped at
-  200 characters so a long fact cannot crowd out the relationship itself. Four paths reach that resolver (the
-  inline upsert, the queued embed job, the reindex job, the edge list route) and it was entity-only in all
-  four; it is one function taking the kind now, which is the arrangement that stopped `reindex` embedding raw
-  ids while the writer embedded names.
-
-  The Edges table displays them: a memory endpoint shows its fact, a chrono endpoint its title, a file endpoint
-  its path. The tab's **pickers still offer entities only** — edges with other endpoint kinds are written
-  through the API, and `docs/userguide/02-brain.md` says so rather than leaving it to be discovered.
-
-- **`recall`'s graph expansion can follow links, not only edges.** Two records can be related two ways: a
-  stored **edge**, or the `entityIds` field a memory, chrono entry or file carries naming what it is about.
-  The standalone `traverse` tool has followed both for two releases. `recall`'s expansion followed edges
-  alone, so in a space whose relationships are mentions rather than edge records — which is most spaces,
-  because mentions happen automatically and edges are written on purpose — `recall(traverse: n)` returned an
-  empty graph. Not an error and not a warning: the graph simply looked empty, which reads as a statement
-  about the data.
-
-  Three flags, inside the `traverse` object, on both doors:
-
-  ```json
-  { "traverse": { "depth": 2, "includeChrono": true, "includeMemories": true, "includeFiles": true } }
-  ```
-
-  **All three default to false**, so no existing response changes. That is a decision rather than caution: a
-  recall caller asked for semantic matches, expansion is decoration on them, and the answer is budgeted — a
-  match is counted together with its whole `_graph` subtree, so every record admitted by default would be
-  paid for in matches that no longer fit. The standalone tool defaults `includeChrono` on because its caller
-  is explicitly exploring a graph rather than searching.
-
-  A linked node arrives carrying `kind` (`chrono`, `memory` or `file`) and the fields that say what it is —
-  never file chunk text, which is the largest thing the product stores and is not what a structural walk is
-  for. The reaching edge is **synthetic**: id `<label>:<from>:<to>`, label `chrono.entityIds` /
-  `memory.entityIds` / `file.entityIds`, and no `author`, `createdAt` or `seq`, because a derived edge has
-  none and inventing them would put fabricated timestamps in a response. `edgeLabels` filters them exactly
-  like any other label.
-
-- **A non-entity recall match is no longer a dead end.** An edge's endpoints are entity ids, so a memory,
-  chrono entry or file that matched semantically had nothing to follow and came back with an empty `_graph`
-  at any depth. Both doors documented that and told the caller to lift the `entityIds` off the match and
-  traverse from one of those by hand — which is a query, performed by the caller because the server declined
-  to make it. With the matching flag on, the walk now starts from the entities the match names: they are hop
-  1 and everything an edge reaches from there is hop 2.
-
-  The docs that carried the limit, and the gate that pinned those sentences, are gone. That gate was written
-  to fail the day the limit was lifted, and it is worth recording that it did not: its probe was the literal
-  collection name inside `traverseFromSeeds`, and the scan had moved into a shared helper, so it passed while
-  enforcing a warning that had become false.
 
 - **A space can now restrict which memory TYPES it accepts.** Declaring one or more `typeSchemas.memory`
   entries makes those names the allowed set, exactly as it already did for entities, edges and chrono. A space

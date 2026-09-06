@@ -136,6 +136,50 @@ export interface FaceExternalCfg {
   acknowledgedHost?: string;
 }
 
+/**
+ * The values a slot's tuning may take, mirrored from the server's `REASONING_EFFORTS`.
+ *
+ * A copy, and it has to be: the client does not import from `server/`. `a-slot-can-ask-for-less-thinking`
+ * asserts the two lists agree, because a control offering a value the server rejects is worse than no control
+ * — the operator picks it, the save succeeds, and every call to that slot fails afterwards.
+ */
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/** One slot's tuning. Both fields optional: absent means the built-in default, and for the effort, send nothing. */
+export interface SlotTuningCfg {
+  timeoutMs?: number | null;
+  reasoningEffort?: ReasoningEffort | null;
+}
+
+/**
+ * Which slots a card may tune, and whether the effort is one of them.
+ *
+ * **Effort is offered only where the request actually carries it.** The server sends `reasoning_effort` on the
+ * OpenAI-shaped bodies — external vision, the assist model, and the two document slots that have no card —
+ * and nowhere else. Embedding, rerank, NLI, speech and the face detector are not chat calls, so a control
+ * there would be a switch wired to nothing, which is the failure this product keeps writing rules about.
+ */
+export const CARD_SLOT: Record<string, { slot: string; effort: boolean }> = {
+  embedding: { slot: 'embedding', effort: false },
+  rerank: { slot: 'rerank', effort: false },
+  nli: { slot: 'nli', effort: false },
+  vision: { slot: 'vision', effort: true },
+  stt: { slot: 'stt', effort: false },
+  assist: { slot: 'assist', effort: true },
+  face: { slot: 'faceExternal', effort: false },
+};
+
+/**
+ * Each slot's built-in budget, shown as the placeholder so an empty box reads as "the default" rather than
+ * "no limit". Mirrored from the server's `MODEL_SLOT_DEFAULT_MS`, and asserted equal by a gate — a placeholder
+ * that lies about the default is worse than none, because it is the number an operator reasons from.
+ */
+export const SLOT_DEFAULT_MS: Record<string, number> = {
+  vision: 120_000, stt: 300_000, embedding: 30_000, rerank: 20_000, nli: 20_000,
+  assist: 60_000, docVlm: 60_000, docRepair: 60_000, docVerify: 60_000, faceExternal: 30_000,
+};
+
 export interface MediaCfg {
   // No master `enabled` switch — media embedding is always on; each class is gated by `levels`.
   levels?: MediaLevelCeilings;
@@ -148,6 +192,7 @@ export interface MediaCfg {
   rerank?: RerankCfg;
   nli?: NliCfg;
   documentProcessing?: DocProcCfg;
+  modelSlots?: Record<string, SlotTuningCfg | undefined>;
   workerConcurrency?: number;
   fallbackToExternal?: boolean;
   maxFileSizeBytes?: number;

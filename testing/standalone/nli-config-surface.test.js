@@ -87,7 +87,10 @@ describe('NLI is a first-class model surface', () => {
       ['configured-means-on', /nliConfigured\(\)/],
       ['egress predicate', /nliIsExternal\(\)/],
       ['masked key stripped on load', /this\.form\.nli = \{ \.\.\.cfg\.nli, apiKey: undefined \}/],
-      ['per-card save block', /case 'nli': return \{ nli: base\.nli \}/],
+      // Matched on the CASE and its payload rather than the whole expression: the block is now wrapped in
+      // `withSlot(...)`, which adds this card's per-slot tuning to the same patch. The claim this gate makes
+      // is that NLI has a save block of its own, and that is still exactly what it checks.
+      ['per-card save block', /case 'nli': return withSlot\(\{ nli: base\.nli \}\)/],
       ['pending key resolution', /card === 'nli' \? this\.nliApiKeyInput/],
       ['key attached on save', /card === 'nli'\) block\.nli =/],
       ['key input cleared after save', /card === 'nli'\) \{ this\.nliApiKeyInput = ''/],

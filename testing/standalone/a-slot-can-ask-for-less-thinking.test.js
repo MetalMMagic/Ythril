@@ -28,6 +28,8 @@ import assert from 'node:assert/strict';
 
 import { reasoningEffortBody, slotTimeoutMs, REASONING_EFFORTS } from '../../server/dist/config/model-slots.js';
 import { mergeModelSlots } from '../../server/dist/api/media-config.js';
+import { MODEL_SLOT_DEFAULT_MS, MODEL_SLOTS } from '../../server/dist/config/model-slots.js';
+import { readFileSync } from 'node:fs';
 
 test('a slot with nothing set sends no field at all', () => {
   assert.deepEqual(reasoningEffortBody('assist', undefined), {});
@@ -94,4 +96,30 @@ test('an unmentioned slot is untouched, and the effort resolves per slot', () =>
   assert.deepEqual(reasoningEffortBody('vision', cfg), { reasoning_effort: 'low' });
   assert.deepEqual(reasoningEffortBody('assist', cfg), { reasoning_effort: 'medium' });
   assert.deepEqual(reasoningEffortBody('stt', cfg), {}, 'a slot with nothing set must stay silent');
+});
+
+test('the client mirrors the vocabulary and the defaults, or the screen lies', () => {
+  /*
+   * The client cannot import from `server/`, so it carries copies: the effort levels it offers and the
+   * per-slot default it shows as a placeholder. Both are things an operator reasons FROM — a level the server
+   * rejects makes every call to that slot fail after a save that succeeded, and a wrong placeholder makes an
+   * empty box mean a number that is not the default.
+   *
+   * Read out of the source rather than imported, because the client build is Angular and this suite is plain
+   * node — and a gate that needed the app compiled would be skipped exactly when it mattered.
+   */
+  const src = readFileSync('client/src/app/pages/settings/media-processing/media-processing.types.ts', 'utf8');
+
+  const levels = /export const REASONING_EFFORTS = \[([^\]]*)\]/.exec(src)?.[1] ?? '';
+  const offered = [...levels.matchAll(/'([a-z]+)'/g)].map(m => m[1]);
+  assert.deepEqual(offered, [...REASONING_EFFORTS],
+    'the client offers a different set of effort levels than the server accepts');
+
+  const table = /export const SLOT_DEFAULT_MS[^{]*\{([^}]*)\}/.exec(src)?.[1] ?? '';
+  const shown = Object.fromEntries([...table.matchAll(/(\w+):\s*([0-9_]+)/g)]
+    .map(m => [m[1], Number(m[2].replace(/_/g, ''))]));
+  for (const slot of MODEL_SLOTS) {
+    assert.equal(shown[slot], MODEL_SLOT_DEFAULT_MS[slot],
+      `the screen shows ${shown[slot]} as ${slot}'s default budget; the server uses ${MODEL_SLOT_DEFAULT_MS[slot]}`);
+  }
 });

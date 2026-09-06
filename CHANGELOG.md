@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Where a second model is available, pointing the slot at one that does not think is still better than asking
   one that does to stop.
 
+  **Both per-slot settings are now on the Models page**, on each model's own card: the call budget, which had
+  been config-only since it shipped, and the reasoning effort beside it — the effort only on the cards whose
+  requests actually carry it, because a control wired to nothing reads as configuration that took effect. An
+  empty budget means the built-in default, shown as the placeholder; an empty effort means nothing is sent.
+  Infra pins a slot as before, and both controls lock together.
+
 
 ### Changed
 

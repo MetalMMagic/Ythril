@@ -7,60 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [4.0.1] — 2026-09-06
 
-- **The benchmark folder now publishes a measured number instead of only a method** (`B-1`). It held a
-  protocol written before any result existed, a good deal of careful method, and no figure anywhere — every
-  section in the future tense.
-
-  What is published is the one tier that has been run: **evidence recall, with no model anywhere in the loop**.
-  For each question the benchmark knows which turns the reference answer cites, runs a search, and asks
-  whether those turns came back. Three ways of turning a conversation into records score 66.8%, 65.3% and
-  66.3%, all returning the same number of records so they can be read against each other.
-
-  **It is deliberately not the number other systems quote.** Those are usually end-to-end answering — did the
-  system get the question right — and this is only whether the evidence was retrieved. Quoting one against the
-  other would compare two different measurements, so the tier is named everywhere the figure appears, and the
-  caveats are the ones the run's own report insists on: recall is not accuracy, a miss is not necessarily a
-  failure because the same fact is often said elsewhere, and a search that returns everything scores perfectly
-  while being useless.
-
-  **Nothing was tuned to produce it**, and that is stated in the file. The commit it was measured at is named,
-  along with the three changes to the search path since — none of which touches the settings it ran under.
-
-### Changed
-
-- **The benchmark publishes a measured retrieval number again, on the stricter question.** 199 questions, all
-  ten conversations, every strategy on the same 25 000-character budget: overlapping five-turn windows get the
-  first result right 50.8% of the time and everything the answer needs into the top three 69.3% of the time,
-  against 31.7% and 46.2% for one record per turn. The 28 multi-hop questions score 0.0% for every strategy —
-  they need evidence from two conversations weeks apart, which no single record can hold — so 85.9% is the
-  ceiling at rank 1 rather than 100%.
-
-- **The benchmark's retrieval score is now "was the first result right", not "was the evidence somewhere in
-  the top twenty"** (`B-1`, protocol Amendment 6). The old metric could be raised by returning more of the
-  conversation per record — a bigger number, no better retrieval. The report now leads with `all at rank 1`
-  and prints the size of that first record beside it, since one record holding the whole transcript would
-  otherwise score perfectly. The published 66.8% is coverage and is labelled as superseded.
+A patch for one defect: a schema rule the server would not run rejected every record it was supposed to check.
 
 ### Fixed
 
-- **A schema pattern the server would not run was reported as though your data were wrong, and it rejected
-  every record of that type for ever.** The ordinary way to write *"one or more of these, comma-separated"*
-  uses a repeated group — `^D[0-9]+:[0-9]+(,D[0-9]+:[0-9]+)*$`. The server declines to evaluate a pattern
-  that can backtrack exponentially, and said so by answering *"does not match"*: identical to a value that
-  genuinely failed. The schema was accepted when saved, and nothing anywhere said it had never been applied.
+- **A schema pattern too risky to evaluate was reported as though your data were wrong, and it rejected every
+  record of that type for ever.** The ordinary way to write *"one or more of these, comma-separated"* uses a
+  repeated group — `^D[0-9]+:[0-9]+(,D[0-9]+:[0-9]+)*$`. The server declines to run a pattern that can
+  backtrack exponentially, and said so by answering *"does not match"*: the same answer a value that genuinely
+  failed produces. The schema was accepted when it was saved, and nothing anywhere said it had never been
+  applied.
 
-  Such a pattern is now **refused when the schema is saved**, naming the construct so it can be rewritten —
-  on `namingPattern` as well as on a property. A pattern already stored reports `pattern not evaluated, so
-  nothing was checked`, so the operator is sent to the schema rather than to a record that is correct. The
-  safety check itself is unchanged: a stored schema still cannot hang the server on a hostile value.
+  **What to do if you have one.** Such a pattern is now refused when the schema is saved, on `namingPattern`
+  as well as on a property, with a message naming the construct to rewrite — a character class usually does
+  the same job (`^D[0-9]+:[0-9,:D]*$`). A pattern **already stored** now reports `pattern not evaluated, so
+  nothing was checked`, which points at the schema instead of at a record that is correct.
 
+  The safety check itself is unchanged: a stored schema still cannot hang the server on a hostile value.
 
+### Added
 
-- **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
-  fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
-  were affected. The harness now waits until a search actually returns something.
+- **The benchmark folder publishes measured results, not only a method** (`B-1`). It held a protocol written
+  before any result existed and no figure anywhere.
+
+  What is published is the tier that needs no model: for each question the turns the reference answer cites
+  are known, a search is run, and the question asked is **whether the FIRST result held them**. Overlapping
+  five-turn windows get the first answer right 50.8% of the time and put everything the answer needs into the
+  top three 69.3% of the time, against 31.7% and 46.2% for one record per conversation turn. Strategies that
+  lost are published beside the ones that won.
+
+  **The ceiling is 85.9%, not 100%,** and the reason is stated rather than left to be discovered: 28 of the
+  199 questions need evidence from two conversations weeks apart, which no single record can hold.
+
+  **It is deliberately not the number other systems quote.** Those are end-to-end answering — did the system
+  get the question right — and this is whether the evidence was retrieved, so the tier is named everywhere the
+  figure appears. Nothing in the retrieval path was tuned to produce it, and the window shape used is the one
+  written down before any result was read.
 
 ## [4.0.0] — 2026-09-05
 

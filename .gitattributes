@@ -5,6 +5,9 @@
 # working tree here is CRLF (core.autocrlf), a `sh` on Linux reads `set -e\r` as an option called `-\r`, and
 # the script dies on its first line — inside a container, where the error is one line with no context.
 #
-# It is not only this file. Every `.sh` in this repository is run by a container or a CI step on Linux, so any
-# of them would break the same way as soon as somebody checks the repository out on Windows.
+# WHO THIS ACTUALLY AFFECTS, because the first version of this comment overstated it. The committed bytes are
+# LF and always have been, so a Linux or macOS checkout is unaffected and no deployment ever saw this. It
+# reaches exactly one person: a contributor on Windows, whose checkout converts to CRLF, at the moment a POSIX
+# shell runs that working tree — a container bind-mounting it, or WSL. That is a narrow case and it is still
+# worth pinning, because it is invisible until it happens and the error names nothing useful.
 *.sh text eol=lf

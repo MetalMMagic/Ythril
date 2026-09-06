@@ -18,55 +18,117 @@ covers.
 
 ## What has actually been measured
 
-One tier has been run. **Tier 0-R — evidence recall, with no model anywhere in the loop.** Full report and raw
-rows: [`results/2026-08-29-tier0r/`](results/2026-08-29-tier0r/).
+One tier has been run. **Tier 0-R — evidence recall, with no model anywhere in the loop.** For each question
+the turns the reference answer cites are known, a search is run, and the question asked is whether those turns
+came back — and, since 2026-09-06, **whether the FIRST result was the right one**.
 
-> **This table reports COVERAGE, and coverage is the weaker of the two questions.** It asks whether the
-> evidence appeared *somewhere* in twenty results — not whether the first result was right.
-> [Amendment 6](PROTOCOL.md#amendments) replaced it as the headline on 2026-09-06, because a strategy that
-> returns more of the conversation per record raises this number without improving retrieval at all. These
-> rows predate the rank columns and cannot be re-scored for them, so they are kept, labelled, and superseded
-> rather than deleted.
+### The headline: was the first answer right
 
-| rung | questions | all evidence | any evidence | mean records | mean ms |
-|---|---|---|---|---|---|
-| `s0` — raw turns | 199 | **66.8%** | 75.9% | 20.0 | 299 |
-| `s0+` — turns + deterministic structure | 199 | **65.3%** | 74.4% | 20.0 | 90 |
-| `s0g` — facts + graph | 199 | **66.3%** | 75.4% | 20.0 | 58 |
+Full report and raw rows: [`results/2026-09-06-tier0r-rank/`](results/2026-09-06-tier0r-rank/). LoCoMo, dataset pinned by `sha256`,
+199 questions sampled from the 1 982 that cite evidence, all ten conversations. Every rung is given the **same
+25 000-character answer budget** with `topK` set high enough that the budget binds and not the record count —
+otherwise a rung whose records are ten turns long is simply handed ten times the text.
 
-LoCoMo, dataset pinned by `sha256`, 199 questions sampled from the 1 982 that cite evidence. Retrieval is
-`recall` at the shipped default `topK: 20` — no traverse, no threshold, no filter. **Zero model calls**, which is
-why this tier is free to re-run and why it is the one that exists.
+| rung | all at rank 1 | top record chars | all within 3 | MRR | mean depth | all evidence |
+|---|---|---|---|---|---|---|
+| `s0w` — overlapping windows of 5 turns | **50.8%** | 717 | 69.3% | 0.703 | 2.9 | 86.4% |
+| `s0` — one record per turn | **31.7%** | 177 | 46.2% | 0.513 | 5.7 | 73.4% |
+| `s0wd` — the same windows, with the date in the text | **50.8%** | 779 | 66.3% | 0.709 | 2.9 | 86.9% |
+| `s0e` — one record per recurring subject | **10.6%** | 1 322 | 17.6% | 0.228 | 4.1 | 31.7% |
 
-### Read the number with these four caveats, which are the report's own
+- **`all at rank 1`** — the single top-ranked record held every turn the answer cites.
+- **`top record chars`** — how big that first result was. It is printed beside the score because a record
+  holding the whole transcript would rank first, contain everything, and score 100% having retrieved nothing.
+- **`all within 3`** — everything the answer cites, inside the first three results. The question a reader
+  actually has: is what I came for on the screen, or do I have to go looking.
+- **`mean depth`** — how far down the list a caller had to read before holding all the evidence.
+- **`all evidence`** — the old headline: did it come back *anywhere* in the results. Kept, demoted, never
+  quoted alone.
+
+### Why the last row is the most useful one here
+
+`s0e` reaches the **most** of the conversation per query — 96.9 source turns against 77.7 and 48.5 — and is by
+some distance the **worst** at answering. Gathering more text near a query is not the same as ranking the right
+text first, and under the old coverage-only metric it would have read as a middling result rather than a bad
+one.
+
+That is the whole reason the headline changed. A retrieval score can be raised by ranking better or by
+returning more, the second is far easier, and only one of them is retrieval.
+
+### A change that was expected to help and did not
+
+A stored memory says *who* said something and not *when*: the date sits in a property, and a property is never
+embedded. So a question about time has nothing in the corpus to match against — and a fifth of the questions
+are about time.
+
+That is a real defect, and closing it changed nothing. `s0wd` is `s0w` plus one line of date text per record.
+Time questions went from 46.9% to 53.1% at rank 1 — two questions of thirty-two — and the whole set lost six
+from `all within 3`. Net zero, and both movements are inside the noise this harness carries.
+
+It is published because a result that is not a win is the one most likely to go unmentioned, and because it is
+the control for any future claim that the records need more context written into them.
+
+### The wall, stated plainly: multi-hop is 0.0% and cannot be otherwise
+
+**Every rung scores 0.0% at rank 1 on the 28 multi-hop questions**, including the two that do well everywhere
+else. Those questions need evidence from two conversations weeks apart, and no single record can hold both
+without gluing unrelated text together — which is what `s0e` does, and why it is last.
+
+So **100% is not reachable at rank 1**, and the honest ceiling with these 28 excluded is 85.9%. For a
+multi-hop question the meaningful measure is `mean depth`: how few results must be read, not whether the first
+one sufficed. That is a different promise and it is reported separately rather than averaged into the headline.
+
+### Read the number with these caveats, which are the report's own
 
 - **Recall is not accuracy.** This asks whether the turns the gold answer cites came back. It does not ask
-  whether a model would then answer correctly.
+  whether a model would then answer correctly from them.
 - **A miss is not necessarily a failure.** The same fact is often restated elsewhere in a transcript, so an
   answer may be reachable from a turn the gold key does not cite.
-- **More is not better, and this is the caveat that turned out to matter most.** A configuration that returns
-  everything scores perfectly here and is useless. All three rungs above return 20.0 records, so they are
-  comparable to each other — but the moment a rung packs more of the conversation into each record, this number
-  rises without retrieval having improved. That is why the headline is now `all at rank 1` (Amendment 6): did
-  the FIRST result hold what the answer needed. There is only one first result, so nothing can be padded
-  into it.
+- **More is not better** — the caveat that turned out to matter most, and the reason for the metric change
+  above.
 - **This is NOT comparable to a published answer-accuracy number.** Systems quoting LoCoMo percentages are
   usually reporting end-to-end answering; this is evidence recall. Quoting it against one of those would be
   comparing two different measurements, which is the failure this whole folder exists to avoid. The protocol's
   rule is that a tier is only ever published with its own tier named — hence **Tier 0-R**, everywhere, including
   here.
 
-### Nothing was tuned to produce it
+### The first run, superseded and kept
 
-No retrieval parameter was adjusted to improve this score, and the number has not been re-measured after a
-change made to improve it. That is the ordering the protocol pre-registers, and it is worth stating plainly
-because the opposite is cheap and invisible: tune, re-run, publish the better number, mention neither step.
+The original run scored coverage only, at the shipped default `topK: 20` with no budget cap. Its rows predate
+the rank columns and cannot be re-scored for them, so it is kept and labelled rather than deleted — deleting a
+number because a better question came along is how a benchmark folder stops being checkable. Full report:
+[`results/2026-08-29-tier0r/`](results/2026-08-29-tier0r/).
 
-The figures were produced at commit `0093ac77`. The retrieval path has changed three times since — a filter
-grammar widened, a create-time flag, and a mechanical types refactor — and **none of them touches the
-configuration this ran under**, which uses no filter and no traverse. They will be re-measured before any number
-leaves this folder for a public comparison; a number in a public document has to be re-run when the retriever
-changes, and that rule is what makes it worth anything.
+| rung | questions | all evidence | any evidence | mean records | mean ms |
+|---|---|---|---|---|---|
+| `s0` — raw turns | 199 | 66.8% | 75.9% | 20.0 | 299 |
+| `s0+` — turns + deterministic structure | 199 | 65.3% | 74.4% | 20.0 | 90 |
+| `s0g` — facts + graph | 199 | 66.3% | 75.4% | 20.0 | 58 |
+
+### What was tuned, and what deliberately was not
+
+**No retrieval parameter was adjusted.** No filter, no traverse, no threshold, no re-ranking; `topK` is set high
+enough that the byte budget binds instead, which is what makes rungs comparable rather than what makes any of
+them look good.
+
+**The ingestion strategies ARE the subject, so choosing between them is the measurement and not a tuning knob.**
+That is what the ladder in [`INGESTION.md`](INGESTION.md) exists to compare, and each rung is written blind to
+the questions — a gate refuses any import of the question set from `ingest/`.
+
+**The one number that could have been fitted, and was not.** The window rung has a shape — how many turns per
+record, and how far each window advances. A sweep found a larger shape that scores better. **The published
+figure uses the 5-turn, 2-step shape that was written down before any result was read**, because a parameter
+chosen by reading the score is fitted to the answer key by a slower route than looking at it. The sweep's
+numbers are not published as a result.
+
+**Re-measured after every change to the metric, not before.** The rank columns were added on 2026-09-06 and
+every rung was re-run under them; nothing was carried forward from the coverage-only run. The superseded table
+above was produced at commit `0093ac77`, and the retrieval path has changed three times since — a filter
+grammar widened, a create-time flag, and a mechanical types refactor — none of which touches the configuration
+either run used.
+
+A number leaving this folder for a public comparison gets re-run against the retriever as it is on that day.
+That rule is what the figure is worth.
 
 ### What is not measured yet
 

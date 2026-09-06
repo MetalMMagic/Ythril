@@ -35,6 +35,32 @@
  * `MAX_TURNS_PER_SUBJECT` is the second half of that guard: without it, the most common subject in a
  * conversation collects nearly every turn, which is the degenerate record described above arriving by
  * accident rather than by design.
+ *
+ * ## MEASURED: it did not work, and it is kept because of how clearly it did not
+ *
+ * Full run, 199 questions, equal 25 000-character budget (2026-09-06):
+ *
+ * | rung | all at rank 1 | source turns reached per query |
+ * |---|---|---|
+ * | `s0w` windows | 50.8% | 77.7 |
+ * | `s0` one turn per record | 31.7% | 48.5 |
+ * | **`s0e` this rung** | **10.6%** | **96.9** |
+ *
+ * It reaches the MOST of the conversation and answers the WORST, by a factor of five against the best rung.
+ * The intended target did not move either: multi-hop is 3.6% here and 0.0% everywhere else, so gathering a
+ * subject's mentions across sessions bought essentially nothing on the questions it was built for.
+ *
+ * **Why, and it is worth knowing rather than guessing:** a record holding twelve things said about "Anything"
+ * across ten sessions has no subject in the sense a query has one. Its embedding is the average of twelve
+ * unrelated statements, which is close to nothing in particular and therefore close to every query in
+ * particular. The crude capitalised-word rule is part of it — the top subjects include *Long*, *Hey* and
+ * *Anything* — but a perfect subject extractor would still produce a record that answers no specific question,
+ * because the record is a topic index rather than a statement.
+ *
+ * **Kept, not deleted.** It is the cleanest demonstration in the folder that coverage and accuracy are
+ * different measurements: under the old coverage-only headline this rung read as a middling result, and it is
+ * in fact the worst thing here. Deleting the losing arm leaves only the numbers that flatter, which is the
+ * failure the protocol exists to prevent.
  */
 export const rung = 's0e';
 export const recallTypes = ['memory'];

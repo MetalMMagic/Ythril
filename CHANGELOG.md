@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The benchmark publishes a measured retrieval number again, on the stricter question.** 199 questions, all
+  ten conversations, every strategy on the same 25 000-character budget: overlapping five-turn windows get the
+  first result right 50.8% of the time and everything the answer needs into the top three 69.3% of the time,
+  against 31.7% and 46.2% for one record per turn. The 28 multi-hop questions score 0.0% for every strategy —
+  they need evidence from two conversations weeks apart, which no single record can hold — so 85.9% is the
+  ceiling at rank 1 rather than 100%.
+
 - **The benchmark's retrieval score is now "was the first result right", not "was the evidence somewhere in
   the top twenty"** (`B-1`, protocol Amendment 6). The old metric could be raised by returning more of the
   conversation per record — a bigger number, no better retrieval. The report now leads with `all at rank 1`

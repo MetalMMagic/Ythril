@@ -32,6 +32,20 @@
  * records covered — a strategy that wrapped the whole conversation in one record would score perfectly here
  * and be useless, which is the same trap `topK` sets.
  *
+ * **And that claim was checked rather than argued, because the metric it was made under could not check it.**
+ * The original score here was coverage — did the evidence appear anywhere in the results — which rises for
+ * any strategy that returns more per record, so it could not tell chunking from padding. Re-measured at rank
+ * (2026-09-06, 199 questions, equal 25 000-character budget):
+ *
+ * | rung | all at rank 1 | top record chars | mean depth |
+ * |---|---|---|---|
+ * | **this rung** | **50.8%** | 717 | 2.9 |
+ * | `s0` one turn per record | 31.7% | 177 | 5.7 |
+ *
+ * The first result is right nineteen points more often, and a caller reads half as far for the rest. The top
+ * record is four times bigger, which is the cost, and it is 717 characters rather than a transcript. The
+ * strategy survives the stricter question; the number it was originally sold with did not.
+ *
  * ## Overlap, and why STEP < SIZE
  *
  * With `STEP === SIZE` the windows tile without overlap, and an evidence pair that straddles a boundary is

@@ -32,8 +32,9 @@ import * as s0g from './ingest/s0g-turns-as-graph-nodes.mjs';
 import * as s0l from './ingest/s0l-linked-memories.mjs';
 import * as s0w from './ingest/s0w-windowed-turns.mjs';
 import * as s0e from './ingest/s0e-entity-anchored.mjs';
+import * as s0wd from './ingest/s0wd-dated-windows.mjs';
 
-const RUNGS = [s0, s0plus, s0g, s0l, s0w, s0e];
+const RUNGS = [s0, s0plus, s0g, s0l, s0w, s0wd, s0e];
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);

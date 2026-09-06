@@ -145,8 +145,12 @@ test('a question whose evidence never came back does not average in as a good ra
     ],
     meta: META,
   });
-  const line = md.split('\n').find(l => l.startsWith('| `s0x` |'));
-  const depth = line.split('|').map(c => c.trim())[6];
+  // By column NAME. Read by position, this assertion silently moved to a different column the first time
+  // one was inserted before it, and went on passing against whatever landed there.
+  const lines = md.split('\n');
+  const header = lines.find(l => l.startsWith('| rung |')).split('|').map(c => c.trim());
+  const values = lines.find(l => l.startsWith('| `s0x` |')).split('|').map(c => c.trim());
+  const depth = values[header.indexOf('mean depth')];
   assert.equal(depth, '1.0', `mean depth read \`${depth}\`; a miss must be excluded from the mean, not `
     + 'counted as a depth of zero');
 });

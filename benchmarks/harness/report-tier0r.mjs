@@ -72,6 +72,15 @@ function score(rows, keyOf) {
       key,
       n: rs.length,
       allAt1: rs.filter(r => r.allAtRank1).length,
+      /*
+       * Everything the answer cites, inside the first three results.
+       *
+       * A middle ground with a real reader behind it: rank 1 is the strict question and `mean depth` is
+       * skewed by the few questions that need the twentieth record, so neither says how often a caller gets
+       * what they came for from a glance. Three is bounded tightly enough that it cannot be won by padding —
+       * three records still fit in a screen, and `top record chars` catches the strategy of making them huge.
+       */
+      allWithin3: rs.filter(r => typeof r.depth === 'number' && r.depth <= 3).length,
       mrr: mean(rr),
       meanDepth: mean(depths),
       meanTopChars: mean(tops),
@@ -137,11 +146,12 @@ export function tier0rMarkdown({ rows, meta }) {
   lines.push('## Overall');
   lines.push('');
   lines.push(table(
-    ['rung', 'questions', 'all at rank 1', 'top record chars', 'MRR', 'mean depth', 'all evidence',
-      'any evidence', 'mean records', 'mean turns covered', 'mean ms'],
+    ['rung', 'questions', 'all at rank 1', 'top record chars', 'all within 3', 'MRR', 'mean depth',
+      'all evidence', 'any evidence', 'mean records', 'mean turns covered', 'mean ms'],
     score(rows, r => r.rung).map(g => [
       `\`${g.key}\``, g.n, `**${pct(g.allAt1, g.n)}**`, g.meanTopChars?.toFixed(0) ?? '—',
-      g.mrr?.toFixed(3) ?? '—', g.meanDepth?.toFixed(1) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
+      pct(g.allWithin3, g.n), g.mrr?.toFixed(3) ?? '—', g.meanDepth?.toFixed(1) ?? '—',
+      pct(g.all, g.n), pct(g.any, g.n),
       g.meanRecords?.toFixed(1) ?? '—', g.meanRetrieved?.toFixed(1) ?? '—', g.meanMs?.toFixed(0) ?? '—',
     ]),
   ));
@@ -153,10 +163,10 @@ export function tier0rMarkdown({ rows, meta }) {
     lines.push(`**\`${rung}\`**`);
     lines.push('');
     lines.push(table(
-      ['category', 'questions', 'all at rank 1', 'MRR', 'all evidence', 'any evidence'],
+      ['category', 'questions', 'all at rank 1', 'all within 3', 'MRR', 'all evidence', 'any evidence'],
       score(rows.filter(r => r.rung === rung), r => r.category).map(g => [
         `${g.key} — ${CATEGORY_NAMES[g.key] ?? '?'}`, g.n, `**${pct(g.allAt1, g.n)}**`,
-        g.mrr?.toFixed(3) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
+        pct(g.allWithin3, g.n), g.mrr?.toFixed(3) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
       ]),
     ));
     lines.push('');

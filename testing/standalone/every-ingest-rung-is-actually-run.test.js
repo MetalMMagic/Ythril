@@ -30,9 +30,16 @@ import { readFileSync, readdirSync } from 'node:fs';
 const DIR = 'benchmarks/harness/ingest';
 const RUNNER = 'benchmarks/harness/run-tier0r.mjs';
 
-/** The rung modules on disk, by filename. */
+/**
+ * The rung modules on disk, by filename.
+ *
+ * `_`-prefixed files are shared schema and helper pieces the rungs import, not rungs — the runner has no
+ * reason to import them and this gate would otherwise demand it. The PREFIX is the rule rather than a list of
+ * exceptions, so a second shared module needs no edit here, and a rung cannot hide behind it: a rung named
+ * `_something.mjs` would not be found by anything else either.
+ */
 function rungFiles() {
-  return readdirSync(DIR).filter(f => f.endsWith('.mjs')).sort();
+  return readdirSync(DIR).filter(f => f.endsWith('.mjs') && !f.startsWith('_')).sort();
 }
 
 describe('every ingestion rung is registered with the runner', () => {

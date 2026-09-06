@@ -25,6 +25,25 @@
  * `testing/standalone/benchmark-ingest-cannot-see-the-questions.test.js`.
  */
 
+import { TURN_PROPERTIES } from './_schemas.mjs';
+
+/**
+ * What this corpus may contain, declared so the instance enforces it.
+ *
+ * A space defaults to `validationMode: 'strict'` and a declared collection's keys are an ALLOWLIST, so an
+ * undeclared type is a 400 and a missing `required` property is a 400. Without a declaration strict mode
+ * validates NOTHING: there is no rule for an undeclared type, so nothing can be violated.
+ *
+ * A benchmark needs that more than an application does. An application with a broken corpus throws; a
+ * benchmark reports a NUMBER, and a corpus missing a field scores low and reads as a finding about retrieval.
+ */
+export const typeSchemas = {
+  memory: {
+    /* One turn per record: exactly one source id, so `turns` is not carried. */
+    utterance: { propertySchemas: TURN_PROPERTIES },
+  },
+};
+
 export const rung = 's0';
 
 /**

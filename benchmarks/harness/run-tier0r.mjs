@@ -33,8 +33,12 @@ import * as s0l from './ingest/s0l-linked-memories.mjs';
 import * as s0w from './ingest/s0w-windowed-turns.mjs';
 import * as s0e from './ingest/s0e-entity-anchored.mjs';
 import * as s0wd from './ingest/s0wd-dated-windows.mjs';
+import * as s0wl from './ingest/s0wl-linked-windows.mjs';
+import * as s0f from './ingest/s0f-full-decomposition.mjs';
+import * as s0m from './ingest/s0m-multi-scale-windows.mjs';
+import * as s0c from './ingest/s0c-clean-windows.mjs';
 
-const RUNGS = [s0, s0plus, s0g, s0l, s0w, s0wd, s0e];
+const RUNGS = [s0, s0plus, s0g, s0l, s0w, s0wd, s0wl, s0f, s0m, s0c, s0e];
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -89,16 +93,27 @@ function stratifiedSample(questions, n, seed) {
  * A record's graph expansions carry that record's own rank, because they were returned as part of its payload
  * and a caller reading result 1 reads them with it.
  */
-function turnRanks(results) {
+function turnRanks(results, covers) {
   const ranks = new Map();
-  const walk = (r, rank) => {
-    const t = r?.properties?.turn;
-    if (typeof t === 'string') {
-      for (const one of t.split(',')) {
-        const id = one.trim();
-        if (!ranks.has(id)) ranks.set(id, rank);
-      }
+  const note = (ids, rank) => {
+    for (const one of ids) {
+      const id = String(one).trim();
+      if (id && !ranks.has(id)) ranks.set(id, rank);
     }
+  };
+  const walk = (r, rank) => {
+    /*
+     * The OUT-OF-BAND map first, then the record's own property.
+     *
+     * A rung that keeps its coverage outside the corpus is the correct arrangement — a memory's embedded text
+     * includes its properties, key and value, so `turn D3:1,D3:2,D3:3` inside the record puts a dozen
+     * meaningless tokens into every vector in the corpus. Rungs written before that was noticed still store
+     * it, and their numbers are still readable, so both are supported and the record's own field is the
+     * fallback rather than the error.
+     */
+    const outOfBand = covers?.get(r?._id);
+    if (Array.isArray(outOfBand)) note(outOfBand, rank);
+    else if (typeof r?.properties?.turn === 'string') note(r.properties.turn.split(','), rank);
     for (const g of r?._graph ?? []) walk(g.node ?? g, rank);
   };
   (results ?? []).forEach((r, i) => walk(r, i + 1));
@@ -148,6 +163,28 @@ async function main() {
    * pooled.
    */
   const traverseDepth = Number(arg('traverse', '0'));
+  /*
+   * A rung may declare the shallowest walk at which it measures anything, and this REFUSES rather than warns.
+   *
+   * The failure it prevents has happened: a rung whose records link to a shared subject entity was run at
+   * depth 1, where hop 1 reaches the entity and hop 2 — the one that comes back out to the other records —
+   * never runs. Every response was well-formed, `_graph` was non-empty so the walk had plainly executed, and
+   * the score was a plausible number close to the unlinked rung's. It would have been published as "linking
+   * does not help", which is a true-looking conclusion about an experiment that did not take place.
+   *
+   * **A configuration that measures nothing must not be able to produce a number.** A warning would not do:
+   * the run takes half an hour and the warning scrolls past in the first second.
+   */
+  const tooShallow = RUNGS.filter(r => typeof r.minTraverseDepth === 'number'
+    && traverseDepth > 0 && traverseDepth < r.minTraverseDepth
+    && (arg('rungs', '').split(',').filter(Boolean).length === 0
+      || arg('rungs', '').split(',').includes(r.rung)));
+  if (tooShallow.length > 0) {
+    throw new Error(`--traverse ${traverseDepth} is too shallow for `
+      + `${tooShallow.map(r => `${r.rung} (needs ${r.minTraverseDepth})`).join(', ')}. `
+      + 'At this depth the walk reaches the linking entity and stops, so not one extra record comes back — '
+      + 'the run would complete, look healthy, and report a number for an experiment that never ran.');
+  }
   /*
    * `--max-chars` gives every rung the SAME answer budget, which is the only way a chunking strategy can be
    * compared with one record per turn.
@@ -213,13 +250,40 @@ async function main() {
         process.stdout.write(`${records} records REUSED `);
       } else {
         await ythril.deleteSpace(space).catch(() => {});
-        await ythril.createSpace(space);
+        /*
+         * The rung's own declaration of what its corpus may contain, enforced by the instance.
+         *
+         * A space defaults to strict validation, and a declared collection's keys are an allowlist — so a
+         * rung that writes a type it did not declare, or omits a property it declared required, is refused
+         * at the first write instead of producing a corpus that is quietly missing something. A benchmark
+         * reports a NUMBER rather than an exception, so a silently wrong corpus is read as a finding about
+         * retrieval; this converts that into a failure at ingest.
+         *
+         * A rung with no `typeSchemas` is still allowed and validates nothing, which is what every rung did
+         * before this existed — the gate is what stops that being the quiet default forever.
+         */
+        await ythril.createSpace(space, rung.typeSchemas ? { typeSchemas: rung.typeSchemas } : {});
         ({ records, modelCalls } = await rung.ingest({ conversation: conv, ythril, space }));
         process.stdout.write(`${records} records (${modelCalls} model calls) `);
       }
       await ythril.waitForEmbeddings(space, { timeoutMs: 20 * 60_000 });
       const ingestMs = Date.now() - t0;
       process.stdout.write(`embedded in ${(ingestMs / 1000).toFixed(0)}s, `);
+
+      /*
+       * A rung whose coverage lives OUTSIDE the corpus cannot be scored against a space it did not just
+       * write, because the map is built during the ingest and this process never ran one.
+       *
+       * Refused rather than tolerated: with an empty map every question scores zero, the run completes, and
+       * the report says the strategy finds nothing. That is a wrong number rather than a low one, and it is
+       * exactly the shape of failure this harness has produced twice already.
+       */
+      const covers = ythril.coverage(space);
+      if (rung.coversOutOfBand === true && covers.size === 0) {
+        throw new Error(`${rung.rung} keeps its turn coverage outside the records, so it cannot be scored `
+          + 'with --reuse-spaces: the map is built while ingesting and no ingest ran in this process. '
+          + 'Re-run this rung without the flag.');
+      }
 
       const qs = sample.filter(q => q.conversationId === conv.id);
       let asked = 0;
@@ -247,7 +311,7 @@ async function main() {
             ? { traverse: { depth: traverseDepth, ...(rung.traverseExtra ?? {}) } }
             : {}),
         });
-        const ranks = turnRanks(res.results);
+        const ranks = turnRanks(res.results, covers);
         const got = new Set(ranks.keys());
         const want = q.evidence;
         const hit = want.filter(e => got.has(e));

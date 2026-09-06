@@ -295,6 +295,15 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
   const stats = { requests: 0, retries: 0, rateLimitWaitMs: 0, degradedRecalls: 0, embedWaitMs: 0 };
 
   /**
+   * Which source turns each written record covers — space, then record id, then the ids it accounts for.
+   *
+   * Kept out here, next to the client, because the alternative is keeping it in the corpus: see the `covers`
+   * note in `writeRecord` for why a benchmark's answer-joining metadata must not sit inside the records the
+   * benchmark is ranking.
+   */
+  const coverage = new Map();
+
+  /**
    * One request, with the retry policy in the single place every call passes through.
    *
    * The alternative to retrying was batching writes through `POST /spaces/:id/bulk`, which would cut the
@@ -408,7 +417,32 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
       throw new TypeError(`write ${kind}: the record must be a plain object, got ${JSON.stringify(record)}`);
     }
     const route = WRITE_ROUTES[kind];
-    const { suppressEmbeddings, ...rest } = record;
+    const { suppressEmbeddings, covers, ...rest } = record;
+    /*
+     * `covers` is the benchmark's own bookkeeping, and it is stripped here rather than stored.
+     *
+     * ## Why it must not go into the record
+     *
+     * A memory's embedded text is built from its fact, tags, description and PROPERTIES
+     * (`brain/embed-text.ts`), key and value both. So a rung recording which source turns a record covers as
+     * `properties.turn` appends `turn D3:1,D3:2,D3:3,D3:4,D3:5` to the text that gets ranked — a dozen
+     * meaningless tokens on every record in the corpus, diluting every vector by the same amount.
+     *
+     * That is not a shape decision anybody was making on purpose. It is the answer-joining metadata of the
+     * measurement, sitting inside the thing being measured, and no real deployment would store it. Keeping
+     * the mapping out here instead leaves the corpus holding only what a user would actually have.
+     *
+     * ## Why it lives on the client rather than being returned
+     *
+     * Every ingest module writes through this one function, so the map is complete without each of them
+     * remembering to report. The runner reads it back with `coverage(space)` after the ingest and joins on
+     * the record id, which the create response carries.
+     */
+    if (covers !== undefined) {
+      if (!Array.isArray(covers)) {
+        throw new TypeError(`write ${kind}: \`covers\` must be an array of source ids, got ${JSON.stringify(covers)}`);
+      }
+    }
     if (suppressEmbeddings !== undefined && typeof suppressEmbeddings !== 'boolean') {
       throw new TypeError(`write ${kind}: \`suppressEmbeddings\` must be a boolean, got ${JSON.stringify(suppressEmbeddings)}`);
     }
@@ -432,6 +466,10 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
     if (route.idField && body[route.idField] === undefined) body[route.idField] = randomUUID();
 
     const created = await request('POST', brain(space, `/${route.segment}`), { body });
+    if (covers !== undefined) {
+      if (!coverage.has(space)) coverage.set(space, new Map());
+      coverage.get(space).set(created._id, covers);
+    }
     if (suppressEmbeddings === true) {
       await request('PATCH', brain(space, `/${route.segment}/${encodeURIComponent(created._id)}`), {
         body: { suppressEmbeddings: true },
@@ -471,8 +509,25 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
       const chronoSchemas = opts.chronoTypes
         ? Object.fromEntries(opts.chronoTypes.map(t => [t, {}]))
         : undefined;
+      /*
+       * `typeSchemas` is the corpus's OWN definition of what it may contain, and declaring it turns a class
+       * of silent benchmark corruption into a 400 at the first write.
+       *
+       * A new space defaults to `validationMode: 'strict'`, and the keys of each collection's map are an
+       * ALLOWLIST — `types-knowledge.ts:434`. So a rung that declares `memory: { utterance: … }` and then
+       * writes `type: 'note'` is refused, and a property declared `required` that the rung forgets to send is
+       * refused. Without a schema, strict mode validates nothing: there is no rule to violate.
+       *
+       * That matters here more than it would in an application. A benchmark's failure mode is not an
+       * exception, it is a number — a corpus missing a field scores low and reads as a finding about
+       * retrieval. Two experiments were lost to exactly that in one afternoon, both of which a required
+       * property would have stopped at record one.
+       *
+       * Merged UNDER `opts.meta`, so a caller can still override the whole thing deliberately.
+       */
       const meta = {
         ...(chronoSchemas ? { typeSchemas: { chrono: chronoSchemas } } : {}),
+        ...(opts.typeSchemas ? { typeSchemas: opts.typeSchemas } : {}),
         ...(opts.meta ?? {}),
       };
       const body = {
@@ -527,6 +582,16 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
     },
 
     writeMemory: (space, record) => writeRecord(space, 'memory', record),
+
+    /**
+     * The record-to-source-turn map this client recorded while ingesting `space`.
+     *
+     * EMPTY is a legitimate answer — a rung that stores its coverage in the record itself never passes
+     * `covers`, and the runner falls back to reading it from the record. It is NOT a legitimate answer after
+     * `--reuse-spaces`, where no ingest ran and the map was never built; the runner refuses that combination
+     * rather than scoring every question at zero and reporting a number.
+     */
+    coverage: space => coverage.get(space) ?? new Map(),
     writeEntity: (space, record) => writeRecord(space, 'entity', record),
     writeEdge: (space, record) => writeRecord(space, 'edge', record),
     writeChrono: (space, record) => writeRecord(space, 'chrono', record),

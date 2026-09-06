@@ -64,6 +64,41 @@ export const needsModel = false;
  * grid rather than tuned by hand against the score, which is the difference between choosing a parameter and
  * fitting one.
  */
+/**
+ * What this corpus may contain, declared to the instance rather than trusted to the ingest.
+ *
+ * A space defaults to `validationMode: 'strict'`, and the keys of each collection are an ALLOWLIST — so an
+ * undeclared type is refused, and a `required` property that is missing is refused. Without a declaration
+ * strict mode validates NOTHING: there is no rule for an undeclared type, so there is nothing to violate.
+ *
+ * **A benchmark needs this more than an application does.** An application with a broken corpus throws. A
+ * benchmark reports a number, and a corpus missing a field scores low and reads as a finding about
+ * retrieval — the most expensive kind of wrong available here, and it has happened twice in one afternoon.
+ * `turn` is the sharpest example: it is how a result is joined back to the answer key, so a rung that stops
+ * writing it does not score badly, it scores ZERO.
+ */
+export const typeSchemas = {
+  memory: {
+    utterance: {
+      propertySchemas: {
+        session: { type: 'number', required: true, minimum: 1 },
+        /*
+         * NO GROUPS IN THIS PATTERN, and that is not style. The natural form —
+         * `^D[0-9]+:[0-9]+(,D[0-9]+:[0-9]+)*$` — is refused by the instance as a ReDoS risk, and a refused
+         * pattern surfaces as `does not match pattern` against the VALUE. So every correct record is
+         * rejected, permanently, with an error naming the data. Filed as `F-25`. This form has no
+         * parentheses and so cannot trip the heuristic; it is looser, and a rule that runs and is
+         * approximate beats a rule that is exact and silently refuses everything.
+         */
+        turn: { type: 'string', required: true, pattern: '^D[0-9]+:[0-9,:D]*$' },
+        speaker: { type: 'string', required: true },
+        statedOn: { type: 'date', required: true },
+        turns: { type: 'number', required: true, minimum: 1 },
+      },
+    },
+  },
+};
+
 export const WINDOW_SIZE = Number(process.env['BENCH_WINDOW_SIZE'] ?? 5);
 export const WINDOW_STEP = Number(process.env['BENCH_WINDOW_STEP'] ?? 2);
 

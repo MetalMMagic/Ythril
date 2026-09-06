@@ -58,6 +58,33 @@
  *
  * Conversation in, records out. No import here can reach the question set, and a gate enforces it.
  */
+
+import { TURN_PROPERTIES, STRUCTURE_ENTITIES, SESSION_CHRONO } from './_schemas.mjs';
+/**
+ * What this corpus may contain, declared so the instance enforces it.
+ *
+ * A space defaults to `validationMode: 'strict'` and a declared collection's keys are an ALLOWLIST, so an
+ * undeclared type is a 400 and a missing `required` property is a 400. Without a declaration strict mode
+ * validates NOTHING: there is no rule for an undeclared type, so nothing can be violated.
+ *
+ * A benchmark needs that more than an application does. An application with a broken corpus throws; a
+ * benchmark reports a NUMBER, and a corpus missing a field scores low and reads as a finding about retrieval.
+ */
+export const typeSchemas = {
+  entity: {
+    ...STRUCTURE_ENTITIES,
+    /*
+     * A turn modelled as an ENTITY, which this rung's own docblock calls a workaround and it is: it exists
+     * because only an entity could be an edge endpoint. Not suppressed — here the turn IS the content.
+     */
+    utterance: { propertySchemas: TURN_PROPERTIES },
+  },
+  chrono: SESSION_CHRONO,
+  edge: {
+    said_in: { endpoints: { from: ['utterance'], to: ['session'] }, suppressEmbeddings: true },
+  },
+};
+
 export const rung = 's0g';
 
 /**

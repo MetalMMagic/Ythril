@@ -640,6 +640,24 @@ Two things happen automatically when you raise a budget, and both matter:
 Your infrastructure administrator can fix a slot's budget so it cannot be changed here — it will show the
 **env** badge described below.
 
+### Asking a model to think less
+
+Some models reason before they answer, and reason at length: a 27-billion-parameter model measured on a
+partner platform takes **3 minutes 32 seconds** at its own default. Nothing is wrong when that happens — it is
+thinking — but if your call budget is three minutes, every one of those calls fails and the log says timeout.
+
+Raising the budget is one answer; asking for less thinking is usually the better one. Each slot has a
+**Reasoning effort** setting for it: leave it blank and nothing is sent, which is what every installation did
+before this existed. `none` turns thinking off outright and works on any model; `low`, `medium`, `high`,
+`xhigh`, `minimal` and `max` are passed to the model itself.
+
+**Check which values YOUR model accepts, because a wrong one fails every call** — the server starts normally
+and then rejects each request. Qwen3.8, for example, takes `low`, `medium` and `xhigh` and errors on the other
+three; on it, `medium` cuts the wait by about a third.
+
+If you have a second model, pointing the slot at one that does not think is better still. This setting is for
+when you have one model and need it to answer faster.
+
 ### Locked fields
 
 Fields shown with an **env** badge cannot be changed from the UI — they are pinned by an environment variable set by your infrastructure administrator. This is normal in managed deployments where credentials are injected by Kubernetes secrets or similar.

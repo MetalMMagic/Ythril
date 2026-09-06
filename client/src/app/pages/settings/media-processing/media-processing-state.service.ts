@@ -19,6 +19,7 @@ import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
   TestResult, TestTarget, VerifyResult, VerifyTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg, NliCfg,
+  CARD_SLOT, type SlotTuningCfg,
 } from './media-processing.types';
 
 /**
@@ -337,6 +338,15 @@ export class MediaProcessingStateService {
   }
 
   /** The loaded doc-processing config (read-only fields like vlmModel live here). */
+  /**
+   * Per-slot tuning, as the operator is editing it.
+   *
+   * Kept flat and keyed BY SLOT rather than nested inside each card's own block, for the reason the server's
+   * own module gives: a card's block is replaced wholesale by the PATCH, and burying a slot inside one would
+   * make the slot's fate depend on which card happened to be saved.
+   */
+  modelSlots: Record<string, SlotTuningCfg | undefined> = {};
+
   private docCfgSig = signal<DocProcCfg>({});
   docCfg = computed(() => this.docCfgSig());
   docMode = signal<DocMode>('ocr');
@@ -345,6 +355,9 @@ export class MediaProcessingStateService {
     this.http.get<MediaCfg>('/api/admin/media-config').subscribe({
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
+        // Cloned, not aliased: `form` is what the operator edits, and editing the response object
+        // in place makes a discarded edit survive a reload.
+        this.modelSlots = JSON.parse(JSON.stringify(cfg.modelSlots ?? {})) as Record<string, SlotTuningCfg | undefined>;
         this.pinnedUnknown = cfg.pinnedUnknown ?? [];
         /*
          * Read-only STATE the server reports, kept apart from `form`.
@@ -411,18 +424,30 @@ export class MediaProcessingStateService {
    */
   private cardBlock(card: ModelCardId): MediaCfg {
     const base = this.payload();
+    /*
+     * ONE SLOT, the card's own.
+     *
+     * `mergeModelSlots` on the server merges slot by slot, so a card that sent the whole `modelSlots` object
+     * would be fine today and wrong the moment two cards are saved from two tabs — the second would carry a
+     * stale copy of the first's slot. Sending only this card's slot makes a per-card Save mean what it says.
+     */
+    const tuning = CARD_SLOT[card];
+    const slots: MediaCfg['modelSlots'] | undefined = tuning
+      ? { [tuning.slot]: this.modelSlots[tuning.slot] ?? {} }
+      : undefined;
+    const withSlot = (block: MediaCfg): MediaCfg => (slots ? { ...block, modelSlots: slots } : block);
     switch (card) {
-      case 'embedding': return { embedding: base.embedding };
-      case 'rerank': return { rerank: base.rerank };
-      case 'nli': return { nli: base.nli };
-      case 'vision': return { visionProvider: this.form.visionProvider, vision: base.vision };
-      case 'stt': return { sttProvider: this.form.sttProvider, stt: base.stt };
-      case 'face': return { faceRecognition: base.faceRecognition };
+      case 'embedding': return withSlot({ embedding: base.embedding });
+      case 'rerank': return withSlot({ rerank: base.rerank });
+      case 'nli': return withSlot({ nli: base.nli });
+      case 'vision': return withSlot({ visionProvider: this.form.visionProvider, vision: base.vision });
+      case 'stt': return withSlot({ sttProvider: this.form.sttProvider, stt: base.stt });
+      case 'face': return withSlot({ faceRecognition: base.faceRecognition });
       case 'assist': {
         const a = this.assist;
-        return { documentProcessing: { assistModel: {
+        return withSlot({ documentProcessing: { assistModel: {
           baseUrl: a.baseUrl || undefined, model: a.model || undefined, acknowledgedHost: a.acknowledgedHost,
-        } } };
+        } } });
       }
     }
   }

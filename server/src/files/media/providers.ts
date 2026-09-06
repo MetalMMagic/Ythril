@@ -17,7 +17,7 @@ import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
-import { slotTimeoutMs } from '../../config/model-slots.js';
+import { slotTimeoutMs, reasoningEffortBody } from '../../config/model-slots.js';
 import { getModelSlots } from '../../config/loader.js';
 import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
 import { chatUrlFor, transcriptionsUrlFor } from '../converters/vlm-endpoint.js';
@@ -225,6 +225,10 @@ export class ExternalVisionProvider implements VisionProvider {
         },
         body: JSON.stringify({
           model,
+          // Only when the operator set one for this slot. The OLLAMA body above deliberately does not get
+          // this: its wire has no `reasoning_effort`, and a field a server does not know is either ignored
+          // silently or rejected — neither of which is a control.
+          ...reasoningEffortBody('vision', getModelSlots()),
           messages: [
             {
               role: 'user',

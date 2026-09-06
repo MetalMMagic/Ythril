@@ -26,7 +26,8 @@ import { providerSignature, getActiveProviderSignature } from '../files/media/wo
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
 import { DUAL_DOOR_BOUNDS } from '../config/setting-bounds.js';
 import { SERVER_OWNED_MEDIA_PATHS, SERVER_OWNED_MEDIA_HOW } from './media-config-server-owned.js';
-import { MODEL_TIMEOUT_MIN_MS, MODEL_TIMEOUT_MAX_MS, MODEL_SLOTS } from '../config/model-slots.js';
+import { MODEL_TIMEOUT_MIN_MS, MODEL_TIMEOUT_MAX_MS, MODEL_SLOTS, REASONING_EFFORTS,
+  type ReasoningEffort, type ModelSlotTuning } from '../config/model-slots.js';
 import type { ModelSlot, ModelSlotsConfig } from '../config/model-slots.js';
 
 /**
@@ -224,7 +225,16 @@ const FaceRecognitionPatchSchema = z.object({
  */
 const SlotTuningPatchSchema = z.object({
   timeoutMs: z.number().int().min(MODEL_TIMEOUT_MIN_MS).max(MODEL_TIMEOUT_MAX_MS).optional().nullable(),
+  /*
+   * The vocabulary is `llama-server`'s own, not a neutral three — see `REASONING_EFFORTS`. An enum rather
+   * than a free string because a typo would otherwise reach the model and fail EVERY request to this slot
+   * with an error naming the model, which sends the operator to the wrong place entirely.
+   */
+  reasoningEffort: z.enum(REASONING_EFFORTS).optional().nullable(),
 }).strict();
+
+/** What one slot's patch may carry. `null` on a field CLEARS it; absent leaves it alone. */
+export type SlotTuningPatch = { timeoutMs?: number | null; reasoningEffort?: ReasoningEffort | null };
 
 const ModelSlotsPatchSchema = z.object({
   vision: SlotTuningPatchSchema.optional(),
@@ -252,15 +262,33 @@ const ModelSlotsPatchSchema = z.object({
  */
 export function mergeModelSlots(
   existing: ModelSlotsConfig | undefined,
-  patch: Partial<Record<ModelSlot, { timeoutMs?: number | null } | undefined>>,
+  patch: Partial<Record<ModelSlot, SlotTuningPatch | undefined>>,
 ): ModelSlotsConfig {
   const out: ModelSlotsConfig = { ...(existing ?? {}) };
   for (const slot of MODEL_SLOTS) {
     const p = patch[slot];
     if (p === undefined) continue;                    // this slot was not mentioned — leave it alone
-    const timeoutMs = p.timeoutMs;
-    if (timeoutMs === null || timeoutMs === undefined) delete out[slot];
-    else out[slot] = { ...out[slot], timeoutMs };
+
+    /*
+     * FIELD BY FIELD, and the second field is what forced it.
+     *
+     * With one field, "absent" and "cleared" could both delete the slot, because clearing the only field and
+     * clearing the slot are the same thing. They stopped being the same thing the moment a slot could hold
+     * two: a patch setting only `reasoningEffort` would have deleted the slot and taken the operator's
+     * timeout with it — silently, and only visible later as a call that suddenly used the built-in budget.
+     *
+     * So `null` clears its OWN field, absent leaves it alone, and the slot itself is removed only when
+     * nothing is left in it. That last part matters for the config file rather than for behaviour: an empty
+     * `{}` per slot resolves identically, and would accumulate as noise in a file people read.
+     */
+    const next: ModelSlotTuning = { ...out[slot] };
+    if (p.timeoutMs === null) delete next.timeoutMs;
+    else if (p.timeoutMs !== undefined) next.timeoutMs = p.timeoutMs;
+    if (p.reasoningEffort === null) delete next.reasoningEffort;
+    else if (p.reasoningEffort !== undefined) next.reasoningEffort = p.reasoningEffort;
+
+    if (Object.keys(next).length === 0) delete out[slot];
+    else out[slot] = next;
   }
   return out;
 }

@@ -21,17 +21,19 @@
  *   - **A stable `id`** (`embedding`, `vision`, `stt`, `assist`, `doc-render`, `unstructured`,
  *     `face`) so a pipeline step can deep-link to it.
  */
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { HealthDotComponent } from './health-dot.component';
-import { HealthState } from './media-processing.types';
+import { SlotTuningComponent } from './slot-tuning.component';
+import { MediaProcessingStateService } from './media-processing-state.service';
+import { HealthState, CARD_SLOT, SLOT_DEFAULT_MS } from './media-processing.types';
 
 @Component({
   selector: 'app-model-provider-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, HealthDotComponent],
+  imports: [TranslocoPipe, PhIconComponent, HealthDotComponent, SlotTuningComponent],
   styles: [`
     /* Stretch to the grid row's height so the pinned footer actually lands on a shared baseline. */
     :host { display: flex; }
@@ -94,12 +96,41 @@ import { HealthState } from './media-processing.types';
         }
       </div>
 
-      <div class="card-b"><ng-content/></div>
+      <div class="card-b">
+        <ng-content/>
+        @if (state && tuning(); as t) {
+          <!--
+            Rendered by the CARD rather than written into each card's markup on the tab.
+
+            Seven cards need this and two of them need the effort as well. Pasted onto the tab that is thirty
+            near-identical lines in a file the god-file gate had already frozen at 687 code lines - and the
+            gate's point is not the size on any given day, it is that every change lands in the same place
+            because that is where the code already is. The card knows its own id, CARD_SLOT knows what that
+            id tunes, so the tab gains nothing at all.
+          -->
+          <app-slot-tuning [slot]="t.slot" [showEffort]="t.effort" [defaultMs]="t.defaultMs"
+            [disabled]="state.isLocked('modelSlots.' + t.slot)"
+            [value]="state.modelSlots[t.slot]"
+            (valueChange)="state.modelSlots[t.slot] = $event" />
+        }
+      </div>
       <div class="card-f"><ng-content select="[footer]"/></div>
     </section>
   `,
 })
 export class ModelProviderCardComponent {
+  /**
+   * Read directly rather than passed down: the tab would otherwise thread four attributes through seven
+   * cards, and that tab is a frozen file the god-file gate does not let grow.
+   *
+   * OPTIONAL, and that is not a shortcut around a wiring mistake. This card is presentational and is rendered
+   * in specs that provide the page's services as fakes; a hard dependency turned three of those into
+   * NullInjector failures for a control they are not testing. Inside the page the service is always there —
+   * `media-processing-page.component.ts` provides it — so the only thing `null` changes is that a card
+   * rendered outside its page shows no tuning, which is the honest answer for a card with no page to save to.
+   */
+  readonly state = inject(MediaProcessingStateService, { optional: true });
+
   /** Stable, and part of the DOM id — a pipeline step deep-links to `#model-card-<id>`. */
   id = input.required<string>();
   icon = input<string>('cube');
@@ -111,4 +142,15 @@ export class ModelProviderCardComponent {
   infra = input<boolean>(false);
   /** The env var that owns it, named on the pill. Only meaningful when `infra` is true. */
   envVar = input<string>('');
+
+  /**
+   * What this card tunes, or nothing at all.
+   *
+   * A card whose id is not in `CARD_SLOT` shows no tuning — the document and renderer cards are read-only
+   * displays of infra-owned settings and have no per-card Save to carry a change back.
+   */
+  readonly tuning = computed(() => {
+    const entry = CARD_SLOT[this.id()];
+    return entry ? { ...entry, defaultMs: SLOT_DEFAULT_MS[entry.slot] ?? null } : null;
+  });
 }

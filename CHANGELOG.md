@@ -28,6 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Nothing was tuned to produce it**, and that is stated in the file. The commit it was measured at is named,
   along with the three changes to the search path since — none of which touches the settings it ran under.
 
+### Changed
+
+- **The benchmark's retrieval score is now "was the first result right", not "was the evidence somewhere in
+  the top twenty"** (`B-1`, protocol Amendment 6). The old metric could be raised by returning more of the
+  conversation per record — a bigger number, no better retrieval. The report now leads with `all at rank 1`
+  and prints the size of that first record beside it, since one record holding the whole transcript would
+  otherwise score perfectly. The published 66.8% is coverage and is labelled as superseded.
+
+### Fixed
+
+- **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
+  fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
+  were affected. The harness now waits until a search actually returns something.
+
 ## [4.0.0] — 2026-09-05
 
 **4.0 is the release where a link became a record.**

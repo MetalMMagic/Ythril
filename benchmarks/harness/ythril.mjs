@@ -59,6 +59,15 @@ const DEFAULT_MAX_ATTEMPTS = 6;
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CEILING_MS = 30_000;
 
+/**
+ * The query `waitForEmbeddings` probes a space with to prove it is searchable.
+ *
+ * Deliberately meaningless. It must match nothing in particular, because the only thing being asked is
+ * whether the vector index answers AT ALL — and a probe resembling a benchmark question would quietly make
+ * the readiness check depend on the corpus's content.
+ */
+const SEARCHABLE_PROBE = 'probe';
+
 /** How long `waitForEmbeddings` waits in total, and how often it asks. */
 const DEFAULT_EMBED_TIMEOUT_MS = 600_000;
 const DEFAULT_EMBED_POLL_MS = 2_000;
@@ -501,6 +510,22 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
       return true;
     },
 
+    /**
+     * How many records a space holds, per collection — `GET /api/brain/spaces/:id/stats`.
+     *
+     * Added for `--reuse-spaces`, whose whole safety rests on being able to tell a populated space from an
+     * empty or absent one. A reused space that is missing or half-written produces a LOW score, and a low
+     * score reads as a finding about retrieval rather than as a broken run — the most expensive way to be
+     * wrong in a benchmark.
+     *
+     * These are TOTALS and not search coverage: a record is counted here before its embedding exists, which
+     * is why `waitForEmbeddings` still runs after this and is not replaced by it.
+     */
+    async spaceStats(space) {
+      requireString(space, 'spaceStats: space');
+      return request('GET', `/api/brain/spaces/${encodeURIComponent(space)}/stats`);
+    },
+
     writeMemory: (space, record) => writeRecord(space, 'memory', record),
     writeEntity: (space, record) => writeRecord(space, 'entity', record),
     writeEdge: (space, record) => writeRecord(space, 'edge', record),
@@ -623,9 +648,36 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
         }
 
         if (outstanding === 0 && indexReady) {
-          stats.embedWaitMs += Date.now() - startedAt;
-          if (counts.failed > 0 && !allowFailedJobs) throw await failedJobsError(space, counts);
-          return { waitedMs: Date.now() - startedAt, polls, failed: counts.failed, records: counts };
+          /*
+           * The queue being empty is not the same as the corpus being searchable, and believing it was cost
+           * a whole rung's measurement.
+           *
+           * A rung that wrote 35 records finished its ingest in 9 seconds, drained its queue, reported
+           * `indexStatus` ready — and then returned ZERO results for all 16 questions, scoring 0.0% on every
+           * column. The same queries answered normally against the same space minutes later. Two ways to get
+           * here and this check does not care which: the jobs had not been enqueued yet when the first poll
+           * ran, or the vector index on a brand-new space was not live and reported nothing rather than
+           * `building` (an absent status reads as ready, above). Both look identical from outside — the
+           * queue is empty because nothing is in it yet.
+           *
+           * A big corpus hides this. The rungs writing 419 and 186 records took long enough that the index
+           * was live before anyone asked. **So the bug only appears on the FAST rung**, which is the one
+           * whose ingest is cheapest and therefore the one most likely to be run alone.
+           *
+           * The proxy cannot distinguish "nothing left to embed" from "nothing enqueued yet", so this stops
+           * asking the proxy and asks the thing itself: does a recall return anything at all? The probe query
+           * is a fixed neutral string — vector search returns the nearest records for ANY query, so a
+           * non-empty answer means the index is live, and no question is ever consulted to build it.
+           */
+          const searchable = await isSearchable(space);
+          if (searchable) {
+            stats.embedWaitMs += Date.now() - startedAt;
+            if (counts.failed > 0 && !allowFailedJobs) throw await failedJobsError(space, counts);
+            return { waitedMs: Date.now() - startedAt, polls, failed: counts.failed, records: counts };
+          }
+          // Not searchable yet: the drain was premature. Keep the stall clock honest by treating this as
+          // progress, or the "no progress for Ns" branch below fires on a queue that is legitimately empty.
+          lastProgressAt = Date.now();
         }
 
         if (counts.processing === 0 && outstanding > 0 && Date.now() - lastProgressAt > stallMs) {
@@ -670,6 +722,29 @@ export function makeYthril({ baseUrl, token, totpCode, timeoutMs = DEFAULT_TIMEO
     // Not listed means the token cannot see it, which the queue poll below will refuse far more clearly
     // than a guess here would. Ready is the documented reading of an absent status.
     return found?.indexStatus;
+  }
+
+  /**
+   * Can a recall against this space return anything at all?
+   *
+   * The probe is one fixed, neutral query at `topK: 1`. It is not a quality check and must never become one:
+   * vector search ranks every record against whatever it is given, so a non-empty answer means the index is
+   * live and says nothing about whether the retriever is any good. A benchmark question is never used —
+   * nothing here may see one, and a probe built from a question would also make "searchable" depend on which
+   * question happened to be asked first.
+   *
+   * An EMPTY space answers true. It holds nothing, so there is nothing to become searchable, and returning
+   * false would spin until the timeout on a space whose ingest legitimately wrote no records.
+   */
+  async function isSearchable(space) {
+    // Not named `stats` — that is the module's own counters object, and shadowing it here would make
+    // `stats.embedWaitMs` in the caller read like it belonged to this response.
+    const spaceCounts = await request('GET', brain(space, '/stats'));
+    const held = (spaceCounts?.memories ?? 0) + (spaceCounts?.entities ?? 0) + (spaceCounts?.chrono ?? 0);
+    if (held === 0) return true;
+    const probe = await request('POST', brain(space, '/recall'),
+      { body: { query: SEARCHABLE_PROBE, topK: 1 } });
+    return (probe?.results ?? []).length > 0;
   }
 
   /** Name the failures rather than reporting a count nobody can act on. */

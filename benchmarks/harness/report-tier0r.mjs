@@ -58,11 +58,26 @@ function score(rows, keyOf) {
   }
   const out = [];
   for (const [key, rs] of groups) {
+    /*
+     * The reciprocal rank of the FIRST evidence hit, and a miss counts 0 rather than being dropped.
+     *
+     * Dropping it would average only over the questions that worked, so a rung that answered thirty
+     * questions brilliantly and lost the other hundred and sixty would out-score one that answered all of
+     * them adequately. That is the same flattery the coverage metric gives, arriving through the denominator.
+     */
+    const rr = rs.map(r => (r.firstHitRank ? 1 / r.firstHitRank : 0));
+    const depths = rs.map(r => r.depth).filter(d => typeof d === 'number');
+    const tops = rs.map(r => r.topChars).filter(c => typeof c === 'number');
     out.push({
       key,
       n: rs.length,
+      allAt1: rs.filter(r => r.allAtRank1).length,
+      mrr: mean(rr),
+      meanDepth: mean(depths),
+      meanTopChars: mean(tops),
       all: rs.filter(r => r.allEvidence).length,
       any: rs.filter(r => r.anyEvidence).length,
+      meanRecords: mean(rs.map(r => r.records ?? r.retrieved)),
       meanRetrieved: mean(rs.map(r => r.retrieved)),
       meanMs: mean(rs.map(r => r.ms)),
     });
@@ -98,8 +113,21 @@ export function tier0rMarkdown({ rows, meta }) {
   lines.push('- **Recall is not accuracy.** A retrieved turn does not mean a model would answer correctly from it.');
   lines.push('- **A miss is not necessarily a failure.** The same fact is often restated elsewhere in the');
   lines.push('  transcript, so an answer may be available from a turn the gold key does not cite.');
-  lines.push('- **More is not better.** A configuration that returns everything scores perfectly here and is');
-  lines.push('  useless in practice; read the mean-records column beside every score.');
+  lines.push('- **The headline is rank 1, because coverage can be brute-forced and rank cannot.** The owner ruled it');
+  lines.push('  on 2026-09-06: *"first answer must be right - it must reflect reality, not brute force."*');
+  lines.push('  Whether the evidence appeared *somewhere* in twenty results is a weak question — a strategy that');
+  lines.push('  packs more of the conversation into every record wins it without ever having ranked the right');
+  lines.push('  thing first, and a caller still has to read all twenty. `all at rank 1` asks whether the single');
+  lines.push('  top result held everything the answer cites. There is only one first result, so nothing can be');
+  lines.push('  padded into it.');
+  lines.push('- **And `all at rank 1` has its own cheat, which the column beside it closes.** One record holding');
+  lines.push('  the entire conversation would rank first and contain every evidence turn, scoring perfectly while');
+  lines.push('  doing no retrieval at all. `top record chars` is how big that first result was: a high rank-1');
+  lines.push('  score next to a large top record is a transcript being handed back, not a question being');
+  lines.push('  answered. Read the two together or neither means anything.');
+  lines.push('- **`mean depth` is what a caller actually pays.** How far down the list they had to read before');
+  lines.push('  holding all the evidence. A strategy can raise `all evidence` from 66% to 90% while pushing this');
+  lines.push('  from 4 to 18 — worse retrieval, sold as better.');
   lines.push('- **"Adversarial" does not mean unanswerable here.** Category 5 is named adversarial and it is easy to');
   lines.push('  assume that means the answer is absent from the transcript — it is not. In this release all 446 of');
   lines.push('  them cite evidence and carry a real answer, in a separate `adversarial_answer` field rather than');
@@ -109,10 +137,12 @@ export function tier0rMarkdown({ rows, meta }) {
   lines.push('## Overall');
   lines.push('');
   lines.push(table(
-    ['rung', 'questions', 'all evidence', 'any evidence', 'mean records', 'mean ms'],
+    ['rung', 'questions', 'all at rank 1', 'top record chars', 'MRR', 'mean depth', 'all evidence',
+      'any evidence', 'mean records', 'mean turns covered', 'mean ms'],
     score(rows, r => r.rung).map(g => [
-      `\`${g.key}\``, g.n, `**${pct(g.all, g.n)}**`, pct(g.any, g.n),
-      g.meanRetrieved?.toFixed(1) ?? '—', g.meanMs?.toFixed(0) ?? '—',
+      `\`${g.key}\``, g.n, `**${pct(g.allAt1, g.n)}**`, g.meanTopChars?.toFixed(0) ?? '—',
+      g.mrr?.toFixed(3) ?? '—', g.meanDepth?.toFixed(1) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
+      g.meanRecords?.toFixed(1) ?? '—', g.meanRetrieved?.toFixed(1) ?? '—', g.meanMs?.toFixed(0) ?? '—',
     ]),
   ));
   lines.push('');
@@ -123,9 +153,10 @@ export function tier0rMarkdown({ rows, meta }) {
     lines.push(`**\`${rung}\`**`);
     lines.push('');
     lines.push(table(
-      ['category', 'questions', 'all evidence', 'any evidence'],
+      ['category', 'questions', 'all at rank 1', 'MRR', 'all evidence', 'any evidence'],
       score(rows.filter(r => r.rung === rung), r => r.category).map(g => [
-        `${g.key} — ${CATEGORY_NAMES[g.key] ?? '?'}`, g.n, pct(g.all, g.n), pct(g.any, g.n),
+        `${g.key} — ${CATEGORY_NAMES[g.key] ?? '?'}`, g.n, `**${pct(g.allAt1, g.n)}**`,
+        g.mrr?.toFixed(3) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
       ]),
     ));
     lines.push('');
@@ -142,9 +173,10 @@ export function tier0rMarkdown({ rows, meta }) {
     lines.push(`**\`${rung}\`**`);
     lines.push('');
     lines.push(table(
-      ['evidence turns', 'questions', 'all evidence', 'any evidence'],
+      ['evidence turns', 'questions', 'all at rank 1', 'mean depth', 'all evidence', 'any evidence'],
       score(rows.filter(r => r.rung === rung), r => Math.min(r.evidenceCount, 5)).map(g => [
-        g.key === 5 ? '5 or more' : g.key, g.n, pct(g.all, g.n), pct(g.any, g.n),
+        g.key === 5 ? '5 or more' : g.key, g.n, `**${pct(g.allAt1, g.n)}**`,
+        g.meanDepth?.toFixed(1) ?? '—', pct(g.all, g.n), pct(g.any, g.n),
       ]),
     ));
     lines.push('');

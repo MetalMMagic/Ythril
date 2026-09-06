@@ -85,11 +85,22 @@ One module per rung. Each exports:
 ```js
 export const rung = 's4';
 export const needsModel = true;
+export const recallTypes = ['memory'];        // optional — which record types carry this rung's content
+export const traverseExtra = { … };           // optional — merged into `traverse` when depth > 0
 export async function ingest({ conversation, ythril, space, extract })   // -> {records: n, modelCalls: n}
 ```
 
 `extract` is injected, so a rung that needs a model cannot reach one it was not given, and S0/S0+ are provably
 model-free. **No module here imports `loadQuestions`.**
+
+`traverseExtra` exists because a rung can be unmeasurable without a retrieval flag it alone needs. `s0l` links
+its turns to their session and is walked from a matched MEMORY — and bringing non-entity records back is opt-in
+(`includeMemories`), defaulting false. Omit it and that rung reports `graphNodes > 0` with no extra evidence in
+the results: a plausible number measuring the wrong thing, which is worse than a failure.
+
+**A rung must be registered in two places** — the folder and the runner's `RUNGS` array — and
+`every-ingest-rung-is-actually-run.test.js` checks the second. The blindness gate reads the folder and counts,
+so without that check a rung could exist, be provably blind, be counted, and never produce a number.
 
 ## `retrieve.mjs`
 

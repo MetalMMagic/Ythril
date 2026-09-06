@@ -21,6 +21,13 @@ covers.
 One tier has been run. **Tier 0-R — evidence recall, with no model anywhere in the loop.** Full report and raw
 rows: [`results/2026-08-29-tier0r/`](results/2026-08-29-tier0r/).
 
+> **This table reports COVERAGE, and coverage is the weaker of the two questions.** It asks whether the
+> evidence appeared *somewhere* in twenty results — not whether the first result was right.
+> [Amendment 6](PROTOCOL.md#amendments) replaced it as the headline on 2026-09-06, because a strategy that
+> returns more of the conversation per record raises this number without improving retrieval at all. These
+> rows predate the rank columns and cannot be re-scored for them, so they are kept, labelled, and superseded
+> rather than deleted.
+
 | rung | questions | all evidence | any evidence | mean records | mean ms |
 |---|---|---|---|---|---|
 | `s0` — raw turns | 199 | **66.8%** | 75.9% | 20.0 | 299 |
@@ -37,8 +44,12 @@ why this tier is free to re-run and why it is the one that exists.
   whether a model would then answer correctly.
 - **A miss is not necessarily a failure.** The same fact is often restated elsewhere in a transcript, so an
   answer may be reachable from a turn the gold key does not cite.
-- **More is not better.** A configuration that returns everything scores perfectly here and is useless. Read the
-  mean-records column beside every score — all three rungs return 20.0, so they are comparable to each other.
+- **More is not better, and this is the caveat that turned out to matter most.** A configuration that returns
+  everything scores perfectly here and is useless. All three rungs above return 20.0 records, so they are
+  comparable to each other — but the moment a rung packs more of the conversation into each record, this number
+  rises without retrieval having improved. That is why the headline is now `all at rank 1` (Amendment 6): did
+  the FIRST result hold what the answer needed. There is only one first result, so nothing can be padded
+  into it.
 - **This is NOT comparable to a published answer-accuracy number.** Systems quoting LoCoMo percentages are
   usually reporting end-to-end answering; this is evidence recall. Quoting it against one of those would be
   comparing two different measurements, which is the failure this whole folder exists to avoid. The protocol's

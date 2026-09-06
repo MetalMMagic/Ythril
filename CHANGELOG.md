@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Internal: shell scripts are pinned to LF in `.gitattributes`.** No deployment was affected — the
+  committed bytes have always been LF, and a Linux or macOS checkout gets them unchanged. It bites a
+  contributor on Windows, whose checkout converts to CRLF, when a POSIX shell then runs that working tree:
+  a container bind-mounting it, or WSL. `sh` reads the carriage return after `set -e` as part of the option
+  name and the script dies on its first line.
 - **The benchmark's own bookkeeping was inside the records it was ranking.** A memory's embedded text is
   built from its fact, tags, description and properties — key and value both — so every benchmark record
   carried `turn D3:1,D3:2,D3:3 speaker Caroline,Melanie statedOn 2023-06-27 turns 5` in its vector. That is

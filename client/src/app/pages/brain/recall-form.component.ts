@@ -179,8 +179,20 @@ export interface RecallTypeOpt {
      and a forgotten one does not break anything visibly: the request preview simply stops updating for
      that field, which is the one failure a preview must not have, because it is believed. -->
 <div (input)="bumpRequest()" (change)="bumpRequest()">
-<!-- The question. Its own block at full width, because it is the only field that is always used. -->
-<div class="rf-group">
+<!--
+     THE QUESTION AND THE TWO JSON FIELDS, side by side as cards.
+
+     They were a full-width question with the filter and projection buried in the grid below it, among the
+     tag and type controls. Owner, 2026-09-07: the JSON filter and projection should be cards beside the
+     question. They belong together because they are the three things that decide WHAT is searched — the
+     rest of this form decides how much comes back and in what shape.
+
+     Same rf-row of rf-group cards the section further down uses, so the panel has one card idiom rather
+     than two. The two JSON cards carry rf-json, which gives them the wider flex basis a monospace textarea
+     needs before it starts wrapping mid-token.
+  -->
+<div class="rf-row">
+  <div class="rf-group">
     <div class="rf-legend">{{ 'brain.query.group.question' | transloco }}</div>
     <div class="rf-field">
       <label>{{ 'brain.query.search.label' | transloco }}</label>
@@ -194,6 +206,36 @@ export interface RecallTypeOpt {
         [attr.aria-label]="'brain.query.search.label' | transloco"
       />
     </div>
+  </div>
+
+  <div class="rf-group rf-json">
+    <div class="rf-legend">{{ 'brain.query.filter' | transloco }}</div>
+    <div class="rf-field">
+      <textarea [(ngModel)]="form().filter" name="recallFilter" rows="3"
+        [placeholder]="'brain.query.filter.placeholder' | transloco"
+        [attr.aria-label]="'brain.query.filter' | transloco"
+        style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
+    </div>
+  </div>
+
+  <!-- A JSON object like the filter, deliberately, and not a comma-separated field list: the API takes an
+       object and can exclude as well as include, so a field list would be a control that looks complete and
+       cannot express half of what the parameter does. -->
+  <div class="rf-group rf-json">
+    <div class="rf-legend">{{ 'brain.query.projection' | transloco }}
+      <span class="rf-hint" [attr.title]="'brain.query.projection.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
+    </div>
+    <div class="rf-field">
+      <textarea [(ngModel)]="form().projection" name="recallProjection" rows="3"
+        [placeholder]="'brain.query.projection.placeholder' | transloco"
+        [attr.aria-label]="'brain.query.projection' | transloco"
+        style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
+    </div>
+  </div>
+</div>
+
+<div class="rf-group">
+    <div class="rf-legend">{{ 'brain.query.group.narrow' | transloco }}</div>
     <div class="rf-groups">
       <div class="rf-field">
         <label>{{ 'brain.query.tags' | transloco }}</label>
@@ -208,23 +250,6 @@ export interface RecallTypeOpt {
             <option [value]="t">{{ t }}</option>
           }
         </select>
-      </div>
-      <div class="rf-field rf-wide">
-        <label>{{ 'brain.query.filter' | transloco }}</label>
-        <textarea [(ngModel)]="form().filter" name="recallFilter" rows="2"
-          [placeholder]="'brain.query.filter.placeholder' | transloco"
-          style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
-      </div>
-      <!-- A JSON object like the filter above, deliberately, and not a comma-separated field list: the API
-           takes an object and can exclude as well as include, so a field list would be a control that looks
-           complete and cannot express half of what the parameter does. -->
-      <div class="rf-field rf-wide">
-        <label>{{ 'brain.query.projection' | transloco }}
-          <span class="rf-hint" [attr.title]="'brain.query.projection.tooltip' | transloco"><ph-icon name="info" [size]="11"/></span>
-        </label>
-        <textarea [(ngModel)]="form().projection" name="recallProjection" rows="2"
-          [placeholder]="'brain.query.projection.placeholder' | transloco"
-          style="font-family:var(--font-mono, monospace); font-size:12px;"></textarea>
       </div>
     </div>
 </div>

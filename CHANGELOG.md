@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
 ### Added
-
 - **A slot can ask a thinking model to think less.** Each model slot gains a **Reasoning effort** setting,
   sent as `reasoning_effort` on the OpenAI-shaped request. Blank means the field is not sent at all, which is
   what every installation did before this existed.
@@ -34,8 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty budget means the built-in default, shown as the placeholder; an empty effort means nothing is sent.
   Infra pins a slot as before, and both controls lock together.
 
-
 ### Changed
+- **The question, the JSON filter and the JSON projection are three cards side by side** on Brain → Query →
+  Semantic Search. They are the three controls that decide WHAT is searched; the rest of the panel decides
+  how much comes back and in what shape. The filter and projection were previously buried below the question
+  among the tag and type fields.
+
+
+
 
 - **Every benchmark ingest strategy declares what its corpus may contain, and the instance enforces it.**
   The spaces were created bare: `validationMode` defaults to strict, but with no `typeSchemas` there is
@@ -48,8 +52,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer budget a `traverse: 2` recall returned 6.0 records where the same query without the walk returned
   19.7. Filed as `F-24` — a caller cannot cap how far one match spreads.
 
-
 ### Fixed
+- **The Query panel no longer reshapes the answer it shows you.** Records reached by graph traversal were
+  appended to the result list as if they were matches — in rank order, counted in the total, and
+  indistinguishable from a record that actually answered the question. They now sit under the match that
+  reached them, grouped as entities, memories, chrono entries and files, each shown whole with its hop count
+  and the link that reached it.
+
+  **Why this is a bug and not a preference:** the panel is where queries are tested before they are sent by
+  something else. A request tried there and then issued by an MCP client has to come back the same shape, or
+  the screen is teaching a contract the product does not have.
+
+- **A semantic search that matched nothing now says so.** It rendered exactly what the panel shows before
+  you have searched at all — nothing — so the natural reading was that the button had not worked. The
+  advanced-query side has always said "no documents"; this side kept only the result list, and an empty list
+  cannot tell "found nothing" from "not asked yet". An error still reads as an error rather than as no
+  matches, because a search that failed did not find nothing, it did not finish.
+
+
 
 - **Internal: shell scripts are pinned to LF in `.gitattributes`.** No deployment was affected — the
   committed bytes have always been LF, and a Linux or macOS checkout gets them unchanged. It bites a
@@ -65,7 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A benchmark rung could be measured before its records were searchable**, scoring 0% for a corpus that was
   fine. An empty embedding queue cannot distinguish "finished" from "not enqueued yet", and only fast ingests
   were affected. The harness now waits until a search actually returns something.
-
 
 ## [4.0.1] — 2026-09-06
 

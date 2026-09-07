@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A batch can now connect the records it creates.** `bulk_write` took four record arrays in one payload and
+  its own contract said why that was not enough: you cannot reference a record the call creates, because
+  identities are minted server-side. Put `"$ref": "post-1"` on an item and later items name it as
+  `"$ref:post-1"` — in an edge's `from`/`to`, or in a link field.
+
+  The operator who asked measured the cost: posting ONE message to their board took six round trips, one
+  `upsert_entity` and five `upsert_edge` for `posted_by`, `addressed_to`, two `answers` and one `corrects`.
+  It is one call now.
+
+  **The key is not an id.** It is scoped to the call, never stored, and means nothing after the response —
+  the record's identity is still minted by the write.
+
+  **Edges are written LAST**, after every record array. They used to run before chrono entries, and the order
+  was documented as mattering only for records a batch updates; a correlation key changes that, because a
+  reference cannot point forwards and an edge to a chrono entry in the same payload could never have
+  resolved. Now "declare it earlier in the call" is true for every kind rather than for the two that
+  happened to come first.
+
+  **A stated kind is now CHECKED rather than used.** `fromKind`/`toKind` exist because a bare UUID can name
+  records in two collections and a wrong guess stores a relationship that reads as correct and points at
+  nothing. A `$ref` cannot be ambiguous — the array it was declared in says what it is — so a kind that
+  disagrees is refused rather than resolved. A key used twice is refused too, rather than overwritten.
+
+- **`bulk_write` checks references for EXISTENCE on a converted space.** This door has always been laxer than
+  the single-record ones — shape only, never existence — which is a defensible trade for an import where
+  records legitimately arrive in an order nobody controls.
+
+  It stops being defensible once the correlation key makes the batch the normal way to write a linked record.
+  In the reporter's words: their correspondence, deploy log and ticket updates would all move onto the door
+  with the weaker guarantee, *"and a dangling `answers` edge is exactly the failure we would never notice —
+  it reads as an unanswered post forever."*
+
+  Scoped to spaces that have converted to link records, which is exactly the concern raised: such a space has
+  already declared that links are the model. An unconverted space keeps the import trade unchanged.
+
 - **A record and its relationships are ONE call again, on every create door.** Reported by a fleet operator
   as the thing stopping them converting to link records: every write door takes a reference at create time
   today, those are refused after conversion, and attaching a record to three things becomes four calls.

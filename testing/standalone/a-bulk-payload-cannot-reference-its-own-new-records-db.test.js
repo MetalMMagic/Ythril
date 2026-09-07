@@ -102,7 +102,17 @@ const PROMISE = [
  * Loose on purpose: this pins that the surface addresses where a new record's id comes FROM, not the wording.
  * A required exact sentence is a gate that fails on an improvement.
  */
-const TRUTH = /mint|minted|not adopted|never adopted|from the response|in the response|two calls|a second call/i;
+/*
+ * WHAT TO DO INSTEAD — and the answer changed with `F-27` item 2.
+ *
+ * It used to be "take the ids from the response and send the edges as a second call", because there was no
+ * other way. There is now: a `$ref` correlation key names a record the same call creates. Both still count
+ * as an answer, and so does the unchanged half — the id is MINTED, never adopted from what you sent.
+ *
+ * What must never come back is the claim this file exists for: that a LITERAL id you invent can be
+ * referenced. `PROMISE` above still holds that line.
+ */
+const TRUTH = /mint|minted|not adopted|never adopted|from the response|in the response|two calls|a second call|\$ref/i;
 
 /**
  * The processing order, which every one of these surfaces states and which is the anchor the correction hangs
@@ -155,7 +165,9 @@ describe('no surface promises a bulk forward reference', () => {
         + '— re-anchor this case rather than removing it');
       assert.match(src.slice(at, at + PASSAGE), TRUTH,
         `${s.file} (${s.who}) no longer promises a forward reference but does not say what to do instead — a `
-        + 'caller needs to know the ids come back in the response and the edges are a second call');
+        + 'caller needs the answer that works: a `$ref` correlation key, or the ids from the response and a '
+        + 'second call. Removing the false sentence without replacing it leaves the next writer to re-derive '
+        + 'the wrong one.');
     });
   }
 });

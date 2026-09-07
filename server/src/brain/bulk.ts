@@ -17,6 +17,7 @@ import { arrayWriteError } from './array-write-refusal.js';
 import { shapeError } from './write-shape.js';
 import { parseRecurrence } from './chrono.js';
 import { usesLinkRecords } from './link-adjacency.js';
+import { assertRefsResolve } from './entity-refs.js';
 import { getConfig } from '../config/loader.js';
 import {
   resolveMetaRefs, getAllowedChronoTypes, validateMemory, validateEntity, validateEdge, validateChrono,
@@ -25,6 +26,7 @@ import { isStrictLinkage } from '../spaces/proxy.js';
 import { remember } from './memory.js';
 import { upsertEntity } from './entities.js';
 import { upsertEdge, findEdgeByTriplet } from './edges.js';
+import { BatchRefs, resolveRef, refKeyDeclared } from './batch-refs.js';
 import { resolveEdgeEndsForWrite } from './edge-endpoint-names.js';
 import { mergeTagsAndProperties, mergePropertiesOrKeep } from './merge-fields.js';
 import { createChrono } from './chrono.js';
@@ -86,7 +88,7 @@ function slice(v: unknown): Record<string, unknown>[] {
 
 /**
  * Process a batch of memories/entities/edges/chrono for one space. Deterministic order
- * (memories → entities → edges → chrono), which matters only for records the batch UPDATES: an entity
+ * (memories → entities → chrono → EDGES LAST), which matters only for records the batch UPDATES: an entity
  * addressed by an existing id is written before an edge below reads it. Per-item failures are collected,
  * never fatal. Returns counts + errors.
  *
@@ -108,8 +110,33 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
    * config inside a loop over a thousand items is a thousand lookups of a value that cannot change between
    * them. Each item is still refused individually, so a batch reports which of its items were the problem
    * instead of failing whole.
+   *
+   * ## `F-27` item 2, owner's ruling 2026-09-07: it also decides whether a REFERENCE is existence-checked
+   *
+   * This door is deliberately laxer than the single-record ones — references are checked for shape and never
+   * for existence, which is a defensible trade for a bulk import where records legitimately arrive in an
+   * order nobody controls.
+   *
+   * It stops being defensible once the correlation key makes this the normal way to write a linked record.
+   * The operator said so plainly: their correspondence, deploy log and ticket updates would all move onto the
+   * door with the weaker guarantee, *"and a dangling `answers` edge is exactly the failure we would never
+   * notice — it reads as an unanswered post forever."*
+   *
+   * Scoped to converted spaces rather than everywhere, which is exactly their concern: a space that has
+   * converted has already declared that links are the model. An unconverted space keeps the import trade.
+   *
+   * ONE flag for both, deliberately. They are the same question — has this space converted — and a second
+   * name for it is a second thing that can be read differently.
    */
   const converted = usesLinkRecords(spaceId);
+
+  /*
+   * `F-27` item 2: what this call has minted, by the key its author gave it.
+   *
+   * One table for the whole batch, and it never reaches a document — the key exists for the length of this
+   * request. See `batch-refs.ts` for why a duplicate key is refused rather than resolved.
+   */
+  const refs = new BatchRefs();
 
   const inserted: Counts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
   const updated: Counts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
@@ -161,9 +188,22 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     }
     try {
       if (schemaFails('memory', i, validateMemory(meta ?? {}, { type, properties }))) continue;
-      await remember(spaceId, fact, memEntityIds, strArray(item['tags']),
+      const memDoc = await remember(spaceId, fact, memEntityIds, strArray(item['tags']),
         typeof item['description'] === 'string' ? item['description'] : undefined, properties, type,
         undefined, undefined, ttlDays, rawId);
+      /*
+       * `F-27` item 2: record what this item's key names, if it declared one.
+       *
+       * After the write, because the id is minted by it. A duplicate key is reported as an item error and
+       * the record still stands — the write already happened, and refusing to record the key is the honest
+       * consequence rather than pretending the row is not there.
+       */
+      const keyMem = refKeyDeclared(item);
+      if (keyMem) {
+        const dupe = refs.declare(keyMem, memDoc._id, 'memory');
+        if (dupe) errors.push({ type: 'memory', index: i, reason: dupe });
+      }
+
       inserted.memories++;
     } catch (err) { errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) }); }
   }
@@ -210,83 +250,21 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
       if (schemaFails('entity', i, validateEntity(meta ?? {}, { name, type, properties: mergedEnt.properties }))) continue;
       const result = await upsertEntity(spaceId, name, type, strArray(item['tags']), properties,
         typeof item['description'] === 'string' ? item['description'] : undefined, rawId, undefined, undefined, ttlDays);
+      /*
+       * `F-27` item 2: record what this item's key names, if it declared one.
+       *
+       * After the write, because the id is minted by it. A duplicate key is reported as an item error and
+       * the record still stands — the write already happened, and refusing to record the key is the honest
+       * consequence rather than pretending the row is not there.
+       */
+      const keyEnt = refKeyDeclared(item);
+      if (keyEnt) {
+        const dupe = refs.declare(keyEnt, result.entity._id, 'entity');
+        if (dupe) errors.push({ type: 'entity', index: i, reason: dupe });
+      }
       if (existing) updated.entities++; else inserted.entities++;
       if (result.warning) errors.push({ type: 'entity', index: i, reason: result.warning });
     } catch (err) { errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) }); }
-  }
-
-  // ── edges ──────────────────────────────────────────────────────────────────
-  const edges = slice(input.edges);
-  for (let i = 0; i < edges.length; i++) {
-    const item = edges[i]!;
-    const from = typeof item['from'] === 'string' ? item['from'].trim() : '';
-    const to = typeof item['to'] === 'string' ? item['to'].trim() : '';
-    const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
-    /*
-     * The endpoint kinds, and they have to be read HERE rather than left to `upsertEdge`, because the shape
-     * check two lines down is this door's own copy: a `file` endpoint is a path, so a bulk import of
-     * file-ended edges would be refused item by item against a UUID pattern while the same edges go through
-     * one at a time on the other two doors.
-     *
-     * An unknown kind is an item error rather than a throw — bulk's contract is per-item, so it says which
-     * index is wrong and carries on with the rest.
-     */
-    const rawFromKind = item['fromKind'];
-    const rawToKind = item['toKind'];
-    const badKind = ([['fromKind', rawFromKind], ['toKind', rawToKind]] as const)
-      .find(([, v]) => v !== undefined && (typeof v !== 'string' || !(REF_KINDS as readonly string[]).includes(v)));
-    if (badKind) { errors.push({ type: 'edge', index: i, reason: `\`${badKind[0]}\` must be one of: ${REF_KINDS.join(', ')}` }); continue; }
-    const fromKind = edgeEndpointKind(rawFromKind as RefKind | undefined);
-    const toKind = edgeEndpointKind(rawToKind as RefKind | undefined);
-    if (!from) { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' }); continue; }
-    if (strict && !isWellFormedRef(fromKind, from)) { errors.push({ type: 'edge', index: i, reason: `\`from\` must be a valid ${fromKind} reference, not a name` }); continue; }
-    if (!to) { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' }); continue; }
-    if (strict && !isWellFormedRef(toKind, to)) { errors.push({ type: 'edge', index: i, reason: `\`to\` must be a valid ${toKind} reference, not a name` }); continue; }
-    if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
-    const properties = optProps(item['properties']);
-    const ttlDays = bulkTtlDays(item['ttlDays']);
-    if (ttlDays === TTL_INVALID) { errors.push({ type: 'edge', index: i, reason: TTL_INVALID_MSG }); continue; }
-    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
-    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
-    // so a batch stored what the single create refuses and reported nothing.
-    const shapeErr = shapeError('edge', item);
-    if (shapeErr) { errors.push({ type: 'edge', index: i, reason: shapeErr }); continue; }
-    try {
-      /*
-       * `upsertEdge` validates too, since 2026-08-29 — this check is kept for REPORTING, not for enforcement.
-       *
-       * Bulk's contract is per-item: it must say which index failed and carry on with the rest. Letting the
-       * throw from `upsertEdge` do the work would report the same refusal with less structure, and the catch
-       * below would flatten it to a message. So this stays as the reporting path while the write function is
-       * the guarantee — the distinction matters, because the enforcement is no longer THIS line's job.
-       */
-      const existing = await findEdgeByTriplet(spaceId, from, to, label, fromKind, toKind);
-      /*
-       * The endpoint facts, resolved for the REPORT as well as the write.
-       *
-       * `upsertEdge` resolves and enforces on its own; if this line handed the validator nothing, an endpoint
-       * refusal would still happen — as a throw, flattened by the catch below into a message naming the field.
-       * The item's reason would stop saying which types are allowed, which on a per-item contract is the whole
-       * value of the report. One rule, and this is the copy that would have carried less.
-       *
-       * An endpoint that does not resolve is left ABSENT rather than reported, which is what keeps bulk's own
-       * contract intact: references here are checked for shape and never for existence, so a well-formed id
-       * pointing at nothing is stored on purpose. An unresolved end cannot break an endpoint rule.
-       */
-      const resolvedEnds = await resolveEdgeEndsForWrite(spaceId, from, to, label, { fromKind, toKind });
-      if (schemaFails('edge', i, validateEdge(meta ?? {},
-        { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }, resolvedEnds))) continue;
-      await upsertEdge(spaceId, from, to, label,
-        typeof item['weight'] === 'number' ? item['weight'] : undefined,
-        typeof item['type'] === 'string' ? item['type'] : undefined,
-        typeof item['description'] === 'string' ? item['description'] : undefined,
-        properties, optStrArray(item['tags']), undefined, ttlDays,
-        {
-          ...(rawFromKind !== undefined ? { fromKind } : {}),
-          ...(rawToKind !== undefined ? { toKind } : {}),
-        });
-      if (existing) updated.edges++; else inserted.edges++;
-    } catch (err) { errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) }); }
   }
 
   // ── chrono ─────────────────────────────────────────────────────────────────
@@ -341,7 +319,7 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'chrono', index: i, reason: TTL_INVALID_MSG }); continue; }
     try {
       if (schemaFails('chrono', i, validateChrono(meta ?? {}, { type, properties }))) continue;
-      await createChrono(spaceId, {
+      const chronoDoc = await createChrono(spaceId, {
         title, type: type as ChronoType, startsAt,
         endsAt: typeof item['endsAt'] === 'string' ? item['endsAt'] : undefined,
         status, confidence: typeof item['confidence'] === 'number' ? item['confidence'] : undefined,
@@ -349,8 +327,128 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
         tags: optStrArray(item['tags']), entityIds, memoryIds, properties,
         recurrence: rec.value, id: rawId,
       }, undefined, ttlDays);
+      /*
+       * `F-27` item 2: record what this item's key names, if it declared one. After the write, because the
+       * id is minted by it.
+       */
+      const keyChrono = refKeyDeclared(item);
+      if (keyChrono) {
+        const dupe = refs.declare(keyChrono, chronoDoc._id, 'chrono');
+        if (dupe) errors.push({ type: 'chrono', index: i, reason: dupe });
+      }
       inserted.chrono++;
     } catch (err) { errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) }); }
+  }
+
+  /*
+   * EDGES RUN LAST, since `F-27` item 2.
+   *
+   * They used to run before chrono, and the order was documented as mattering only for records the batch
+   * UPDATES. A correlation key changes that: an edge may name a record this call created, and a reference
+   * cannot point forwards — so an edge to a chrono entry in the same payload could never have resolved.
+   *
+   * Every record array is written before any edge is, which makes 'declare it earlier in the call' true for
+   * every kind rather than for the two that happened to come first.
+   */
+  // ── edges ──────────────────────────────────────────────────────────────────
+  const edges = slice(input.edges);
+  for (let i = 0; i < edges.length; i++) {
+    const item = edges[i]!;
+    const rawFrom = typeof item['from'] === 'string' ? item['from'].trim() : '';
+    const rawTo = typeof item['to'] === 'string' ? item['to'].trim() : '';
+    const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
+    /*
+     * The endpoint kinds, and they have to be read HERE rather than left to `upsertEdge`, because the shape
+     * check two lines down is this door's own copy: a `file` endpoint is a path, so a bulk import of
+     * file-ended edges would be refused item by item against a UUID pattern while the same edges go through
+     * one at a time on the other two doors.
+     *
+     * An unknown kind is an item error rather than a throw — bulk's contract is per-item, so it says which
+     * index is wrong and carries on with the rest.
+     */
+    const rawFromKind = item['fromKind'];
+    const rawToKind = item['toKind'];
+    const badKind = ([['fromKind', rawFromKind], ['toKind', rawToKind]] as const)
+      .find(([, v]) => v !== undefined && (typeof v !== 'string' || !(REF_KINDS as readonly string[]).includes(v)));
+    if (badKind) { errors.push({ type: 'edge', index: i, reason: `\`${badKind[0]}\` must be one of: ${REF_KINDS.join(', ')}` }); continue; }
+    /*
+     * `F-27` item 2: an end may name a record this call created, as `$ref:key`.
+     *
+     * Resolved BEFORE the well-formedness checks below, because a reference is not a UUID and would be
+     * refused by them — and resolved with the STATED kind so a disagreement is caught here rather than
+     * stored. Where a `$ref` resolves, the kind comes from the array it was declared in: `fromKind` on an
+     * item whose `from` is a reference is a claim to check, not an input to use.
+     */
+    const fromRef = resolveRef(rawFrom, refs, rawFromKind as RefKind | undefined);
+    const toRef = resolveRef(rawTo, refs, rawToKind as RefKind | undefined);
+    if (fromRef.error) { errors.push({ type: 'edge', index: i, reason: `from: ${fromRef.error}` }); continue; }
+    if (toRef.error) { errors.push({ type: 'edge', index: i, reason: `to: ${toRef.error}` }); continue; }
+    const from = fromRef.id ?? '';
+    const to = toRef.id ?? '';
+
+    const fromKind = fromRef.kind ?? edgeEndpointKind(rawFromKind as RefKind | undefined);
+    const toKind = toRef.kind ?? edgeEndpointKind(rawToKind as RefKind | undefined);
+    if (!from) { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' }); continue; }
+    if (strict && !isWellFormedRef(fromKind, from)) { errors.push({ type: 'edge', index: i, reason: `\`from\` must be a valid ${fromKind} reference, not a name` }); continue; }
+    if (!to) { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' }); continue; }
+    if (strict && !isWellFormedRef(toKind, to)) { errors.push({ type: 'edge', index: i, reason: `\`to\` must be a valid ${toKind} reference, not a name` }); continue; }
+    /*
+     * `F-27` item 2: on a CONVERTED space both ends must EXIST.
+     *
+     * A `$ref` that resolved is existent by construction — it names a record this call just wrote — so this
+     * costs nothing for the case the feature is for. What it catches is the literal id: a well-formed UUID
+     * pointing at nothing, which this door has always stored and which becomes unacceptable once the batch
+     * is how linked records are written.
+     */
+    if (converted) {
+      const missing = await firstMissingEnd(spaceId, [[from, fromKind, 'from'], [to, toKind, 'to']]);
+      if (missing) { errors.push({ type: 'edge', index: i, reason: missing }); continue; }
+    }
+    if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
+    const properties = optProps(item['properties']);
+    const ttlDays = bulkTtlDays(item['ttlDays']);
+    if (ttlDays === TTL_INVALID) { errors.push({ type: 'edge', index: i, reason: TTL_INVALID_MSG }); continue; }
+    // `W-14`..`W-22`: the same value rules the single-record doors read. Bulk had its own, weaker set —
+    // `strArray` DROPPED a non-string element silently and `optProps` cast the bag without looking inside,
+    // so a batch stored what the single create refuses and reported nothing.
+    const shapeErr = shapeError('edge', item);
+    if (shapeErr) { errors.push({ type: 'edge', index: i, reason: shapeErr }); continue; }
+    try {
+      /*
+       * `upsertEdge` validates too, since 2026-08-29 — this check is kept for REPORTING, not for enforcement.
+       *
+       * Bulk's contract is per-item: it must say which index failed and carry on with the rest. Letting the
+       * throw from `upsertEdge` do the work would report the same refusal with less structure, and the catch
+       * below would flatten it to a message. So this stays as the reporting path while the write function is
+       * the guarantee — the distinction matters, because the enforcement is no longer THIS line's job.
+       */
+      const existing = await findEdgeByTriplet(spaceId, from, to, label, fromKind, toKind);
+      /*
+       * The endpoint facts, resolved for the REPORT as well as the write.
+       *
+       * `upsertEdge` resolves and enforces on its own; if this line handed the validator nothing, an endpoint
+       * refusal would still happen — as a throw, flattened by the catch below into a message naming the field.
+       * The item's reason would stop saying which types are allowed, which on a per-item contract is the whole
+       * value of the report. One rule, and this is the copy that would have carried less.
+       *
+       * An endpoint that does not resolve is left ABSENT rather than reported, which is what keeps bulk's own
+       * contract intact: references here are checked for shape and never for existence, so a well-formed id
+       * pointing at nothing is stored on purpose. An unresolved end cannot break an endpoint rule.
+       */
+      const resolvedEnds = await resolveEdgeEndsForWrite(spaceId, from, to, label, { fromKind, toKind });
+      if (schemaFails('edge', i, validateEdge(meta ?? {},
+        { label, properties: mergePropertiesOrKeep(existing?.properties, properties) ?? {} }, resolvedEnds))) continue;
+      await upsertEdge(spaceId, from, to, label,
+        typeof item['weight'] === 'number' ? item['weight'] : undefined,
+        typeof item['type'] === 'string' ? item['type'] : undefined,
+        typeof item['description'] === 'string' ? item['description'] : undefined,
+        properties, optStrArray(item['tags']), undefined, ttlDays,
+        {
+          ...(rawFromKind !== undefined ? { fromKind } : {}),
+          ...(rawToKind !== undefined ? { toKind } : {}),
+        });
+      if (existing) updated.edges++; else inserted.edges++;
+    } catch (err) { errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) }); }
   }
 
   return { inserted, updated, errors };
@@ -360,4 +458,26 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
 export function bulkWriteTotal(r: BulkResult): number {
   return r.inserted.memories + r.inserted.entities + r.inserted.edges + r.inserted.chrono
     + r.updated.entities + r.updated.edges;
+}
+
+/**
+ * The first edge end that does not resolve, phrased for the caller, or `null`.
+ *
+ * `assertRefsResolve` is the one implementation of "does this reference exist", and this wraps it rather
+ * than re-querying: bulk's contract is per-item, so a throw has to become a reason string naming which end
+ * was wrong. Re-implementing the lookup here would be the second copy of a rule whose whole point is that
+ * every door answers it the same way.
+ */
+async function firstMissingEnd(
+  spaceId: string,
+  ends: ReadonlyArray<readonly [string, RefKind, string]>,
+): Promise<string | null> {
+  for (const [value, kind, field] of ends) {
+    try {
+      await assertRefsResolve(spaceId, field, kind, [value]);
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  }
+  return null;
 }

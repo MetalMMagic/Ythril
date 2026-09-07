@@ -3,8 +3,23 @@
  *
  * Usage, from the repo root, with the server built:
  *
- *     node scripts/convert-links.mjs            # every space this instance holds
- *     node scripts/convert-links.mjs <spaceId>  # one space, and no marker is set
+ *     node scripts/convert-links.mjs --preview            # count what WOULD move, write nothing
+ *     node scripts/convert-links.mjs --preview <spaceId>  # the same, one space
+ *     node scripts/convert-links.mjs <spaceId>            # one space, and no marker is set
+ *     node scripts/convert-links.mjs                      # every space this instance holds, and mark them
+ *
+ * **Start with `--preview`.** It reads and never writes, and it answers the question an operator actually
+ * has before running a migration against live data: how much is there. Run it again afterwards — the link
+ * count rises and nothing else moves.
+ *
+ * **Converting one space does not arm anything.** The marker that makes a space refuse array writes
+ * (`completeLinkage`) is set only by a full run, per space, and only where that space's walk had no
+ * failures. So a single-space run is a genuine pilot: the links are created, both surfaces keep working,
+ * and every existing writer is unaffected.
+ *
+ * **And the marker is reversible.** It is an ordinary space setting — `PATCH /api/spaces/<id>` with
+ * `{"completeLinkage": false}` — and array writes are accepted again the moment it is off. The link records
+ * a conversion created stay; they are not the thing being switched.
  *
  * Safe to run twice. A link's id is derived from the connection, so a second run recomputes the same ids,
  * finds them already stored, and writes nothing — which also means an interrupted run is fixed by running it
@@ -22,12 +37,38 @@ const dist = (p) => pathToFileURL(path.join(process.cwd(), 'server', 'dist', p))
 
 const { loadConfig } = await import(dist('config/loader.js'));
 const { connectMongo, closeMongo } = await import(dist('db/mongo.js'));
-const { convertSpaceLinks, convertAllLinks } = await import(dist('brain/links-conversion.js'));
+const { convertSpaceLinks, convertAllLinks, previewSpaceLinks } = await import(dist('brain/links-conversion.js'));
 
 loadConfig();
 await connectMongo();
 
-const only = process.argv[2];
+const args = process.argv.slice(2);
+const preview = args.includes('--preview');
+const only = args.find(a => !a.startsWith('--'));
+
+if (preview) {
+  // Reads only. Deliberately the first branch and a separate exit: a preview that shares a line of the
+  // conversion's control flow is a preview one edit away from writing.
+  const { getConfig } = await import(dist('config/loader.js'));
+  const spaces = only ? [{ id: only }] : getConfig().spaces.filter(s => !(s.proxyFor?.length > 0));
+  try {
+    for (const s of spaces) {
+      const p = await previewSpaceLinks(s.id);
+      const classes = Object.keys(p.records)
+        .filter(k => p.records[k] > 0)
+        .map(k => `${k}=${p.records[k]} recs/${p.entries[k]} entries`)
+        .join(' ');
+      console.log(`${p.spaceId}: ${classes || 'no arrays carry anything'} | link records now ${p.links}`
+        + `${p.converted ? ' | completeLinkage IS SET' : ''}`);
+    }
+  } finally {
+    await closeMongo();
+  }
+  console.log('\npreview only: nothing was written. `entries` is the CEILING on new links — an entry naming a '
+    + 'record that no longer exists makes none, and two entries naming the same pair make one.');
+  process.exit(0);
+}
+
 let reports;
 try {
   if (only) {

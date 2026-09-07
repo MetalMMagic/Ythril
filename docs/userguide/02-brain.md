@@ -263,6 +263,19 @@ and each passage together.
 None of that needs setting up, and none of it can make a search fail — a stage that is unavailable is
 simply skipped.
 
+**Reranking is the one stage that can quietly stop happening on long records, and the results still look
+right.** It reads your question together with each candidate passage, so its work grows with how much TEXT
+those candidates carry — not with how many there are. On records of several kilobytes it costs seconds per
+result, and there is a time limit. When the limit is reached the search still answers, using the ranking by
+meaning alone; nothing is missing from it, it is just ordered less precisely, and there is no sign of this on
+the page.
+
+Measured on a live instance with records of six to nine kilobytes: asking for one result took five seconds,
+three took sixteen, and above four the reranker ran out of time. Another instance on the same server, same
+model, reranked a similar-sized set in under three seconds — the difference was the length of the records.
+So there is no single number to expect. **If your records are long and you want reranking on more than a
+handful of results, ask your administrator to raise the reranking time limit** (`modelSlots.rerank.timeoutMs`).
+
 Two options sit next to the query box:
 
 - **topK** — how many results to return. **There is no upper limit**, and asking for more than exists is

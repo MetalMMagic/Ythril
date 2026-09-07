@@ -33,9 +33,9 @@
  * (requires a prior `npm run build` in server/)
  */
 import { describe, it, before } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 let embeddingSuppressed, recordSuppression, mirrorLegacySuppression, parseRecordSuppression;
@@ -102,9 +102,7 @@ describe('`false` at the record tier never reaches the resolver as `false`', () 
      * modules in a runtime import cycle. The invariant is unchanged and the module that owns
      * `recordSuppression` is the honest home for it.
      */
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
-    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+    const files = trackedSources('server/src');
 
     const readers = [];
     for (const file of files) {

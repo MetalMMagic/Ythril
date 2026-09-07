@@ -35,9 +35,9 @@
  * Run: node --test testing/standalone/the-rights-derivation-really-is-in-memory-only.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const BACKFILL = 'server/src/auth/backfill-token-rights.ts';
@@ -75,9 +75,7 @@ describe('no CommonJS require survives in an ESM package', () => {
      * outside everything this gate looked at while the assertion message went on claiming the directory.
      * `Q-6`, 2026-09-07.
      */
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
-    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+    const files = trackedSources('server/src');
 
     const offenders = files.filter(f => /\brequire\s*\(/.test(code(f)));
     assert.deepEqual(offenders, [],

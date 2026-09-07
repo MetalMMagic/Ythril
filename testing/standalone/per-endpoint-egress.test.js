@@ -22,9 +22,9 @@
  */
 
 import { describe, it, before, beforeEach, afterEach } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 let allowPrivateForSlot;
 let allowPrivateModelEndpoints;
@@ -246,9 +246,7 @@ describe('per-endpoint egress permission', () => {
       assert.match(src, new RegExp(`getConfig\\(\\)\\.${CONFIG_KEY}`),
         'the resolver should READ the config key');
 
-      const routes = execFileSync('git', ['ls-files', 'server/src/api'], { maxBuffer: 32 * 1024 * 1024 })
-        .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
-      assert.ok(routes.length > 10, `only ${routes.length} route sources found; the listing is broken`);
+      const routes = trackedSources('server/src/api', { floor: 10 });
 
       const writers = routes.filter(f => new RegExp(`${CONFIG_KEY}\\s*[=:]`).test(readFileSync(f, 'utf8')));
       assert.deepEqual(writers, [],

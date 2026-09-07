@@ -147,6 +147,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The gate sweep's own output had become a copy, and now has a module.** Six rounds of replacing
+  hand-written file lists with a derived one had produced the same four lines — shell out to `git ls-files`,
+  split, filter, assert a floor — ten times over, written by the work whose subject is that a rule written
+  twice is a rule that can be wrong once.
+
+  `testing/standalone/_sources.mjs` answers that one question, and the floor lives INSIDE it: an empty
+  listing throws rather than returning nothing, because a caller that receives nothing loops over nothing and
+  reports a green tick about a set it never read. It drops `.d.ts` without being asked, since every
+  hand-rolled copy did.
+
+  Owner rule, now in `CLAUDE.md` and applying to every project: *"Wherever possible reuse modules or build
+  modules to be reused and perfectly maintainable."* Extract at the SECOND site, put the forgettable guard
+  inside, and keep one question per module — a shared thing that grows a flag per caller is a switch
+  statement with extra steps.
+
 - **The next-PR plan can no longer be a receipt for work that shipped.** The check on it looked for a merged
   pull-request NUMBER, and a plan is written in tracker ids rather than numbers — so a second half was added
   asking whether it names an open row. That half is skipped entirely by the words `owner-directed`, which

@@ -21,9 +21,9 @@
  * reader fails here on the day it is added, which is the only day it is cheap to fix.
  */
 import { test } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,9 +55,7 @@ const RESOLVED_BY = [
 ];
 
 test('every declared model slot is RESOLVED somewhere, not merely declared', () => {
-  const listed = execFileSync('git', ['ls-files', 'server/src'], { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024 })
-    .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
-  assert.ok(listed.length > 100, `only ${listed.length} server sources found; the listing is broken`);
+  const listed = trackedSources('server/src');
   const source = listed.map(f => readFileSync(join(repoRoot, f), 'utf8')).join('\n');
 
   const unread = MODEL_SLOTS.filter(slot => !RESOLVED_BY.some(shape => shape(slot).test(source)));

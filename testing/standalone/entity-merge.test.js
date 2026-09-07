@@ -16,6 +16,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { MERGE_FNS } from '../../server/dist/config/types-knowledge.js';
 
 // ── Replicated merge logic (matches server/src/brain/merge.ts) ──
 
@@ -351,7 +352,9 @@ describe('Entity merge — mergeFn compatibility', () => {
   });
 
   it('string type rejects all fns', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']) {
+    // `MERGE_FNS` is the list both the type and the space-schema enum are built from, so a function the UI
+    // can offer cannot be one this case never tried.
+    for (const fn of MERGE_FNS) {
       assert.ok(validateResolution(`fn:${fn}`, 'string', false), `fn:${fn} should be rejected for string`);
     }
   });

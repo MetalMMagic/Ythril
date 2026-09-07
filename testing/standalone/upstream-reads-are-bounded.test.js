@@ -165,6 +165,8 @@ describe('the bounded JSON reader', () => {
   });
 
   it('falls back to the default when the cap env var is malformed, never to unbounded', () => {
+    // set-claim: malformed INPUTS -- ways an operator can typo an env var, each of which must resolve to
+    // the default rather than to no bound at all.
     const saved = process.env.YTHRIL_MAX_UPSTREAM_RESPONSE_BYTES;
     try {
       // Asserted as a CHOICE, not an effect: a malformed value becoming Infinity and becoming 256 MiB both let a

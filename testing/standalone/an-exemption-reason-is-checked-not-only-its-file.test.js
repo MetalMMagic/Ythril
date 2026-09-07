@@ -61,6 +61,8 @@ describe('a count stated in a reason is extracted', () => {
   });
 
   it('finds nothing where nothing is claimed', () => {
+      // set-claim: the OTHER exemption reasons in the tracker, as fixture inputs -- real strings that must
+      // yield null, so the rule cannot start reporting on the ones it must leave alone.
     // Every other exemption reason in the list, so the rule cannot start reporting on the nine it must not.
     for (const reason of [
       'resolved rationale — where closed work is supposed to end up',

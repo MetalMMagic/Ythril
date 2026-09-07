@@ -59,6 +59,8 @@ describe('transfer — cache headers and the compression filter', () => {
     });
 
     it('does not cache UNHASHED assets — translations change every release', () => {
+      // set-claim: sample paths, one per shape a build emits -- a translation, an image, the favicon, a
+      // generated manifest. The rule is the ABSENCE of a content hash, exercised on examples of it.
       for (const f of ['assets/i18n/de.json', 'assets/logo.svg', 'favicon.ico', 'prerendered-routes.json']) {
         assert.equal(staticCacheControl(f), 'no-cache', f);
       }

@@ -22,12 +22,15 @@
  * filter a vector search on fields the index cannot serve, which is a performance cliff wearing a feature's clothes.
  */
 import { sanitizeFilter } from './query.js';
-import { validateFilterExpression, type FilterExpression } from './filter.js';
+import { validateFilterExpression, filterKeyAllowed, type FilterExpression } from './filter.js';
 
-const ALLOWED_KEY_PREFIXES = ['properties.', 'tags', 'type', 'name', 'status', 'label'] as const;
-
-const keyAllowed = (key: string): boolean =>
-  ALLOWED_KEY_PREFIXES.some(p => key === p || key.startsWith(p + '.') || (p.endsWith('.') && key.startsWith(p)));
+/*
+ * The allowlist and its matching rule come from `filter.ts`, which is where the same six prefixes and the
+ * same three-clause predicate already lived. This file held a byte-identical copy of both while importing
+ * that module for something else -- one rule, two implementations, on the exact pair (`recall` and `query`)
+ * that `CLAUDE.md`'s parity section was written from.
+ */
+const keyAllowed = filterKeyAllowed;
 
 /** Does this look like raw Mongo? A `$` on any key, at any depth — that is the only signal the two grammars differ by. */
 function looksLikeRawMongo(node: unknown, depth = 0): boolean {

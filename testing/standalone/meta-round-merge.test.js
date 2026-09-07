@@ -99,6 +99,8 @@ describe('meta_change round application', () => {
     });
 
     it('never writes housekeeping fields back', () => {
+      // set-claim: the three housekeeping fields the SPACE layer owns and re-adds, named as the boundary
+      // between the two layers rather than copied from a list.
       // `version`, `updatedAt` and `previousVersions` belong to the space layer, which re-adds them.
       // A round carrying v7's copies into a v9 write would rewind the counter and the history with it.
       const round = proposalFrom(V7, { purpose: 'new' });

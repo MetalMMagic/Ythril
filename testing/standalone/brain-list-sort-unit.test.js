@@ -74,6 +74,8 @@ describe('parseSortParam — the 400-on-unknown-sort contract', () => {
   // A rejected-by-design list, asserted so it is not "corrected" into the whitelist later. `properties` is
   // a free-form JSON blob with no single orderable value; the id arrays order by nothing a reader can see.
   it('keeps unsortable-by-nature fields OUT of every whitelist', async () => {
+    // set-claim: `properties` plus the DERIVED link array fields -- the literal half is one field whose
+    // unsortability is a fact about JSON, not a member of any set the source enumerates.
     /*
      * The link arrays come from `LINK_ARRAY_FIELDS`, not from a list written here. There are THREE of them
      * and this named two: `chronoIds` arrived with M-2 and could have been whitelisted on any collection

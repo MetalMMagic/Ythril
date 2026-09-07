@@ -85,6 +85,8 @@ describe('each wire gets its own routes', () => {
   it('openai list', () => assert.equal(listUrlFor('openai', 'http://h:8080'), 'http://h:8080/v1/models'));
 
   it('never produces the reported 404 shapes', () => {
+    // set-claim: the two base-URL shapes an operator writes -- with and without the `/v1` suffix -- which
+    // is the pair that produced the reported 404s. Inputs, not a set.
     for (const base of ['http://h:8080', 'http://h:8080/v1']) {
       assert.doesNotMatch(chatUrlFor('openai', base), /\/v1\/v1\//);
       assert.doesNotMatch(listUrlFor('openai', base), /\/v1\/v1\//);

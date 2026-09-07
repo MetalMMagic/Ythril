@@ -148,6 +148,8 @@ describe('the matrix carries the protections the removed array had', () => {
 
 describe('the legacy mint options are refused, and say what to use instead', () => {
   it('the body schema no longer accepts them', () => {
+    // set-claim: the retired scope spellings, a closed historical set -- nothing mints them any more, so
+    // this is a record of what was removed rather than a copy of anything live.
     // `CreateTokenBody` is `.strict()`, so removing the keys turns them into a 400 rather than a silent
     // drop. That strictness is documented in this file as the most important word in it.
     const src = code(TOKENS);

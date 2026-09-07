@@ -84,6 +84,7 @@ describe('strict linkage is enforced by existence on every edge write surface', 
   });
 
   it('and each endpoint is looked up in the collection its own KIND names', () => {
+    // set-claim: the two ENDS of an edge. Closed by what an edge is, not by anything the source lists.
     /*
      * The half 3.7 added. A hardcoded `'entity'` is not a smaller version of the guarantee, it is a different
      * and wrong one: a file endpoint is a path, so it fails a UUID check and is absent from the entities

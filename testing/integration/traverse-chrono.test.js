@@ -284,6 +284,8 @@ describe('traverse — includeFiles returns file META only', () => {
   });
 
   it('includeFiles:true reaches the file, marked, with its meta and no passage text', async () => {
+    // set-claim: the passage-level fields a FILE node must not carry, named as the answer's shape rather
+    // than derived -- a file node is asserted field by field just above, so this is the negative half.
     const r = await traverse({ startId: ids.inc, direction: 'both', maxDepth: 2, includeFiles: true });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const files = (r.body.nodes ?? []).filter(n => n.kind === 'file');

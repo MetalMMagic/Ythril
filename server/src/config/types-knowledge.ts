@@ -28,11 +28,29 @@
 
 // ── Space meta / schema types ──────────────────────────────────────────────
 
-/** Numeric merge functions available for `type: "number"` properties. */
-export type NumericMergeFn = 'avg' | 'min' | 'max' | 'sum';
+/**
+ * The merge functions, as RUNTIME lists with the types derived from them.
+ *
+ * A union is erased, so every place that has to enumerate these wrote them out again -- and three did: the
+ * validator in `brain/merge.ts` kept two `Set`s of them, and the space-schema body kept a `z.enum`. Four
+ * copies of a seven-word vocabulary, and the one that matters is the validator: a function accepted by the
+ * schema and unknown to it is a merge that refuses a value the UI offered.
+ *
+ * The list is the declaration and the type follows it, the same way `RUNGS` works in `auth/space-rights.ts`.
+ */
+export const NUMERIC_MERGE_FNS = ['avg', 'min', 'max', 'sum'] as const;
 
 /** Boolean merge functions available for `type: "boolean"` properties. */
-export type BooleanMergeFn = 'and' | 'or' | 'xor';
+export const BOOLEAN_MERGE_FNS = ['and', 'or', 'xor'] as const;
+
+/** Every merge function, in the order the two families are offered. */
+export const MERGE_FNS = [...NUMERIC_MERGE_FNS, ...BOOLEAN_MERGE_FNS] as const;
+
+/** Numeric merge functions available for `type: "number"` properties. */
+export type NumericMergeFn = (typeof NUMERIC_MERGE_FNS)[number];
+
+/** Boolean merge functions available for `type: "boolean"` properties. */
+export type BooleanMergeFn = (typeof BOOLEAN_MERGE_FNS)[number];
 
 /** All merge functions (numeric + boolean). */
 export type MergeFn = NumericMergeFn | BooleanMergeFn;

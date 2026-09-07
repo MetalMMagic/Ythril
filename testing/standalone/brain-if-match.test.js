@@ -62,6 +62,8 @@ describe('parsing the header', () => {
   });
 
   it('accepts all three spellings of the same value', () => {
+    // set-claim: the ETag spellings HTTP itself allows -- quoted, weak, bare, padded. An external grammar
+    // this codebase parses rather than defines.
     // One rule, one parse. The bare form, the entity-tag form and the weak form are the same request, and
     // a surface that honoured only one of them would be a silently weaker surface.
     for (const spelling of ['41', '"41"', 'W/"41"', 'w/"41"', '  41  ']) {

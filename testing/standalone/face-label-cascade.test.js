@@ -92,6 +92,7 @@ describe('face labels cascade when their person is deleted', { skip }, () => {
   // ── 1. The cascade ─────────────────────────────────────────────────────────
 
   it('strips the label from every face that pointed at the deleted person', async () => {
+    // set-claim: the two face ids this case's own fixture inserted, read back. A fixture, not a set.
     await files.insertOne(faceChunk('photo1.jpg#face-chunk0', 'photo1.jpg', ALICE));
     await files.insertOne(faceChunk('photo2.jpg#face-chunk0', 'photo2.jpg', ALICE));
 

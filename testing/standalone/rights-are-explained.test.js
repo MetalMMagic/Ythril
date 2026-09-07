@@ -57,6 +57,8 @@ describe('the rights grid explains itself', () => {
   const { areas, rungs } = model();
 
   it('every area has a label and a description, in every locale', () => {
+      // set-claim: the two i18n key SUFFIXES every area needs -- a label and a description. The areas
+      // themselves are already derived, in the loop around this one.
     for (const loc of LOCALES) {
       const keys = JSON.parse(read(`client/public/assets/i18n/${loc}.json`));
       for (const a of areas) {

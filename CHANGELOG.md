@@ -205,6 +205,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`recall` and `query` held byte-identical copies of the filter key allowlist and its matching rule** --
+  in two modules, one of which already imported the other. That pair is the example the parity rule was
+  written from: a caller reaches one grammar or the other depending on which door they picked, and a copy
+  that drifted would be invisible from both sides. The stake is not injection alone -- a key outside the set
+  is one the index cannot serve, so widening one copy is a performance cliff wearing a feature's clothes.
+
+- **The seven merge functions were written out four times**: two type unions, two `Set`s in the validator,
+  and a `z.enum` in the space-schema body. The one that matters is the validator -- a function the schema
+  offers and the validator does not know is a merge that refuses a value the UI put in front of the operator.
+  One list now, with the types derived from it.
+
 - **The three security-posture verdict levels were a type union plus a copy of it in the metrics registry.**
   The registry pre-declares one series per level at zero, because an absent series and a zero one look
   identical on a graph and mean opposite things -- so a fourth level added to the type would have been the

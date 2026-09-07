@@ -47,6 +47,8 @@ describe('If-Match — version comparison', () => {
   });
 
   it('accepts all three spellings of the same version', () => {
+    // set-claim: the ETag spellings HTTP allows, an external grammar. Same list as `brain-if-match`, and
+    // deliberately so: both doors parse the same header.
     // Bare, quoted entity-tag, and weak. A client library that quotes automatically must not have
     // every write rejected, and one that does not quote must not either.
     for (const spelling of ['4', '"4"', 'W/"4"', ' 4 ']) {

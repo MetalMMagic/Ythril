@@ -52,6 +52,8 @@ describe('directory prefix — the root has many spellings', () => {
   });
 
   it('treats every spelling of the root as the empty prefix', () => {
+    // set-claim: the spellings of the ROOT a caller can send -- an input grammar this code normalises,
+    // not a set anything in the source enumerates.
     for (const root of ['/', '.', '', '//', './', '/./']) {
       assert.equal(dirPrefix(root), '', `'${root}' must mean the root, not a folder literally named that`);
     }
@@ -66,6 +68,8 @@ describe('directory prefix — the root has many spellings', () => {
   });
 
   it('never emits a leading slash — stored paths do not have one', () => {
+    // set-claim: sample paths, one per shape the prefix rule has to survive -- root, a plain directory,
+    // a doubly-slashed one, a nested one.
     for (const p of ['/', '/reports', '//reports//', '/a/b']) {
       assert.ok(!dirPrefix(p).startsWith('/'), `'${p}' produced a prefix that can match no stored record`);
     }

@@ -24,6 +24,7 @@
 import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 let allowPrivateForSlot;
 let allowPrivateModelEndpoints;
@@ -232,14 +233,28 @@ describe('per-endpoint egress permission', () => {
     });
 
     it('is not written by any route', () => {
-      // Reading it is the point; assigning it from a request body is the hole.
+      /*
+       * Reading it is the point; assigning it from a request body is the hole. The whole reason this switch
+       * is config-and-env only is that an operator must not be able to grant an egress exception through
+       * the admin UI — see the block above.
+       *
+       * **DERIVED from the route directory, because "any route" is what the title says.** It named two
+       * files, which were the two the reviewer had open; every other route in `server/src/api` was outside
+       * everything this gate looked at while the sentence went on covering all of them. `Q-6`, 2026-09-07.
+       */
       const src = readFileSync('server/src/config/model-egress-policy.ts', 'utf8');
       assert.match(src, new RegExp(`getConfig\\(\\)\\.${CONFIG_KEY}`),
         'the resolver should READ the config key');
-      for (const f of ['server/src/api/media-config.ts', 'server/src/api/pipeline-status.ts']) {
-        assert.ok(!new RegExp(`${CONFIG_KEY}\\s*[=:]`).test(readFileSync(f, 'utf8')),
-          `${f} must not assign ${CONFIG_KEY}`);
-      }
+
+      const routes = execFileSync('git', ['ls-files', 'server/src/api'], { maxBuffer: 32 * 1024 * 1024 })
+        .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+      assert.ok(routes.length > 10, `only ${routes.length} route sources found; the listing is broken`);
+
+      const writers = routes.filter(f => new RegExp(`${CONFIG_KEY}\\s*[=:]`).test(readFileSync(f, 'utf8')));
+      assert.deepEqual(writers, [],
+        `${writers.join(', ')} assigns ${CONFIG_KEY}. It is settable by environment and config.json only, `
+        + 'because a route that writes it lets an operator grant an egress exception to a private address '
+        + 'through the admin UI.');
     });
   });
 });

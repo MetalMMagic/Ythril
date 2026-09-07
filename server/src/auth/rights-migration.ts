@@ -17,9 +17,19 @@
  * that gains one produces nothing at all, for as long as nobody looks.
  */
 import type { SpaceArea, Rung } from './space-rights.js';
+import { SPACE_AREAS } from '../config/rights-shape.js';
 
-/** The four areas, in the order the UI shows them. */
-export const AREAS: readonly SpaceArea[] = ['knowledge', 'files', 'schema', 'dataQuality'];
+/**
+ * The areas, in the order the UI shows them — the ONE list, not a copy of it.
+ *
+ * This spelled the four names itself. So did `space-reach.ts`, and `space-rights.ts` had them a third time
+ * as a union: four modules holding one vocabulary, with nothing comparing them, which is how the validator
+ * that governs access could be written without agreeing with any of them (`Q-6`, 2026-09-07).
+ *
+ * Kept as a name because two modules import it, and re-pointed rather than deleted so the change is one
+ * line rather than a rename across three files.
+ */
+export const AREAS: readonly SpaceArea[] = SPACE_AREAS;
 
 export type AreaRungs = Record<SpaceArea, Rung>;
 

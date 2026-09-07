@@ -24,6 +24,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { memberWatermarks } from '../_shared/member-watermarks.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -190,11 +191,33 @@ describe('the engine is wired to ack only a 200', () => {
     assert.equal((block.match(/\.find\(/g) ?? []).length, 1, 'more than one query in the push block');
   });
 
-  it('the rename carries all four watermarks', () => {
+  it('the rename carries EVERY per-space watermark, and the type has not grown one it misses', async () => {
+    /*
+     * This named the four and looked for four `if` blocks, which is the shape it was checking rather than
+     * the rule — and the rule matters because the failure is silent: a watermark that is not carried resets
+     * to "unknown", which is SAFE. The pull re-reads from 0, idempotent by seq; the retention floors just
+     * stop pruning. Nothing errors, nothing is lost, and nobody reports it.
+     *
+     * So: the list is `PER_SPACE_WATERMARKS`, beside the interface where a fifth one gets added, and the
+     * INTERFACE'S OWN SOURCE is read to check that a field keyed by space id has not been added to it and
+     * left out of the list. That is the direction a list rots in.
+     */
+    const { PER_SPACE_WATERMARKS } = await import('../../server/dist/config/types-networks.js');
+    assert.ok(PER_SPACE_WATERMARKS.length >= 4,
+      `only ${PER_SPACE_WATERMARKS.length} watermark(s) declared — the import is stale`);
+
     const rename = readFileSync(join(ROOT, 'server/src/spaces/rename.ts'), 'utf8');
-    for (const key of ['lastSeqReceived', 'lastSeqPushed', 'lastSeqServed', 'lastFileTombstoneAckedAt']) {
-      assert.ok(rename.includes(`member.${key}?.[oldId] !== undefined`), `rename does not carry ${key}`);
-    }
+    assert.match(rename, /for \(const key of PER_SPACE_WATERMARKS\)/,
+      'the rename carries its watermarks by name instead of looping the declared list, so a fifth one is '
+      + 'carried by nobody and resets to "unknown" without a word');
+
+    // The member interface, as source: every `lastX?: Record<string, …>` on it is keyed by space id. Through
+    // the shared derivation, because `counter-wipe-clears-every-watermark` asks the same question about the
+    // same interface, and one regex written twice is what this whole sweep is about.
+    const perSpace = memberWatermarks();
+    assert.deepEqual([...perSpace].sort(), [...PER_SPACE_WATERMARKS].sort(),
+      'a member field keyed by space id is missing from PER_SPACE_WATERMARKS (or the list names one that is '
+      + 'gone). The rename loops that list, so a field outside it is silently reset on every space rename');
   });
 
   it('the pull is deliberately NOT filtered by `since`, and says why', () => {

@@ -79,6 +79,25 @@ export interface NetworkMember {
   versionCheckedAt?: string;
 }
 
+/**
+ * The member fields keyed BY SPACE ID — the watermarks a space rename has to carry across.
+ *
+ * ## Why the list exists, and why it lives next to the type rather than at its one caller
+ *
+ * `applySpaceRenameToConfig` carried these with one `if` block per field: the same rule written four times,
+ * and the failure of a missed copy is silent by construction. A watermark that is not carried resets to
+ * "unknown", which is SAFE — the pull re-reads from 0, idempotent by seq, and the retention floors simply
+ * stop pruning. Nothing errors and nothing is lost, so nobody would ever report it.
+ *
+ * A fifth per-space watermark is added HERE, to the interface above, by somebody who has no reason to open
+ * `spaces/rename.ts`. The list sitting beside the fields is what puts the decision in front of them, and
+ * `file-tombstone-ack.test.js` reads the interface's own source to check nothing has been added to it and
+ * left out of this.
+ */
+export const PER_SPACE_WATERMARKS = [
+  'lastSeqReceived', 'lastSeqPushed', 'lastSeqServed', 'lastFileTombstoneAckedAt',
+] as const satisfies readonly (keyof NetworkMember)[];
+
 export interface VoteCast {
   instanceId: string;
   vote: VoteValue;

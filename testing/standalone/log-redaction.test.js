@@ -64,13 +64,50 @@ describe('log.ts — structural invariants (SEC-14)', () => {
       `redact() should appear ≥2 times (definition + invocation), found ${callSites}`);
   });
 
-  it('exports the log object with all four log levels', () => {
-    assert.ok(src.includes('export const log') || src.includes('export { log }'),
-      'log must be exported');
-    for (const level of ['info', 'warn', 'error', 'debug']) {
-      assert.ok(src.includes(`log.${level}`) || src.includes(`${level}:`),
-        `log.${level} level must be present`);
+  it('EVERY level the log object exposes redacts, whichever ones those are', async () => {
+    /*
+     * This case used to name four levels and check the source TEXT mentioned each. Two things were wrong
+     * with that, and the second is why it is rewritten rather than corrected:
+     *
+     *  - the count was in the title, which is a second copy of a fact the module already holds;
+     *  - `src.includes('debug:')` is satisfied by the word appearing anywhere, so a fifth level added
+     *    without the redaction path — or an existing one rewritten to log `msg` directly — passed.
+     *
+     * So the levels are read off the exported object and each is EXERCISED with a real Bearer token. That
+     * is the rule the title claims, and it survives a level being added next year.
+     */
+    const { log, getLogLines } = await import('../../server/dist/util/log.js');
+    const levels = Object.entries(log).filter(([, fn]) => typeof fn === 'function').map(([k]) => k);
+    assert.ok(levels.length >= 4,
+      `only ${levels.length} log level(s) found on the exported object — the import is stale, and a loop over `
+      + 'nothing reports every level clean');
+
+    const SECRET = 'sk-live-AAAAAAAAAAAAAAAAAAAAAAAA';
+    // `debug` writes nothing unless DEBUG is set, so an unset environment would leave that level
+    // unexercised and silently passing. Set for the duration and restored, never left on afterwards.
+    const savedDebug = process.env['DEBUG'];
+    process.env['DEBUG'] = '1';
+    /* eslint-disable no-console */
+    const saved = { log: console.log, warn: console.warn, error: console.error };
+    console.log = console.warn = console.error = () => {};
+    try {
+      for (const level of levels) {
+        log[level](`Authorization: Bearer ${SECRET}`);
+        const [line] = getLogLines(1);
+        assert.ok(line, `log.${level} wrote nothing at all, so it cannot be shown to redact`);
+        assert.ok(!line.includes(SECRET),
+          `log.${level} put a bearer token into the log line an operator reads: ${line}`);
+        assert.ok(line.includes('[redacted]'),
+          `log.${level} dropped the token without saying so — a silently missing value reads as "no token `
+          + `was sent", which is the opposite of what happened: ${line}`);
+      }
+    } finally {
+      console.log = saved.log; console.warn = saved.warn; console.error = saved.error;
+      if (savedDebug === undefined) delete process.env['DEBUG'];
+      else process.env['DEBUG'] = savedDebug;
     }
+    /* eslint-enable no-console */
+    assert.ok(src.includes('export const log') || src.includes('export { log }'), 'log must be exported');
   });
 
   it('fmt() (or inline equivalent) applies redact to both the message and meta/stack', () => {

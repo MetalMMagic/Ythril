@@ -11,6 +11,7 @@ import { getDb, col, asDoc, asFilter } from '../db/mongo.js';
 import { getConfig, saveConfig, getDataRoot, mutateConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { Config, SpaceConfig } from '../config/types.js';
+import { PER_SPACE_WATERMARKS } from '../config/types-networks.js';
 import { repairStaleSpaceIds, pendingOpConflictMessage, beginSpaceOp, endSpaceOp } from './_shared.js';
 
 /** Physically move a space's MongoDB collections and file directories from
@@ -191,22 +192,20 @@ export function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId:
     // "unknown". For the two pull watermarks that means re-pulling from 0 (idempotent by seq). For the two
     // retention floors it means the tombstone prune stops until every member has pulled (or acked) again —
     // safe, and invisible, which is why they are carried here rather than left to heal.
+    /*
+     * ONE loop over `PER_SPACE_WATERMARKS`, not one `if` per field.
+     *
+     * It was four blocks differing only in the key, which is the same rule written four times — and the
+     * failure of the fourth copy is silent by construction: a watermark that is not carried resets to
+     * "unknown", which is SAFE and invisible. A fifth watermark would have been added to the type by
+     * somebody who never opened this file.
+     */
     for (const member of net.members) {
-      if (member.lastSeqReceived?.[oldId] !== undefined) {
-        member.lastSeqReceived[newId] = member.lastSeqReceived[oldId]!;
-        delete member.lastSeqReceived[oldId];
-      }
-      if (member.lastSeqPushed?.[oldId] !== undefined) {
-        member.lastSeqPushed[newId] = member.lastSeqPushed[oldId]!;
-        delete member.lastSeqPushed[oldId];
-      }
-      if (member.lastSeqServed?.[oldId] !== undefined) {
-        member.lastSeqServed[newId] = member.lastSeqServed[oldId]!;
-        delete member.lastSeqServed[oldId];
-      }
-      if (member.lastFileTombstoneAckedAt?.[oldId] !== undefined) {
-        member.lastFileTombstoneAckedAt[newId] = member.lastFileTombstoneAckedAt[oldId]!;
-        delete member.lastFileTombstoneAckedAt[oldId];
+      for (const key of PER_SPACE_WATERMARKS) {
+        const marks = member[key] as Record<string, unknown> | undefined;
+        if (marks?.[oldId] === undefined) continue;
+        marks[newId] = marks[oldId];
+        delete marks[oldId];
       }
     }
   }

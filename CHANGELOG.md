@@ -205,6 +205,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A space rename carried its four per-space sync watermarks with four copies of one rule, and the copies are
+  now a loop over a declared list.** The failure a missed copy produces is silent by construction: a watermark
+  that is not carried resets to "unknown", which is SAFE -- the pull re-reads from zero, idempotent, and the
+  retention floors simply stop pruning. Nothing errors and nothing is lost, so nobody would ever report it,
+  and a fifth watermark would be added to the type by somebody with no reason to open the rename.
+
+  The list sits beside the interface where that fifth one gets added, and a gate reads the interface's own
+  source to check nothing has been added to it and left out of the list.
+
+  THREE gates were checking that rule, each written by somebody adding the watermark they had just built:
+  one named four fields, one named three, one named two. The one that named three could not see
+  `lastFileTombstoneAckedAt` at all. They now share one derivation.
+
+- **Every level of the logger is now shown to redact a bearer token, rather than being named in a list.**
+  The security gate for this checked that the source TEXT mentioned four level names -- which a fifth level
+  added without redaction passes, and so does an existing level rewritten to log the message directly. Each
+  level is now called with a real token and its output read back.
+
 - **Three of the six link classes had no database index, so every traversal hop scanned those collections.**
   A link is a (collection, FIELD) pair, and the index creation named three COLLECTIONS with the field written
   out as `entityIds`. That was right while `entityIds` was the only link field; M-2 gave a chrono entry

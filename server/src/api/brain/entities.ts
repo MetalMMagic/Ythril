@@ -31,6 +31,7 @@ import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
 import { withoutListDiagnostics } from '../../brain/read-projection.js';
 import { listDiagnosticsAsked } from './_shared.js';
+import { connectionInputError, applyConnections, CONNECTION_BODY_KEYS } from '../../brain/write-connections.js';
 
 export const entitiesRouter = Router();
 
@@ -48,7 +49,8 @@ export const entitiesRouter = Router();
  * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
  * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
  */
-const ENTITIES_CREATE_BODY_KEYS = ['id', 'name', 'type', 'tags', 'properties', 'description'];
+const ENTITIES_CREATE_BODY_KEYS = ['id', 'name', 'type', 'tags', 'properties', 'description',
+  ...CONNECTION_BODY_KEYS];
 entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
@@ -125,6 +127,9 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   // must not.
   const shapeErr = shapeError('entity', req.body);
   if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
+  // `F-27`: the one-call write — links and labelled edges together. Shape here; existence at the writer.
+  const connErr = connectionInputError(req.body);
+  if (connErr) { res.status(400).json({ error: connErr }); return; }
 
   try {
     // `waitForEmbedding` (default false): the vector is normally computed by the embedding queue moments
@@ -146,6 +151,15 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
       wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId,
       Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
       webhookToken(req), ttlDaysFromBody(req.body), c => { check = c; });
+    /*
+     * `F-27`: the relationships this write asked for, in the same call.
+     *
+     * AFTER the record exists, because a relationship needs both ends and the `from` is what was just minted.
+     * Links REPLACE per class and edges UPSERT — both semantics live in `applyConnections`, so no door has to
+     * restate them and no two doors can disagree about them.
+     */
+    await applyConnections(wt.target, entity._id, 'entity', req.body, entity.author, webhookToken(req));
+
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
   // The schema warnings a `warn` space produces, plus the keys this route did not understand — one

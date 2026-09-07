@@ -106,6 +106,61 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
+#### A record and its relationships in ONE call
+
+Every create door — `memories`, `chrono`, `entities`, and their MCP twins — takes the relationships the
+record needs alongside the record itself. Two fields, and they behave differently on purpose.
+
+**`linkEntities`, `linkMemories`, `linkChronos`, `linkFiles`** create LINK records. A link is unlabelled and
+which way it runs follows from the kinds at its ends, so a bare id is the whole thing. `linkFiles` takes
+space-relative paths; the other three take UUIDs.
+
+```json
+{
+  "fact": "The 72-hour clock starts at detection, not at containment.",
+  "linkEntities": ["3f2b1c9e-7d84-4a51-9e60-1b2c3d4e5f60"],
+  "linkFiles": ["policies/incident-response.md"]
+}
+```
+
+**`edges`** creates LABELLED relationships. An edge carries a label, a direction that is data rather than
+derivable, and optionally `weight`, `type`, `description`, `tags` and `properties` — `posted_by` and
+`addressed_to` from the same record to two parties are two different facts, and no array of bare ids can say
+which is which.
+
+```json
+{
+  "name": "Incident 2026-09-04",
+  "type": "incident",
+  "edges": [
+    { "to": "3f2b1c9e-…", "label": "reported_by" },
+    { "to": "7a1e4d2b-…", "label": "affects", "weight": 0.8, "properties": { "severity": "high" } },
+    { "to": "policies/incident-response.md", "label": "governed_by", "toKind": "file" }
+  ]
+}
+```
+
+**They differ on what an UPDATE does, and this is the part to read twice.**
+
+| | on a create | on an update |
+|---|---|---|
+| `linkEntities` and its siblings | creates those links | **REPLACES** the links of that kind. `[]` detaches them all; omitting the field leaves them alone. Other kinds are never touched. |
+| `edges` | creates those edges | **UPSERTS**. The same `(to, label)` written again is updated; nothing is ever removed. |
+
+The difference is not an inconsistency. An unlabelled link set is something one record owns wholesale, so
+replacing it is meaningful. An edge carries a label, properties and possibly a different author — clearing
+the set would delete work nobody asked to delete. Remove one with `DELETE /api/brain/spaces/:spaceId/edges/:id`
+or the `delete_edge` tool.
+
+**The other end must already exist.** Neither field can connect two records the same call creates, because
+identities are minted server-side. That case is `bulk_write`, which takes `entities` and `edges` in one
+payload.
+
+**A reference that names nothing is refused**, not stored — the same rule the rest of the API applies, so a
+dangling relationship cannot be created by accident. One exception worth knowing: a UUID is a legal
+filename, so a `toKind: "file"` end holding an entity id is not a *shape* error. It is caught by the
+existence check instead, which is why that check is not optional.
+
 **Response** `201`:
 
 ```json

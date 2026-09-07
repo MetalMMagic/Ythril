@@ -25,6 +25,7 @@ import { type UpdateValidation } from '../../brain/write-validation.js';
 import { TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArgs, unitScoreSchema, uuidSchema } from './shared.js';
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { connectionSchemas, applyConnections } from '../../brain/write-connections.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
@@ -46,6 +47,16 @@ export const rememberTool: ToolHandler = {
               items: { type: 'string', pattern: UUID_V4_PATTERN },
               description: 'Entity IDs (UUID v4) to link this memory to. Pass IDs, not names — look the entity up first (search_entities / list) and use its id. Every id must reference an existing entity; an unknown id is rejected rather than stored as a dead link.',
             },
+            /*
+             * `F-27`: the one-call write. SPREAD from the shared builder rather than written out, so a
+             * fifth kind gets its field here on the day it is declared — and because this tool's schema is
+             * `additionalProperties: false`, a field declared on one door and not the other is refused by
+             * the dispatcher before the handler runs.
+             */
+            // `F-27`: the `link*` fields and `edges`, from the one builder REST reads with. The operator's
+            // objection to edges on create tools — *"writing edge support into six endpoints"* — is answered
+            // by there being one implementation rather than six.
+            ...connectionSchemas(),
             tags: {
               type: 'array',
               items: { type: 'string' },
@@ -147,6 +158,16 @@ export const rememberTool: ToolHandler = {
         onValidation: c => { remCheck = c; },
       }, ctx.actor, remTtlDays,
       typeof a['id'] === 'string' ? a['id'] : undefined);
+
+    /*
+     * The links asked for in the same call, through the writer that already exists.
+     *
+     * A class NAMED is replaced wholesale; a class omitted is untouched. That is `reconcileLinks`'s own
+     * rule, and it is the unlink semantics the report asked us to state — so `linkEntities: []` detaches
+     * every entity and says nothing about the memories, and links are never add-only the way tags are.
+     */
+    // Links REPLACE per class, edges UPSERT. Both semantics live in `applyConnections`.
+    await applyConnections(ts, mem._id, 'memory', a, mem.author, ctx.actor);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);

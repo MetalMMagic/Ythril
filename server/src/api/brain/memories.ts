@@ -8,6 +8,7 @@ import { shapeError } from '../../brain/write-shape.js';
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
+import { connectionInputError, applyConnections, CONNECTION_BODY_KEYS } from '../../brain/write-connections.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { unknownFieldWarnings } from './unknown-fields.js';
@@ -48,7 +49,10 @@ export const memoriesRouter = Router();
  * The shared write options — ttlDays, waitForEmbedding, the duplicate flags and the two suppression
  * spellings — are NOT listed: they are read by helpers, and live in `SHARED_WRITE_BODY_KEYS`.
  */
-const MEMORIES_CREATE_BODY_KEYS = ['fact', 'tags', 'entityIds', 'description', 'properties', 'type', 'id'];
+// `LINK_INPUT_NAMES` spread rather than listed: a fifth kind gets its field here on the day it is declared,
+// and a caller using a real field must never be told it is unknown.
+const MEMORIES_CREATE_BODY_KEYS = ['fact', 'tags', 'entityIds', 'description', 'properties', 'type', 'id',
+  ...CONNECTION_BODY_KEYS];
 memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
@@ -132,6 +136,11 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   const shapeErr = shapeError('memory', req.body);
   if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
 
+  // `F-27`: the one-call write. Shape and well-formedness here; existence is the writer's job, in one query.
+  // `F-27`: the one-call write — links and labelled edges together. Shape here; existence at the writer.
+  const connErr = connectionInputError(req.body);
+  if (connErr) { res.status(400).json({ error: connErr }); return; }
+
   // A caller-supplied id becomes the sync identity of a record that replicates across networks, so it is held
   // to the same shape the rest of the API uses. (The entity route accepts any string here — pre-existing, and
   // tightening it would be a breaking change, so it is filed rather than copied.)
@@ -162,6 +171,15 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
     safeMemoryType, Object.keys(writeOpts).length > 0 ? writeOpts : undefined,
     webhookToken(req), ttlDaysFromBody(req.body), safeId,
   );
+
+  /*
+   * `F-27`: the relationships this write asked for, in the same call.
+   *
+   * AFTER the record exists, because a relationship needs both ends and the `from` is what was just minted.
+   * Links REPLACE per class and edges UPSERT — both semantics live in `applyConnections`, so no door has to
+   * restate them and no two doors can disagree about them.
+   */
+  await applyConnections(targetSpace, doc._id, 'memory', req.body, doc.author, webhookToken(req));
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;
   // The schema warnings a `warn` space produces, plus the keys this route did not understand — one
@@ -316,6 +334,11 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   // must not.
   const shapeErr = shapeError('memory', req.body);
   if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
+
+  // `F-27`: the one-call write. Shape and well-formedness here; existence is the writer's job, in one query.
+  // `F-27`: the one-call write — links and labelled edges together. Shape here; existence at the writer.
+  const connErr = connectionInputError(req.body);
+  if (connErr) { res.status(400).json({ error: connErr }); return; }
   const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { fact?: string; type?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; suppressEmbeddings?: boolean } = {};

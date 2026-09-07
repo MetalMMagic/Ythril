@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A record and its relationships are ONE call again, on every create door.** Reported by a fleet operator
+  as the thing stopping them converting to link records: every write door takes a reference at create time
+  today, those are refused after conversion, and attaching a record to three things becomes four calls.
+
+  Two fields, on `memories`, `chrono`, `entities` and their MCP twins:
+
+  - **`linkEntities`, `linkMemories`, `linkChronos`, `linkFiles`** create unlabelled links. Named as verbs
+    rather than as `entityIds`, because after conversion the same name would mean *go and create these
+    links* — a field named like a property and behaving like an instruction reads correctly and is
+    understood wrongly. An old caller gets a refusal naming the new field.
+  - **`edges`** creates LABELLED relationships, with the optional `weight`, `type`, `description`, `tags` and
+    `properties` an edge carries. `posted_by` and `addressed_to` from one record to two parties are two
+    different facts, and no array of bare ids can say which is which.
+
+  **They differ on what an update does, and both descriptions say so.** A `link*` field REPLACES the links of
+  its kind — `[]` detaches them all, omitting it leaves them alone, other kinds are never touched. `edges`
+  UPSERTS and removes nothing: an edge carries a label, properties and possibly another author, so clearing
+  the set would delete work nobody asked to delete. That was the third thing the operator asked us to state,
+  and the answer already existed in the writer.
+
+  Neither can connect two records the same call creates — identities are minted server-side. That case is
+  `bulk_write`, and the correlation key for it is tracked separately.
+
 - **Each search result now says which score put it there, and a short graph says it is short.**
   Ordering precedence is `rerankScore` → `fusedScore` → `score`, so on an instance with a reranking model
   configured, plain vector similarity is not the number that ordered the answer — and the panel was showing

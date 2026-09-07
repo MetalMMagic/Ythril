@@ -13,6 +13,7 @@ import { isProxySpace, isStrictLinkage, resolveMemberSpaces, resolveWriteTarget,
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
 import { mergePropertiesOrKeep, mergeTagsOrKeep } from '../../brain/merge-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { connectionSchemas, applyConnections } from '../../brain/write-connections.js';
 
 export const upsert_entityTool: ToolHandler = {
   name: 'upsert_entity',
@@ -24,6 +25,9 @@ export const upsert_entityTool: ToolHandler = {
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
+            // `F-27`: the `link*` fields and `edges`, from the one builder REST reads with — so a field
+            // on one door and not the other cannot happen.
+            ...connectionSchemas(),
             space: s.requiredSpace,
             id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             name: {
@@ -120,6 +124,11 @@ export const upsert_entityTool: ToolHandler = {
       throw err;
     }
     const { entity, warning, similar, contradicts } = upserted;
+
+    // Links REPLACE per class, edges UPSERT. Both semantics live in `applyConnections`, after the record
+    // exists — a relationship needs both ends, and the `from` is what was just minted.
+    await applyConnections(wt.target, entity._id, 'entity', a, entity.author, ctx.actor);
+
     let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
     if (similar && similar.length > 0) {
       msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;

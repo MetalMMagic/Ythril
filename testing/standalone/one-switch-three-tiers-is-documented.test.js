@@ -35,6 +35,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 let embeddingSuppressed, recordSuppression, mirrorLegacySuppression, parseRecordSuppression;
@@ -84,21 +85,45 @@ describe('`false` at the record tier never reaches the resolver as `false`', () 
   });
 
   it('and every reader of the record tier goes through it', () => {
-    // The rule was written out by hand at both readers before X-1b, which is the shape this repo produces
-    // most: one rule, two implementations, and the weaker one winning silently. Bounded by the call's own
-    // closing brace rather than by a character count — a count spans different lines on CRLF than on LF.
-    // `suppress-embeddings.ts` rather than `embed-record.ts`: the resolution moved there when the creators
-    // needed it too, because `embed-record.ts` imports `edges.ts` and holding the helper there put six brain
-    // modules in a runtime import cycle. The invariant is unchanged — one reader of the record tier — and the
-    // module that owns `recordSuppression` is the honest home for it.
-    for (const file of ['server/src/brain/suppress-embeddings.ts', 'server/src/brain/reembed.ts']) {
+    /*
+     * The rule was written out by hand at both readers before X-1b, which is the shape this repo produces
+     * most: one rule, two implementations, and the weaker one winning silently.
+     *
+     * **DERIVED from who CALLS the resolver, because "every reader" is the claim.** It named two files, and
+     * a third written afterwards would have been outside everything this gate read while the title went on
+     * covering all of them — the `Q-6` shape, 2026-09-07. Now the set is whoever calls `embeddingSuppressed`
+     * with an object literal, which is the only way to be a reader of the record tier at all.
+     *
+     * Bounded by the call's own closing brace rather than by a character count — a count spans different
+     * lines on CRLF than on LF.
+     *
+     * `suppress-embeddings.ts` rather than `embed-record.ts`: the resolution moved there when the creators
+     * needed it too, because `embed-record.ts` imports `edges.ts` and holding the helper there put six brain
+     * modules in a runtime import cycle. The invariant is unchanged and the module that owns
+     * `recordSuppression` is the honest home for it.
+     */
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+
+    const readers = [];
+    for (const file of files) {
       const src = stripComments(readFileSync(file, 'utf8'));
-      const at = src.indexOf('embeddingSuppressed({');
-      assert.ok(at > 0, `the suppression call was not found in ${file} — the scanner is wrong, not the code`);
-      const call = src.slice(at, src.indexOf('})', at));
-      assert.match(call, /record:\s*recordSuppression\(doc\)/,
+      let at = src.indexOf('embeddingSuppressed({');
+      while (at > 0) {
+        readers.push({ file, call: src.slice(at, src.indexOf('})', at)) });
+        at = src.indexOf('embeddingSuppressed({', at + 1);
+      }
+    }
+    // A FLOOR: a scanner that finds nothing passes every loop written over it, and this assertion would
+    // then report "every reader is correct" about no readers at all.
+    assert.ok(readers.length >= 2,
+      `found ${readers.length} reader(s) of the record tier; the two known ones are the minimum, so the scan is wrong`);
+
+    for (const { file, call } of readers) {
+      assert.match(call, /record:\s*recordSuppression\(/,
         `${file} builds the record tier itself instead of asking recordSuppression, so the two readers can `
-        + 'disagree about what a stored `false` means and about which spellings count');
+        + 'disagree about what a stored `false` means — which is the whole of the trap this helper exists for');
     }
   });
 

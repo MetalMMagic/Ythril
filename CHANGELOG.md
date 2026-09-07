@@ -113,6 +113,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three modules in the access layer each kept their own copy of the four permission areas**, and nothing
+  compared them. Two held the names as an array — including the module that decides whether a token may
+  touch a space at all — and a third held them as a hand-written type. All three now read the one list.
+
+  Nothing was wrong today: all four copies happened to agree. What they cost is the day a fifth area is
+  declared, when the copies that were missed keep governing access with the old vocabulary and the compiler
+  is happy with every one of them.
+
+  Found by making four gates check what their own titles claimed. Each said *"nothing in `server/src`"*,
+  *"no module"*, *"any route"*, *"every reader"* — and each read a hand-written list of two to five files,
+  which were the files somebody had open on the day it was written. The gate that claimed the whole access
+  layer was reading three of its modules; derived from `git ls-files`, it found the other two immediately.
+
 - **A refused save on Media Processing now says what the server said.** Selecting an extraction mode the
   installation cannot serve left the Save button looking inert: the request was made, the API answered with a
   reason, and the page threw it away. An operator hit this against 4.0.0 and spent an hour not knowing which

@@ -27,6 +27,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 let SPACE_AREAS, RUNGS;
 
@@ -75,14 +76,45 @@ describe('rights area names are validated, not merely typed', () => {
       'a fifth copy of the area names is a fifth thing to keep in step');
   });
 
-  it('no module keeps its own copy of the area names', () => {
-    // Four copies existed. Nothing compared them, which is exactly why the validator could be written without
-    // any of them.
-    for (const f of ['server/src/auth/floor-guard.ts', 'server/src/auth/mint-cap.ts', 'server/src/api/tokens.ts']) {
+  it('no module keeps its own copy of the area names, in either spelling', () => {
+    /*
+     * Four copies existed. Nothing compared them, which is exactly why the validator could be written
+     * without any of them.
+     *
+     * **Every part of this used to be a list, and `Q-6` (2026-09-07) turned all of them into derivations.**
+     * The old version named THREE files while its title claimed "no module", and searched for one literal
+     * array spelling — which is itself a copy of the names, and one that would silently stop matching the
+     * day a fifth area is declared, passing over every copy of the NEW list.
+     *
+     * Derived, it immediately found what the three-file version could not see: `rights-migration.ts` and
+     * `space-reach.ts` each held their own array, and `space-rights.ts` had the same names a third time as
+     * a hand-written union. All three are in `auth/`, and `space-reach.ts` is the module that decides
+     * whether a token may touch a space at all.
+     *
+     * **Two spellings, because one of them is not an array.** A union is how a copy hides from a gate
+     * looking for `[...]` — see *grep every spelling of a field access* — and it is the copy the compiler
+     * is happiest with.
+     */
+    const names = [...SPACE_AREAS];
+    const asArray = new RegExp(`\\[\\s*${names.map(a => `'${a}'`).join(',\\s*')}\\s*\\]`);
+    const asUnion = new RegExp(names.map(a => `'${a}'`).join(`\\s*\\|\\s*`));
+
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n')
+      .filter(f => f.endsWith('.ts'))
+      // The one file ALLOWED to spell them: it is where the list is declared and the type derived from it.
+      .filter(f => f !== 'server/src/config/rights-shape.ts');
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+
+    const copies = [];
+    for (const f of files) {
       const src = strip(readFileSync(f, 'utf8'));
-      assert.ok(!/\['knowledge',\s*'files',\s*'schema',\s*'dataQuality'\]/.test(src),
-        `${f} spells the area names itself — import SPACE_AREAS instead`);
+      if (asArray.test(src)) copies.push(`${f} (as an array)`);
+      else if (asUnion.test(src)) copies.push(`${f} (as a union)`);
     }
+    assert.deepEqual(copies, [],
+      `${copies.join(', ')} spells the area names instead of importing SPACE_AREAS. Every copy is another `
+      + 'thing to edit on the day a fifth area is declared, and the one that is missed governs access.');
   });
 
   it('the type is DERIVED from the list, so the two cannot drift', () => {

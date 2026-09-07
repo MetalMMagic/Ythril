@@ -17,6 +17,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 import { readFileSync } from 'node:fs';
 
 let auditChanges, AUDIT_CHANGE_FIELDS;
@@ -248,7 +249,9 @@ describe('audit changes — list fields record what moved, not the whole list', 
   it('never records `properties` for any record type', () => {
     // The one field on a record whose KEYS the user chooses, so it is where a pasted credential would
     // land. The allowlist cannot vet names it has never seen, so the whole bag stays out.
-    for (const op of ['memory.update', 'entity.update', 'edge.update', 'chrono.update']) {
+    // The record types come from the source that defines them: a fifth knowledge type would arrive with an
+    // audit operation of its own, and a list written here would keep passing while saying nothing about it.
+    for (const op of KNOWLEDGE_TYPES.map(t => `${t}.update`)) {
       assert.ok(!(AUDIT_CHANGE_FIELDS[op] ?? []).includes('properties'),
         `${op} must not allowlist the free-form properties bag`);
       assert.deepEqual(

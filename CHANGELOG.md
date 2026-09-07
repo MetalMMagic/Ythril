@@ -205,6 +205,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A retention case that says "in every collection" now includes the collection the feature was built for.**
+  It inserted an entity, a memory and an edge, and never a chrono entry -- so the case proving an unpoliced
+  type is left alone proved nothing about chrono. Found by `Q-6` round 12, which reads gates whose TITLE
+  claims a whole set while their body reads part of it.
+
+  Four more gates in that round were converted to take the record types from the source that defines them,
+  rather than from four names written into each test. The sharper find was a SECOND list hiding inside one
+  line: a gate looped over four type names and then read `mcp/tools/${type}.ts`, assuming a module is named
+  after its type. That is true today and is a rule nowhere, so a tool moved into a shared module would have
+  stopped being checked with nothing going red. Each tool is now found by the declaration it makes.
+
 - **Three more source sweeps moved onto the shared helper, and two were marked as ones that must NOT move.**
   The two are the useful half: `source-text-hygiene` sweeps EVERY tracked file, because a control byte in a
   `.json` or a `.md` is the same defect and narrowing it to sources would quietly stop checking most of the

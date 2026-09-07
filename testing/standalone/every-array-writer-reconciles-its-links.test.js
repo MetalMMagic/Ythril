@@ -41,6 +41,7 @@
  * Run: node --test testing/standalone/every-array-writer-reconciles-its-links.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -68,9 +69,7 @@ const WRITERS = {
 };
 
 function sourceFiles() {
-  return execFileSync('git', ['ls-files', 'server/src'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n').map(s => s.trim())
-    .filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts'));
+  return trackedSources('server/src');
 }
 
 describe('every array writer reconciles its links', () => {

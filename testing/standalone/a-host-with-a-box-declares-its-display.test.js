@@ -25,6 +25,7 @@
  * Run: node --test testing/standalone/a-host-with-a-box-declares-its-display.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -33,8 +34,7 @@ const ROOT = process.cwd();
 
 /** Every client source that could hold a styles literal. */
 function styleSources() {
-  return execFileSync('git', ['ls-files', 'client/src'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
+  return trackedSources('client/src')
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts'))
     .filter(f => readFileSync(f, 'utf8').includes(':host'));
 }

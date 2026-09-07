@@ -32,6 +32,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { trackedSources } from './_sources.mjs';
 
 let REST_ONLY_CAPABILITIES, restOnlyCapabilityMap, ALL_TOOLS;
 
@@ -42,8 +43,9 @@ before(async () => {
 
 /** Every route string declared anywhere under server/src/api, with its router prefix resolved. */
 function declaredRoutes() {
-  const files = execFileSync('git', ['ls-files', 'server/src/api'], { encoding: 'utf8' })
-    .split('\n').map(f => f.trim()).filter(f => f.endsWith('.ts'));
+  // The floor is 10 rather than the default 100: this sweeps one directory, and a floor above what it can
+  // ever return would fail on correct code — which is how a guard gets deleted instead of corrected.
+  const files = trackedSources('server/src/api', { floor: 10 });
   const paths = new Set();
   for (const f of files) {
     const src = readFileSync(f, 'utf8');

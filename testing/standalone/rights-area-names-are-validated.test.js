@@ -25,6 +25,7 @@
  * Run: node --test testing/standalone/rights-area-names-are-validated.test.js
  */
 import { describe, it, before } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -99,11 +100,10 @@ describe('rights area names are validated, not merely typed', () => {
     const asArray = new RegExp(`\\[\\s*${names.map(a => `'${a}'`).join(',\\s*')}\\s*\\]`);
     const asUnion = new RegExp(names.map(a => `'${a}'`).join(`\\s*\\|\\s*`));
 
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n')
+    const files = trackedSources('server/src', { exclude: ['server/src/config/rights-shape.ts'] })
       .filter(f => f.endsWith('.ts'))
       // The one file ALLOWED to spell them: it is where the list is declared and the type derived from it.
-      .filter(f => f !== 'server/src/config/rights-shape.ts');
+      ;
     assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
 
     const copies = [];

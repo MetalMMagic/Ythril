@@ -30,6 +30,7 @@
  * (requires a prior `npm run build` in server/ so server/dist exists)
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -205,8 +206,7 @@ describe('the reading of an absent kind is in one place', () => {
      * them (`Q-6`, 2026-09-07). `brain/edges.ts` is excluded because the four-argument form there is the
      * function's own definition.
      */
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n')
+    const files = trackedSources('server/src')
       .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/edges.ts');
     assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
 

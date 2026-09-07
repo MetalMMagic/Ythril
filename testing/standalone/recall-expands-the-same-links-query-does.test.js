@@ -31,6 +31,7 @@
  * Run: node --test testing/standalone/recall-expands-the-same-links-query-does.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -175,8 +176,7 @@ describe('the warning both doors carried is gone', () => {
      * A stale warning is the one kind of documentation defect nobody reports, so the sweep has to be the
      * whole surface rather than the two places somebody remembered.
      */
-    const listed = execFileSync('git', ['ls-files', 'server/src', 'docs', 'client/src'],
-      { maxBuffer: 32 * 1024 * 1024 }).toString('utf8').split('\n')
+    const listed = trackedSources(['server/src', 'client/src'])
       .filter(f => f.endsWith('.ts') || f.endsWith('.md'));
     assert.ok(listed.length > 100, `only ${listed.length} files found; the listing is broken`);
 

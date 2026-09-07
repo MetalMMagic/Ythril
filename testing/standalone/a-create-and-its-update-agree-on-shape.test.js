@@ -33,6 +33,7 @@
  * (requires a prior `npm run build` in server/)
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -107,8 +108,7 @@ describe('the table itself', () => {
      * "nothing writes them out again". A fifth was outside everything it read.
      */
     const written = new RegExp(`\\[\\s*${[...CHRONO_STATUSES].map(v => `'${v}'`).join('\\s*,\\s*')}`);
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n')
+    const files = trackedSources('server/src')
       .filter(f => f.endsWith('.ts') && f !== 'server/src/config/types.ts');
     assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
     const offenders = files.filter(f => written.test(code(f)));

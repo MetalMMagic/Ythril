@@ -32,6 +32,7 @@
  * Run: node --test testing/standalone/async-writes-notify-onpush.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -40,8 +41,7 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 
 function sourceFiles() {
-  return execFileSync('git', ['ls-files', 'client/src/app'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
+  return trackedSources('client/src/app')
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.d.ts'));
 }
 

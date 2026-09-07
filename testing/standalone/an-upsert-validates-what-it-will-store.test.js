@@ -28,6 +28,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { statementAround } from './_structural-window.mjs';
 
@@ -125,10 +126,24 @@ describe('the doors reach the WRITER, and the writer holds the rule', () => {
    * because removing the door copies left nothing calling it.
    */
   it('no door re-derives the chrono rule', () => {
-    for (const f of ['server/src/api/brain/chrono.ts', 'server/src/mcp/tools/chrono.ts']) {
-      assert.doesNotMatch(stripComments(readFileSync(f, 'utf8')), /classifyChrono\w*\(/,
-        `${f} holds its own copy of a rule the writer now enforces`);
-    }
+    /*
+     * DERIVED, because "no door" is the claim and the body named two files. The rule is that the classifier
+     * is called by the WRITER and by nothing else: a door that calls it is the second copy, which is the
+     * whole reason the check moved inside the writer (`Q-6`, 2026-09-07).
+     *
+     * The writer's own module is the one place allowed to, and it is excluded by name for that reason —
+     * everything else in the server is asked.
+     */
+    const OWNS_IT = ['server/src/brain/write-validation.ts', 'server/src/brain/chrono.ts'];
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n').filter(f => f.endsWith('.ts') && !OWNS_IT.includes(f));
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+
+    const copies = files.filter(f => /classifyChrono\w*\(/.test(stripComments(readFileSync(f, 'utf8'))));
+    assert.deepEqual(copies, [],
+      `${copies.join(', ')} holds its own copy of a rule the writer now enforces. A door calling the `
+      + 'classifier is the second copy, not the fix — the only way to make the rule true for callers nobody '
+      + 'has thought of is to leave it inside the writer.');
   });
 
   it('and takes the classification back from the writer, so warnings survive the move', () => {

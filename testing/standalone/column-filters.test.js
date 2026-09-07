@@ -15,6 +15,15 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+/** Every tracked server source, read out of git rather than named — see the derived cases below. */
+function serverSources() {
+  return execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+    .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+}
+const read = (f) => readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8');
+
 
 let textContains, tagContains;
 
@@ -120,30 +129,67 @@ describe('propertiesValueContains — filters on VALUE, not key', () => {
   });
 
   it('every list function APPLIES the deadline, not merely imports it', () => {
-    // An unbounded collection scan on a large space is the failure mode here — not a wrong result.
-    // Checking for the identifier alone is not enough: deleting the guard leaves the import behind, so
-    // that version of this test passed with the bound gone.
-    for (const f of ['entities.ts', 'memory.ts', 'edges.ts', 'chrono.ts']) {
-      const src = readFileSync(new URL(`../../server/src/brain/${f}`, import.meta.url), 'utf8');
-      assert.match(src, /maxTimeMS\([^)]*PROPERTIES_SCAN_MAX_MS/,
-        `${f} must pass the deadline to maxTimeMS on the properties path`);
+    /*
+     * An unbounded collection scan on a large space is the failure mode here — not a wrong result.
+     * Checking for the identifier alone is not enough: deleting the guard leaves the import behind, so that
+     * version of this test passed with the bound gone.
+     *
+     * **DERIVED from who imports the deadline, because "every list function" is the claim.** It named four
+     * files, which are the four that import it today — correct, and a list all the same. A fifth list
+     * function written next year is outside everything this gate reads while the title goes on covering it
+     * (`Q-6`, 2026-09-07).
+     */
+    const importers = serverSources()
+      .filter(f => f !== 'server/src/brain/tag-filter.ts')   // where the constant is DECLARED
+      .filter(f => /PROPERTIES_SCAN_MAX_MS/.test(read(f)));
+    assert.ok(importers.length >= 4,
+      `only ${importers.length} module(s) reference the deadline; the four known list functions are the `
+      + 'minimum, so the scan is wrong rather than the code');
+
+    for (const f of importers) {
+      assert.match(read(f), /maxTimeMS\([^)]*PROPERTIES_SCAN_MAX_MS/,
+        `${f} imports the deadline and never passes it to maxTimeMS — the import is not the bound`);
     }
   });
 });
 
 describe('entity-NAME column filters (From / To / Entities)', () => {
   it('an unmatched name filters to NOTHING, never to everything', () => {
-    // The dangerous shape: resolve a name to zero ids, then skip the filter because the list is empty.
-    // The column would show every row while claiming to be filtered. All three sites must apply the
-    // `$in` unconditionally once a name was given.
-    const edges = readFileSync(new URL('../../server/src/brain/edges.ts', import.meta.url), 'utf8');
+    /*
+     * The dangerous shape: resolve a name to zero ids, then skip the filter because the list is empty. The
+     * column would show every row while claiming to be filtered.
+     *
+     * **Two halves, and the second is now derived.** The `$in` on the edge query stays asserted literally —
+     * those two lines ARE the rule for that door. The other half used to name two API files; it now asks
+     * every CALLER of the resolver, because a caller is what a new door becomes.
+     *
+     * The rule asserted per call is that the resolved list is never LENGTH-TESTED. That is the whole defect:
+     * `if (ids.length)` is how an empty result turns into no filter at all. Bounded by the statement's own
+     * semicolon rather than by a character count — a count spans different lines on CRLF than on LF.
+     */
+    const edges = read('server/src/brain/edges.ts');
     assert.match(edges, /if \(filter\.fromIds\) q\['from'\] = \{ \$in: filter\.fromIds \}/);
     assert.match(edges, /if \(filter\.toIds\) q\['to'\] = \{ \$in: filter\.toIds \}/);
 
-    for (const f of ['memories.ts', 'chrono.ts']) {
-      const src = readFileSync(new URL(`../../server/src/api/brain/${f}`, import.meta.url), 'utf8');
-      assert.match(src, /entityIds'\] = \{ \$in: await resolveEntityIdsByName/,
-        `${f} must apply the resolved ids even when empty`);
+    const CALL = 'resolveEntityIdsByName(';
+    const callers = serverSources()
+      .filter(f => f !== 'server/src/brain/entities.ts')     // where the resolver is DECLARED
+      .filter(f => read(f).includes(CALL));
+    assert.ok(callers.length >= 3,
+      `only ${callers.length} caller(s) of the resolver found; the three known doors are the minimum`);
+
+    for (const f of callers) {
+      const src = read(f);
+      let at = src.indexOf(CALL);
+      while (at > 0) {
+        const prefix = src.slice(src.lastIndexOf('\n', at) + 1, at);
+        assert.doesNotMatch(prefix, /\b(?:const|let|var)\s+\w+\s*=\s*(?:await\s+)?$/,
+          `${f} binds a resolved name list to a local: ${prefix.trim()}${CALL}…)\n\n`
+          + 'An unmatched name must filter to NOTHING. A local is what an `if (ids.length)` can stand in '
+          + 'front of, and skipping the filter on an empty list shows every row while the column claims to '
+          + 'be filtered — the one wrong answer nobody reports. Assign it onto the query directly.');
+        at = src.indexOf(CALL, at + 1);
+      }
     }
   });
 

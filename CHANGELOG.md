@@ -205,6 +205,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A gate that keeps unsortable fields out of "every whitelist" was watching two of the three.** The third
+  link array, `chronoIds`, arrived with M-2 and could have been made sortable on any collection with nothing
+  to say so -- and sorting by an id array orders rows by nothing a reader can see.
+
+  Two more lists of the same kind were derived rather than re-typed: the fields a `deleteFields` path may
+  clear on a chrono entry and on a file's metadata. Both mix the record's own optional fields, which are
+  named, with its LINK arrays, which are whatever the link classes say -- and a settable field missing from
+  that list is a path accepted at the door that then silently does nothing.
+
+  The lesson is in the two comments above those lists: both said the fields were "derived rather than
+  hand-listed", directly above a hand-written list. A sentence like that is worse than none, because it is
+  what stops the next reader checking.
+
 - **A space rename carried its four per-space sync watermarks with four copies of one rule, and the copies are
   now a loop over a declared list.** The failure a missed copy produces is silent by construction: a watermark
   that is not carried resets to "unknown", which is SAFE -- the pull re-reads from zero, idempotent, and the

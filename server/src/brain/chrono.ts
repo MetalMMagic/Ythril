@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { reconcileLinks, removeLinksFrom } from './links.js';
+import { LINK_CLASSES } from './link-adjacency.js';
 import { brainWriteSeqTotal } from '../metrics/registry.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
@@ -35,6 +36,23 @@ export { deriveChronoStatus } from './chrono-status.js';
 
 
 const RECURRENCE_FREQ = ['daily', 'weekly', 'monthly', 'yearly'] as const;
+
+/**
+ * Every optional field a `deleteFields` path may clear on a chrono entry.
+ *
+ * A field that is settable and missing here is accepted at the door and then does nothing — the silent
+ * no-op this whole mechanism exists to remove, reintroduced one field at a time. The REQUIRED fields
+ * (`title`, `startsAt`, `status`) are refused by `validateDeleteFields` instead, so between the two lists
+ * every path a caller can send is either performed or reported.
+ *
+ * **The link arrays are DERIVED**, because they are not a fixed set: a chrono entry points at whatever
+ * `LINK_CLASSES` says it does, and `memoryIds` arrived after this mechanism shipped. The rest are this
+ * record's own optional fields and have no list to derive from.
+ */
+const DELETABLE_CHRONO_FIELDS: readonly string[] = [
+  'description', 'tags', 'properties', 'recurrence', 'endsAt', 'confidence', 'suppressEmbeddings',
+  ...LINK_CLASSES.filter(c => c.kind === 'chrono').map(c => c.field),
+];
 
 /**
  * Validate and normalise a `recurrence` block.
@@ -337,8 +355,7 @@ export async function updateChrono(
     // that a property could not be removed and nothing said so. The REQUIRED fields (`title`, `startsAt`,
     // `status`) are refused by `validateDeleteFields` instead, so between the two lists every path a caller
     // can send is either performed or reported.
-    for (const field of ['description', 'tags', 'entityIds', 'memoryIds', 'properties', 'recurrence',
-      'endsAt', 'confidence', 'suppressEmbeddings']) {
+    for (const field of DELETABLE_CHRONO_FIELDS) {
       if (!(field in merged)) {
         $unset[field] = '';
         delete $set[field];

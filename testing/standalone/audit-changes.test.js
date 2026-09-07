@@ -17,6 +17,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 import { readFileSync } from 'node:fs';
 
@@ -339,15 +340,24 @@ describe('audit changes — file meta and entity merge (the two held back from s
     assert.match(read('server/src/api/brain/file-meta.ts'), SNAPSHOT);
   });
 
-  it('every record route that was wired still has its snapshot', () => {
-    // Derived rather than enumerated, same lesson as the If-Match coverage fix: a per-file check rots
-    // the moment a file gains a second site.
-    for (const file of [
-      'server/src/api/brain/memories.ts',
-      'server/src/api/brain/edges.ts',
-      'server/src/api/brain/chrono.ts',
-    ]) {
-      assert.match(read(file), SNAPSHOT, `${file} lost its audit snapshot`);
+  it('EVERY brain route with an update handler snapshots, whichever files those are', () => {
+    /*
+     * This said "derived rather than enumerated" and then enumerated three files — and the set is five: it
+     * could not see `entities.ts` or `file-meta.ts`, both of which are checked one case up and neither of
+     * which this case would have noticed losing its snapshot.
+     *
+     * Derived properly now, from the SHAPE: a file under `api/brain/` that registers a PATCH or a PUT is a
+     * record update, and a record update without a before/after snapshot writes an audit entry saying
+     * something changed and not what. A sixth record route fails here rather than shipping unaudited.
+     */
+    const updaters = trackedSources('server/src/api/brain/*.ts', { floor: 5 })
+      .filter(f => /\.(patch|put)\(/.test(read(f)));
+    assert.ok(updaters.length >= 5,
+      `only ${updaters.length} brain route(s) with an update handler found — the scan is wrong, and an empty `
+      + 'one reports every route audited');
+    for (const file of updaters) {
+      assert.match(read(file), SNAPSHOT, `${file} has an update handler and no audit snapshot, so its audit `
+        + 'entry records that something changed without recording what');
     }
   });
 

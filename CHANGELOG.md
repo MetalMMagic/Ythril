@@ -205,6 +205,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three more source sweeps moved onto the shared helper, and two were marked as ones that must NOT move.**
+  The two are the useful half: `source-text-hygiene` sweeps EVERY tracked file, because a control byte in a
+  `.json` or a `.md` is the same defect and narrowing it to sources would quietly stop checking most of the
+  repository; `upstream-reads-are-bounded` deliberately includes UNCOMMITTED files, because an unbounded read
+  added in the working copy is exactly the one worth catching before it is pushed.
+
+  Both now say so where the next person will look. A shared helper that absorbs a caller asking a different
+  question is the failure mode of consolidating, and it is silent — the gate keeps passing while checking
+  less.
+
 - **Twenty-two gates that swept the source tree by hand now go through the one helper.** Each was the same
   four lines — shell out to `git ls-files`, split, filter by extension, assert a floor — and the floor is the
   half that matters: an empty listing passes every loop written over it, so a gate whose scan breaks reports

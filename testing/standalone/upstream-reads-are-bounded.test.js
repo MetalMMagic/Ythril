@@ -50,6 +50,15 @@ before(async () => { mod = await import('../../server/dist/util/bounded-read.js'
  * `--others --exclude-standard` adds new files while still honouring .gitignore, which is the property that
  * matters: a gitignored generated file must not enter the scan.
  */
+/*
+ * NOT `trackedSources` — deliberately, and this comment is why nobody should "tidy" it into one.
+ *
+ * That helper answers *"what does the repository hold"*, and this asks a different question: what is on
+ * disk right now, INCLUDING a file the author has not committed yet. An unbounded read added in the working
+ * copy is exactly the one worth catching before it is pushed, and a tracked-only sweep cannot see it.
+ *
+ * `Q-18` converts the sweeps that ask the first question. This one is not one of them.
+ */
 function sourceFiles() {
   const tracked = execFileSync('git', ['ls-files', 'server/src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' });
   const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', 'server/src/**/*.ts'],

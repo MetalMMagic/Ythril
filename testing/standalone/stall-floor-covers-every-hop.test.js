@@ -29,15 +29,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { trackedSources } from './_sources.mjs';
 
 const { DUAL_DOOR_BOUNDS } = await import('../../server/dist/config/setting-bounds.js');
 
 const ROOT = process.cwd();
 
 /** Media-path source files, from git rather than a directory walk (gitignored/untracked files are not source). */
-const files = execFileSync('git', ['ls-files', 'server/src/files/converters', 'server/src/files/media'], {
-  encoding: 'utf8', cwd: ROOT,
-}).split('\n').map(s => s.trim()).filter(f => f.endsWith('.ts'));
+// Two directories, so the floor is 5 rather than the default 100 — a floor above what a scan can ever
+// return fails on correct code, which is how a guard gets deleted instead of corrected.
+const files = trackedSources(['server/src/files/converters', 'server/src/files/media'], { floor: 5 });
 
 /**
  * A timeout being handed to a call. Both spellings: the option object the converter clients take, and the raw

@@ -37,6 +37,15 @@ const EXTS = ['.ts', '.js', '.mjs', '.json', '.scss', '.html', '.md'];
  * is exactly the set that "no source file silently opts out of code review" is a claim about. A file
  * git does not track cannot have a diff to lose.
  */
+/*
+ * ITS OWN LISTING, and NOT the shared `_sources.mjs` — deliberately, so nobody folds it in later.
+ *
+ * That helper answers *"what SOURCE files does this repo have"* and narrows to a few extensions. This asks
+ * a wider question: a control byte or a mojibake sequence in a `.json`, a `.scss` or a `.md` is the same
+ * defect, and narrowing the sweep to sources would quietly stop checking most of the repository.
+ *
+ * `Q-18` converts the sweeps that ask the first question. This is not one of them.
+ */
 function trackedSources() {
   // -z: NUL-separated, so a path containing a newline cannot split one entry into two. (Also the reason
   // this cannot use the default output: git quotes such paths instead, and the quoting would need undoing.)

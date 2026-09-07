@@ -29,6 +29,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
+import { trackedSources } from './_sources.mjs';
 
 const { NEVER_RETURNED_PROJECTION, LIST_WITHHELD_FIELDS } =
   await import('../../server/dist/brain/read-projection.js');
@@ -39,8 +40,9 @@ const { NEVER_RETURNED_PROJECTION, LIST_WITHHELD_FIELDS } =
  * `gitignored-files-break-local-checks`: a directory read answers with whatever is on this disk, including
  * build output and scratch files, and differs between here and CI. What the repo HOLDS is a git question.
  */
-const brainFiles = execFileSync('git', ['ls-files', 'server/src/brain/*.ts'], { encoding: 'utf8' })
-  .split('\n').map(l => l.trim()).filter(Boolean);
+// One directory, so the floor is 20 rather than the default 100. A floor above what a scan can ever return
+// fails on correct code, which is how a guard gets deleted instead of corrected.
+const brainFiles = trackedSources('server/src/brain/*.ts', { floor: 20 });
 
 /**
  * A read of a RECORD collection — the five that hold embeddable records.

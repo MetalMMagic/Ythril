@@ -34,9 +34,9 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const DOC = 'docs/integration-guide/03-auth-and-limits.md';
@@ -67,15 +67,13 @@ const NOT_JSON = [
 /**
  * Every .ts under server/src, tracked and untracked-but-not-ignored.
  *
- * **Two pathspecs, not one.** `server/src/**` requires at least one directory level, so a single pattern silently
- * excluded `server/src/app.ts` and `server/src/index.ts` — which is where the global error middleware and half the
- * admin handlers live. The gate reported clean while never looking at them.
+ * It used to spell two pathspecs, because `server/src/**` requires at least one directory level and a single
+ * pattern silently excluded `server/src/app.ts` and `server/src/index.ts` — where the global error middleware
+ * and half the admin handlers live. The gate reported clean while never looking at them. A directory rather
+ * than a glob has no such edge, and the shared helper is now the one place that has to know it.
  */
 function sourceFiles() {
-  const specs = ['server/src/*.ts', 'server/src/**/*.ts'];
-  const run = (args) => execFileSync('git', ['ls-files', ...args, ...specs], { cwd: ROOT, encoding: 'utf8' });
-  const all = `${run([])}\n${run(['--others', '--exclude-standard'])}`;
-  return [...new Set(all.split(/\r?\n/))].filter(Boolean).map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 /** Comments stripped line-first, so the gate cannot fire on the prose that documents it. */

@@ -30,15 +30,12 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 /** Every server source file, tracked AND untracked-but-not-ignored. */
 function sourceFiles() {
-  const arg = 'server/src/**/*.ts';
-  const tracked = execFileSync('git', ['ls-files', arg], { encoding: 'utf8' });
-  const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', arg], { encoding: 'utf8' });
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))].filter(Boolean).map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 /**

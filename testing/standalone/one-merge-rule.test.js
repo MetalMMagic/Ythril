@@ -42,7 +42,6 @@ import { trackedSources } from './_sources.mjs';
 import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 
@@ -55,17 +54,12 @@ let merge;
  * Tracked AND newly-added sources. `git ls-files` alone misses a file a contributor has just written,
  * which is precisely when a fresh copy of the rule gets introduced.
  *
- * Two pathspecs, not one: `server/src/*.ts` does not descend in git's glob, so a single pattern would
- * silently skip every subdirectory — which is all of them.
+ * It used to pass two pathspecs, because `server/src/*.ts` does not descend in git's glob and a single
+ * pattern silently skipped every subdirectory — which is all of them. A directory has no such edge, and the
+ * shared helper is now the one place that has to know it.
  */
 function sourceFiles() {
-  const run = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-  const specs = ['server/src/*.ts', 'server/src/**/*.ts'];
-  const tracked = run(['ls-files', ...specs]);
-  const fresh = run(['ls-files', '--others', '--exclude-standard', ...specs]);
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))]
-    .filter(Boolean)
-    .map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 /**

@@ -45,8 +45,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { blockAfter, enclosingBlockMatching } from './_structural-window.mjs';
 
@@ -58,12 +58,9 @@ import { blockAfter, enclosingBlockMatching } from './_structural-window.mjs';
  * matters most.
  */
 function routeFiles() {
-  const args = ['server/src/api/*.ts', 'server/src/api/**/*.ts'];
-  const tracked = execFileSync('git', ['ls-files', ...args], { encoding: 'utf8' });
-  const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', ...args], { encoding: 'utf8' });
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))]
-    .filter(Boolean)
-    .map(p => p.replace(/\\/g, '/'));
+  // `untracked: true` is the paragraph above, said at the call. The floor is 10 rather than the default 100
+  // because this is one directory, and a floor above what a scan can ever return fails on correct code.
+  return trackedSources('server/src/api', { untracked: true, floor: 10 });
 }
 
 const FIVE_XX = /res\.status\((5\d\d)\)/g;

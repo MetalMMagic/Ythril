@@ -210,6 +210,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type is left alone proved nothing about chrono. Found by `Q-6` round 12, which reads gates whose TITLE
   claims a whole set while their body reads part of it.
 
+  **And the gate that shipped one PR earlier found five more of the sweeps it was written for.** They hoist
+  the pathspec into a variable, so the statement making the call names no file extension at all -- invisible
+  to a grep, and invisible to the first version of the detector, which read forward from the call only. The
+  window reaches two lines back now, which is where a hoisted pathspec lives.
+
   Four more gates in that round were converted to take the record types from the source that defines them,
   rather than from four names written into each test. The sharper find was a SECOND list hiding inside one
   line: a gate looped over four type names and then read `mcp/tools/${type}.ts`, assuming a module is named

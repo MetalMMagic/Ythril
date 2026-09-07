@@ -28,8 +28,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { argumentsOf, statementAround } from './_structural-window.mjs';
 
@@ -39,10 +39,7 @@ const { LINK_CLASSES, linkClassFor, linksToAny, hasAnyLink } =
 const MODULE = 'server/src/brain/link-adjacency.ts';
 
 function serverFiles() {
-  const arg = 'server/src/**/*.ts';
-  const tracked = execFileSync('git', ['ls-files', arg], { encoding: 'utf8' });
-  const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', arg], { encoding: 'utf8' });
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))].filter(Boolean).map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 describe('the declaration answers for every link class', () => {

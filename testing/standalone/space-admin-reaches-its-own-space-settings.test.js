@@ -179,7 +179,11 @@ describe('the MCP door widens with the REST one', () => {
     // cannot call it, or hidden from somebody who can.
     const at = VIS.indexOf('if (tool.spaceAdmin)');
     assert.ok(at > -1, 'the spaceAdmin visibility branch is gone — re-anchor this gate');
-    assert.match(statementFrom(VIS, at, 'the spaceAdmin visibility branch'), /spaceAdminSpacesFor/,
+    // `administersAnySpace`, which is what this assertion always meant by "the any-space predicate". It used
+    // to name `spaceAdminSpacesFor`, and that function counts per-space ROWS — so a token administering every
+    // space through the FLOOR holds none, counted zero, and had every space-admin tool hidden from it. Same
+    // defect as the REST gate beside it (`Q-12`), and the same fix.
+    assert.match(statementFrom(VIS, at, 'the spaceAdmin visibility branch'), /administersAnySpace/,
       'the coarse half must use the any-space predicate — there is no space to check yet');
   });
 

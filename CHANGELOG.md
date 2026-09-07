@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A token that administers every space through the rights FLOOR was refused by the token routes**, where the
+  guide promises it a scoped listing. It held `admin` on all four areas with no `instanceAdmin`, and
+  `GET /api/tokens` answered `Admin token required`.
+
+  The gate counted per-space rows, and a floor names no space, so it read zero as "administers nothing" —
+  while the same rights already scoped that token to every space. **The cost was a daily token-inventory job
+  running blind for two weeks**, so an expiring credential lapsed with no warning. The same count hid every
+  space-admin tool from that token over MCP, and is corrected with it.
+
 - **The vector-index panel no longer declares every space broken on a self-hosted MongoDB, next to a button
   that would re-embed everything.** `listSearchIndexes` is the Atlas Search API; a replica set running
   `$vectorSearch` natively has nothing behind it, so the call succeeds and returns an empty list — which was

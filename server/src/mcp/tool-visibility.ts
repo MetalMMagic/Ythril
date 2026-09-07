@@ -1,6 +1,6 @@
 import type { TokenRights } from '../config/rights-shape.js';
 import { canWriteAnywhere } from '../auth/write-anywhere.js';
-import { spaceAdminSpacesFor } from '../auth/editor-scope.js';
+import { spaceAdminSpacesFor, administersAnySpace } from '../auth/editor-scope.js';
 
 /** The shape this needs off a tool — the two flags that decide whether it is reachable at all. */
 export interface VisibilityFlags {
@@ -43,7 +43,9 @@ export function toolIsVisible(tool: VisibilityFlags, rights: TokenRights | undef
   // named, so "administers something" is the only question that can be asked at this point. `spaceAdminRefusal`
   // asks the real one. Listing a tool the dispatcher may then refuse is the same shape as the mutating case
   // directly below, which has always been listed on "can write ANYWHERE" and refused per space.
-  if (tool.spaceAdmin) return rights?.instanceAdmin === true || spaceAdminSpacesFor({ rights }).length > 0;
+  // Same correction as the token-routes gate: a floor of `admin` administers every space and holds no
+  // per-space rows, so counting rows hid every space-admin tool from a token that fully qualifies.
+  if (tool.spaceAdmin) return rights?.instanceAdmin === true || administersAnySpace({ rights });
   if (tool.mutating) return canWriteAnywhere(rights);
   return true;
 }

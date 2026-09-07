@@ -6,7 +6,7 @@ import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
 import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
-import { spaceAdminSpacesFor, isSpaceAdminFor } from './editor-scope.js';
+import { spaceAdminSpacesFor, isSpaceAdminFor, administersAnySpace } from './editor-scope.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { reachesSpace } from './space-reach.js';
@@ -272,7 +272,10 @@ function enforceAdminOrSpaceAdmin(
   // Narrowed rather than cast wholesale: `rights` is the only field this decision reads, and naming it here
   // is what stops the predicate quietly growing a second input later.
   const withRights = record as { rights?: TokenRights | null };
-  if (spaceAdminSpacesFor(withRights).length > 0) return true;
+  // `administersAnySpace`, not a row count: a token whose admin comes from the FLOOR holds no per-space
+  // rows, and counting rows read that as administering nothing — a flat refusal where the guide promises a
+  // scoped listing. See the function's own note.
+  if (administersAnySpace(withRights)) return true;
   res.status(403).json({ error: 'Admin token required' });
   return false;
 }

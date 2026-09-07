@@ -135,6 +135,39 @@ export function spaceAdminSpacesFor(record: { rights?: TokenRights | null } | un
   return Object.keys(rights.perSpace ?? {}).filter(id => isSpaceAdminFor(rights, id));
 }
 
+/**
+ * Does this token administer ANY space — including by a floor, which names no space at all?
+ *
+ * ## Why this is not `spaceAdminSpacesFor(...).length > 0`
+ *
+ * That is what two callers used, and it is a different question. `spaceAdminSpacesFor` answers *which rows
+ * does this token hold*, deliberately derived from the rows rather than from the instance's space list — see
+ * its own note. A token whose admin comes from the FLOOR holds no rows, so the list is empty, and
+ * `.length > 0` reads that as *administers nothing*.
+ *
+ * Reported by the canary operator 2026-09-06 §7: their token holds `admin` on all four areas of every space,
+ * no `instanceAdmin`, no `createSpaces`, and `GET /api/tokens` answered `Admin token required` — a flat
+ * refusal where `07-tokens-api` promises a scoped listing. **The cost was real**: that credential runs their
+ * daily token inventory, so their seven-day expiry warning had been blind since 2026-08-20 and their MCP
+ * connector lapsed on 2026-09-01 with no notice at all.
+ *
+ * The same rights make `editorScopeFor` return `undefined` — unrestricted — so one function read the floor
+ * and the other did not. One rule, two implementations, and the weaker one refusing silently.
+ *
+ * ## What passing this still is not
+ *
+ * Permission to be CONSIDERED, exactly as before. Every route behind the gate still runs
+ * `refusalsOutsideEditorScope`, and for a floor-admin token that scope is unrestricted because the floor
+ * genuinely reaches every space — which is what the operator was promised.
+ */
+export function administersAnySpace(record: { rights?: TokenRights | null } | undefined): boolean {
+  const rights = record?.rights;
+  if (!rights) return false;
+  // A floor of `admin` on all four areas administers every space, present and future, and names none of them.
+  if (SPACE_AREAS.every(area => rights.floor?.[area] === 'admin')) return true;
+  return spaceAdminSpacesFor(record).length > 0;
+}
+
 export function editorScopeFor(
   record: { rights?: TokenRights | null } | undefined,
 ): readonly string[] | undefined {

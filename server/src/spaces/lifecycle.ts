@@ -19,6 +19,7 @@ import { SPACE_COLLECTIONS, repairStaleSpaceIds, dropLegacyPrefixedIndexes, drop
 import { moveSpaceData, applySpaceRenameToConfig } from './rename.js';
 import { ensureMediaJobIndexes } from '../files/media/job-queue.js';
 import { ensureEmbedJobIndexes } from '../brain/embed-queue.js';
+import { LINK_CLASSES } from '../brain/link-adjacency.js';
 import { envInt } from '../config/env-num.js';
 
 export async function initSpace(
@@ -78,7 +79,6 @@ export async function initSpace(
 
   await memoriesColl.createIndex({ seq: 1 });
   await memoriesColl.createIndex({ tags: 1 });
-  await memoriesColl.createIndex({ entityIds: 1 });
   // `{ type: 1 }` on all four record collections. MEASURED, not assumed: every list endpoint exposes a `type`
   // filter and `total` counts with it, and `explain()` on a live instance returned COLLSCAN for
   // `{type: …}` on memories, entities, edges and chrono. Entities looked covered by `{ name: 1, type: 1 }` and
@@ -112,14 +112,6 @@ export async function initSpace(
   await edgesColl.createIndex({ to: 1 });
   await edgesColl.createIndex({ seq: 1 });
   await edgesColl.createIndex({ type: 1 });
-  // `entityIds` on all three link-bearing collections, not just memories.
-  //
-  // It is the field every link scan reads — `linkedRecordsAtFrontier` asks "which records of this class point
-  // at the frontier" once per class, per member space, per hop. Memories had the index and chrono and files
-  // did not, so two thirds of every such scan was a collection scan. Latent while only the standalone
-  // `traverse` tool followed links; live since recall's expansion learned to (3.6), and multiplied by the
-  // migration, which turns every mention into a record.
-  await chronoColl.createIndex({ entityIds: 1 });
   await chronoColl.createIndex({ startsAt: 1 });
   await chronoColl.createIndex({ status: 1 });
   await chronoColl.createIndex({ seq: 1 });
@@ -153,7 +145,6 @@ export async function initSpace(
   await contraColl.createIndex({ status: 1, confidence: -1, detectedAt: -1 });
   // The type filter in the Review tab narrows on this, and the per-type wipe below deletes by it.
   await contraColl.createIndex({ type: 1 });
-  await filesColl.createIndex({ entityIds: 1 });   // see the note above `chronoColl`
   await filesColl.createIndex({ tags: 1 });
   await filesColl.createIndex({ updatedAt: -1 });
   // Chunk records point at their file through `parentFileId`. Both the chunk-grouping reads and
@@ -178,6 +169,25 @@ export async function initSpace(
   // shape here rather than a self-healing read path.
   // The key patterns are declared next to the queries they serve, in job-queue.ts, and created by its own
   // function — so this cannot drift from them and the database-level test exercises the same call.
+  /*
+   * The field every LINK scan reads, one index per link CLASS, derived from `LINK_CLASSES`.
+   *
+   * `linkedRecordsAtFrontier` asks "which records of this class point at the frontier" once per class, per
+   * member space, per hop — so an unindexed class is a collection scan on every hop of every traversal.
+   *
+   * **It used to be three hand-placed `{ entityIds: 1 }` calls, and a link is a (collection, FIELD) pair.**
+   * The first version of this fixed the collections and left the field written out, which was right while
+   * `entityIds` was the only link field. M-2 gave a chrono entry `memoryIds` and a file `memoryIds` and
+   * `chronoIds`: three classes whose scans had no index at all. Nothing reported it, because an unindexed
+   * scan returns the correct answer — slowly, and only visibly on a space large enough to feel it.
+   *
+   * Deduplicated because a collection can carry several link fields, and each needs its own index.
+   */
+  for (const key of new Set(LINK_CLASSES.map(c => `${c.collection}.${c.field}`))) {
+    const [collection, field] = key.split('.');
+    await db.collection(`${spaceId}_${collection}`).createIndex({ [field!]: 1 });
+  }
+
   await ensureMediaJobIndexes(spaceId);
   await ensureEmbedJobIndexes(spaceId);
 

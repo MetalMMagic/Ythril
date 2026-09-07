@@ -205,6 +205,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three of the six link classes had no database index, so every traversal hop scanned those collections.**
+  A link is a (collection, FIELD) pair, and the index creation named three COLLECTIONS with the field written
+  out as `entityIds`. That was right while `entityIds` was the only link field; M-2 gave a chrono entry
+  `memoryIds` and a file `memoryIds` and `chronoIds`, and those three arrived unindexed.
+
+  Nothing reported it, which is the part worth keeping: an unindexed scan returns the correct answer, just
+  slowly, and only on a space large enough to feel it. The gate covering this said "all three link
+  collections get an index" and was true as written.
+
+  Both the create path and the existing-space backfill now derive their indexes from the link-class list, so
+  a seventh class arrives with its index. Existing operators get the three missing ones on the next boot.
+
 - **A retention case that says "in every collection" now includes the collection the feature was built for.**
   It inserted an entity, a memory and an edge, and never a chrono entry -- so the case proving an unpoliced
   type is left alone proved nothing about chrono. Found by `Q-6` round 12, which reads gates whose TITLE

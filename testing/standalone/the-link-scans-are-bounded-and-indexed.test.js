@@ -33,6 +33,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+const { LINK_CLASSES } = await import('../../server/dist/brain/link-adjacency.js');
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf } from './_structural-window.mjs';
@@ -108,17 +109,29 @@ describe('every link scan is bounded', () => {
 });
 
 describe('the field every link scan reads is indexed', () => {
-  it('all three link collections get an entityIds index at creation', () => {
+  it('every link CLASS gets an index at creation, not just every link collection', () => {
     /*
      * It was on memories alone. Chrono got startsAt/status/seq/type and files got
      * tags/updatedAt/parentFileId — neither had the field the link scans actually query, so those reads were
      * collection scans on top of being unbounded.
+     *
+     * Then it was three hand-placed `{ entityIds: 1 }` calls, which is the same defect one level down: a link
+     * is a (collection, FIELD) pair, and M-2 gave a chrono entry `memoryIds` and a file `memoryIds` and
+     * `chronoIds`. Three classes had no index at all, while this case reported that all three link
+     * collections were covered — and nothing contradicted it, because an unindexed scan returns the right
+     * answer slowly.
+     *
+     * So the source derives its loop from `LINK_CLASSES`, and this asserts the derivation rather than the
+     * three names: a seventh class must arrive with its index without either file being edited.
      */
     const life = src('server/src/spaces/lifecycle.ts');
-    for (const coll of ['memoriesColl', 'chronoColl', 'filesColl']) {
-      assert.match(life, new RegExp(`${coll}\\.createIndex\\(\\{ entityIds: 1 \\}\\)`),
-        `${coll} has no entityIds index, so every link scan against it is a collection scan`);
-    }
+    assert.match(life, /LINK_CLASSES/,
+      'lifecycle names its link indexes instead of deriving them, so a new link class arrives unindexed');
+    assert.match(life, /createIndex\(\{ \[field!?\]: 1 \}\)/,
+      'the derived loop must index each class FIELD — a fixed field covers one class of the six');
+    // The floor: a derivation over an empty set would satisfy both assertions above and index nothing.
+    assert.ok(LINK_CLASSES.length >= 6,
+      `only ${LINK_CLASSES.length} link classes — the import is stale, and the loop is over nothing`);
   });
 
   it('and EXISTING spaces get it too, not just new ones', () => {
@@ -128,10 +141,11 @@ describe('the field every link scan reads is indexed', () => {
      * the same commit or every existing operator keeps the scan.
      */
     const ensure = src('server/src/spaces/ensure-query-indexes.ts');
-    assert.match(ensure, /entityIds/,
-      'the backfill still creates only the type index, so no existing space gets the link index');
-    assert.match(ensure, /chrono/, 'chrono must be in the backfill');
-    assert.match(ensure, /files/, 'files must be in the backfill');
+    assert.match(ensure, /LINK_CLASSES/,
+      'the backfill names its link collections instead of deriving them, so a new link class reaches every '
+      + 'NEW space and no existing one — which is the failure this case exists for');
+    assert.match(ensure, /createIndex\(\{ \[field\]: 1 \}\)/,
+      'the backfill must index each class FIELD; a fixed field covers one class of the six');
   });
 
   it('the backfill still reports how many calls it issued', () => {

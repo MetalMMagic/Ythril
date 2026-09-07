@@ -16,6 +16,7 @@ import {
   Histogram,
   Gauge,
 } from 'prom-client';
+import { COLLECTION_SUFFIX } from '../config/types-knowledge.js';
 import { col } from '../db/mongo.js';
 import { getConfig, getStorageConfig } from '../config/loader.js';
 import { peekUsage, refreshUsageInBackground, usageMeasurementCount, usageIsComplete, USAGE_AREAS } from '../quota/quota.js';
@@ -940,7 +941,12 @@ export const brainWriteSeqTotal = new Counter({
 // rather than a collision — two peers noticing the same connection have written the same fact, and the
 // unique index in `lifecycle.ts` absorbs it. Pre-declaring a permanent 0 for either would read as "no
 // collisions here", which is the exact confusion pre-declaring exists to prevent.
-for (const collection of ['memories', 'entities', 'edges', 'chrono']) {
+//
+// DERIVED from `COLLECTION_SUFFIX`, which is exactly the knowledge types' collections — so the paragraph
+// above is a description of what that map already contains rather than a second copy of it. Written out,
+// a fifth record type would be instrumented by its writer and silently absent from this pre-declaration,
+// and a graph would show nothing where it should show a zero.
+for (const collection of Object.values(COLLECTION_SUFFIX)) {
   for (const outcome of ['clean', 'collision', 'refused']) {
     brainWriteSeqTotal.labels({ collection, outcome }).inc(0);
   }

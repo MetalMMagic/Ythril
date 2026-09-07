@@ -205,6 +205,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The four size-budget parameter names were written out at three read routes, and the routes refuse what
+  they do not name.** A fifth budget parameter would have been accepted by the resolver and answered with a
+  400 by `/query`, `recall` and `find_similar` -- a refusal nothing described, on a parameter the product
+  supports. The vocabulary now lives once, in the module that owns it, and the doors spread it.
+
 - **A gate that keeps unsortable fields out of "every whitelist" was watching two of the three.** The third
   link array, `chronoIds`, arrived with M-2 and could have been made sortable on any collection with nothing
   to say so -- and sorting by an id array orders rows by nothing a reader can see.

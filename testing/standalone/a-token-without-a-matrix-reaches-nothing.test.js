@@ -42,6 +42,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -136,13 +137,22 @@ describe('and if one ever did, it reaches nothing', () => {
   });
 
   it('no caller threads a legacy allowlist into the reach rule any more', () => {
-    // Eight call sites passed one. Each was dead — and each was a place the fail-open composite could be
-    // reached from if the assumption above ever broke.
+    /*
+     * Eight call sites passed one. Each was dead — and each was a place the fail-open composite could be
+     * reached from if the assumption above ever broke.
+     *
+     * **Swept, not named.** This listed six files, and the claim in the title is about every caller: a
+     * seventh route calling the reach rule with a legacy allowlist would be exactly the one nobody had
+     * thought about, and a name list cannot see it. The scope is now every server source that calls the
+     * rule, plus the two auth modules that thread scope into it.
+     */
+    const callers = trackedSources('server/src')
+      .filter(f => /spacesWhereTokenMay\(|legacySpacesOf\(/.test(src(f)));
+    assert.ok(callers.length >= 4,
+      `only ${callers.length} caller(s) of the reach rule found — the sweep is wrong, and an empty one `
+      + 'reports every caller clean');
     const offenders = [];
-    for (const f of [
-      'server/src/api/conflicts.ts', 'server/src/api/contradictions.ts', 'server/src/api/duplicates.ts',
-      'server/src/api/brain/search.ts', MIDDLEWARE, 'server/src/auth/proxy-reach.ts',
-    ]) {
+    for (const f of [...new Set([...callers, MIDDLEWARE, 'server/src/auth/proxy-reach.ts'])]) {
       const s = src(f);
       if (/legacySpacesOf\(/.test(s)) offenders.push(`${f}: passes a legacy allowlist`);
       if (/spacesWhereTokenMay\([^)]*\?\.spaces/.test(s)) offenders.push(`${f}: passes record.spaces`);

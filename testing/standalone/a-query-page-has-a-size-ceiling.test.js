@@ -57,10 +57,20 @@ describe('the query route takes a budget', () => {
     assert.ok(QUERY_BODY_FIELDS instanceof Set && QUERY_BODY_FIELDS.size > 0);
   });
 
-  it('accepts every budget parameter the other read routes do', () => {
-    // The body is STRICT, so a parameter absent from this set is a 400 rather than a silent drop — which is
-    // the right failure, and exactly why the set has to be widened in the same change as the handler.
-    for (const k of ['maxChars', 'maxBytes', 'maxTokens', 'charsPerToken']) {
+  it('accepts every budget parameter the other read routes do', async () => {
+    /*
+     * The body is STRICT, so a parameter absent from this set is a 400 rather than a silent drop — which is
+     * the right failure, and exactly why the set has to be widened in the same change as the handler.
+     *
+     * The names come from `BUDGET_REQUEST_FIELDS`, in the module that owns the vocabulary. They were written
+     * out here AND at three doors in `query.ts`, so a fifth budget parameter would have been accepted by
+     * `resolveBudget` and refused with a 400 by three read routes, with this case reporting the old four
+     * present and nothing describing the gap.
+     */
+    const { BUDGET_REQUEST_FIELDS } = await import('../../server/dist/brain/result-budget.js');
+    assert.ok(BUDGET_REQUEST_FIELDS.length >= 4,
+      `only ${BUDGET_REQUEST_FIELDS.length} budget field(s) — the import is stale and this loop checks little`);
+    for (const k of BUDGET_REQUEST_FIELDS) {
       assert.ok(QUERY_BODY_FIELDS.has(k), `POST /query refuses \`${k}\`, which every other read route takes`);
     }
   });

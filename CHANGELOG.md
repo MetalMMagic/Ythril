@@ -96,6 +96,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A refused save on Media Processing now says what the server said.** Selecting an extraction mode the
+  installation cannot serve left the Save button looking inert: the request was made, the API answered with a
+  reason, and the page threw it away. An operator hit this against 4.0.0 and spent an hour not knowing which
+  field was objecting.
+
+  It was broader than the one form they hit. The bar that renders the outcome sat behind a condition that was
+  the literal `false`, so it never appeared — and that bar was the **only** place on the page where either a
+  refusal or a confirmation was ever shown. Every card and every pipeline sets both; nothing displayed
+  either. The success half mattered as much: with no confirmation, silence meant "saved" and "refused"
+  equally.
+
 - **A token that administers every space through the rights FLOOR was refused by the token routes**, where the
   guide promises it a scoped listing. It held `admin` on all four areas with no `instanceAdmin`, and
   `GET /api/tokens` answered `Admin token required`.

@@ -33,6 +33,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf } from './_structural-window.mjs';
 
@@ -166,10 +167,23 @@ describe('the warning both doors carried is gone', () => {
      * a caller not to try the thing that works, and nobody reports a capability they were told they did not
      * have.
      */
-    for (const f of ['docs/integration-guide/04a-recall-api.md', 'server/src/mcp/tools/search.ts']) {
-      const text = readFileSync(f, 'utf8');
-      assert.doesNotMatch(text, /only entities are returned by traversal/i,
-        `${f} still carries the warning, which this change made false`);
-    }
+    /*
+     * **DERIVED, and over BOTH the guides and the server** (`Q-6`, 2026-09-07). It named one doc page and
+     * one tool, which were where the sentence had been found; the same sentence in the REST reference, the
+     * operator's page or a second tool was outside everything this read while the title said "neither door".
+     *
+     * A stale warning is the one kind of documentation defect nobody reports, so the sweep has to be the
+     * whole surface rather than the two places somebody remembered.
+     */
+    const listed = execFileSync('git', ['ls-files', 'server/src', 'docs', 'client/src'],
+      { maxBuffer: 32 * 1024 * 1024 }).toString('utf8').split('\n')
+      .filter(f => f.endsWith('.ts') || f.endsWith('.md'));
+    assert.ok(listed.length > 100, `only ${listed.length} files found; the listing is broken`);
+
+    const stale = listed.filter(f => /only entities are returned by traversal/i.test(readFileSync(f, 'utf8')));
+    assert.deepEqual(stale, [],
+      `${stale.join(', ')} still carries the warning, which is false: a traversal reaches memories, chrono `
+      + 'entries and files. A stale warning tells a caller not to try the thing that works, and nobody '
+      + 'reports a capability they were told they did not have.');
   });
 });

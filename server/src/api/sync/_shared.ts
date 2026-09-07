@@ -260,6 +260,7 @@ export const MAX_FORK_DEPTH = 10;
 
 import { reconcileLinksForDocument } from '../../brain/links.js';
 import type { RefKind } from '../../config/types-knowledge.js';
+import { CHRONO_STATUSES } from '../../config/types.js';
 import { validateEntity, validateEdge, validateChrono, validateMemory, getSpaceMeta, type SchemaViolation }
   from '../../spaces/schema-validation.js';
 
@@ -544,7 +545,10 @@ export const IncomingChronoDoc = z.object({
   type: z.string().min(1),
   startsAt: z.string().min(1),
   endsAt: z.string().optional(),
-  status: z.enum(['upcoming', 'active', 'completed', 'overdue', 'cancelled']),
+  // THE ONE TUPLE. This spelled the five names itself — a copy on the INGEST path, where a peer's chrono
+  // entry is validated, so a list two words wrong here would refuse a status the rest of the product
+  // accepts and hold the sync watermark on it (`Q-6`, 2026-09-07).
+  status: z.enum(CHRONO_STATUSES),
   confidence: z.number().min(0).max(1).optional(),
   tags: z.array(z.string()).max(100).default([]),
   entityIds: z.array(z.string()).max(500).default([]),

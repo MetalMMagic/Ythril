@@ -51,6 +51,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const code = (f) => stripComments(readFileSync(f, 'utf8'));
@@ -124,12 +125,32 @@ describe('the primitive-property rule has ONE implementation', () => {
      * MCP is asserted on the SCHEMA rather than on a call: the dispatcher compiles each tool's published
      * schema and refuses what it does not match, so the declaration IS the enforcement there.
      */
+    /*
+     * **The COUNT is gone and the REST half is derived** (`Q-6`, 2026-09-07). `declarations.length === 2` is
+     * a number the code already holds: a third MCP door declaring the types would be invisible to it, and one
+     * that legitimately stops declaring fails on arithmetic rather than on the rule. A FLOOR plus the rule is
+     * what the number was standing in for.
+     *
+     * The two REST files were the two somebody had open. The set is now every file route that writes a
+     * properties bag, which is what the title claims.
+     */
     const mcp = code('server/src/mcp/tools/file.ts');
     const declarations = [...mcp.matchAll(/additionalProperties:\s*\{\s*oneOf/g)];
-    assert.equal(declarations.length, 2,
+    assert.ok(declarations.length >= 2,
       `expected write_file AND update_file_meta to declare the value types, found ${declarations.length}`);
-    for (const f of ['server/src/api/brain/file-meta.ts', 'server/src/api/files-upload.ts']) {
-      assert.match(code(f), new RegExp(`\\b${SHARED}\\(`), `${f} must check the values, not only the shape`);
+
+    const routes = execFileSync('git', ['ls-files', 'server/src/api'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+    assert.ok(routes.length > 10, `only ${routes.length} route sources found; the listing is broken`);
+
+    const writesMeta = routes.filter(f => /file/i.test(f) && /properties/.test(code(f)));
+    assert.ok(writesMeta.length >= 2,
+      `only ${writesMeta.length} file route(s) touch a properties bag; the PATCH and the upload are the minimum`);
+    for (const f of writesMeta) {
+      assert.match(code(f), new RegExp(`\\b${SHARED}\\(`),
+        `${f} writes a file-meta properties bag and must check the VALUES, not only the shape — a malformed `
+        + 'bag dropped silently on an upload is the worst of the four, because an upload is not a cheap '
+        + 'request to repeat');
     }
   });
 

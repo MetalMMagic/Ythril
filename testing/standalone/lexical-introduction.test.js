@@ -87,6 +87,8 @@ describe('reproducing the engine score', () => {
   });
 
   it('every mapping lands in (0, 1]', () => {
+    // set-claim: the three similarity metrics Atlas vector search offers, an external vocabulary. The
+    // parameter type is that union and is erased at runtime; a fourth would be Atlas adding one.
     for (const sim of ['cosine', 'dotProduct', 'euclidean']) {
       for (const [a, b] of [[[1, 0], [1, 0]], [[1, 0], [-1, 0]], [[1, 0], [0, 1]], [[0.6, 0.8], [0.8, 0.6]]]) {
         const s = atlasVectorScore(a, b, sim);

@@ -58,6 +58,8 @@ describe('who may leave a network', () => {
   });
 
   it('the lower rungs cannot leave at all, whoever established it', () => {
+    // set-claim: the two rungs BELOW the threshold, a deliberate subset of the ladder rather than a copy
+    // of it -- the cases either side assert what the higher rungs may do, which is the other half.
     for (const rung of ['none', 'in']) {
       assert.deepEqual(mayLeaveNetwork(req({ rung, origins: { qa: 't1' } })),
         { allowed: false, because: 'insufficient-rung' },

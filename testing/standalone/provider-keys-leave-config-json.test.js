@@ -71,6 +71,8 @@ const CONFIG_FALLBACK = /apiKey:\s*[^,;\r\n]*\?\?\s*(base|cfg)\b[^,;\r\n]*/g;
 
 describe('the boot migration moves a key out of config.json', () => {
   it('moves every provider key and deletes it from the config', () => {
+    // set-claim: the blocks this case just WROTE into its own fixture config, so it reads back what it
+    // put in. The whole-set question is asked by the shape-derived CONFIG_FALLBACK sweep further down.
     const c = cfg({
       vision: { baseUrl: 'https://v.invalid', apiKey: 'sk-vision' },
       stt: { apiKey: 'sk-stt' },

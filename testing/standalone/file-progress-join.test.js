@@ -104,6 +104,8 @@ describe('attachJobProgress — what it attaches', () => {
 
 describe('attachJobProgress — which statuses count as in flight', () => {
   it('pending and processing count; every finished state does not', async () => {
+    // set-claim: a PARTITION of the job statuses written as two loops -- the in-flight pair here, every
+    // finished state in the loop below -- so the case states the boundary rather than copying a set.
     // `pending` matters as much as `processing`: a queued job is exactly the case where someone is
     // staring at the row wondering whether anything is happening at all.
     for (const s of ['pending', 'processing']) {

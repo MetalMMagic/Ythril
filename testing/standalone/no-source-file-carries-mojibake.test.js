@@ -106,6 +106,8 @@ describe('no source file carries mis-decoded UTF-8', () => {
   });
 
   it('detects every shape that has actually bitten, generated rather than typed', () => {
+    // set-claim: fixture INPUTS, each one a character that actually mis-decoded in this repo, and each
+    // built from the correct character rather than typed. A record of misses, not a copy of a set.
     // Fixtures are BUILT from the correct character, because typing them is unreliable: `═` mis-decodes to
     // `â•` plus U+0090, an invisible control character, and a hand-written version silently omitted it —
     // producing an assertion that tested a string which cannot occur, and failing a detector that was right.

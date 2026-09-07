@@ -73,9 +73,17 @@ describe('parseSortParam — the 400-on-unknown-sort contract', () => {
 
   // A rejected-by-design list, asserted so it is not "corrected" into the whitelist later. `properties` is
   // a free-form JSON blob with no single orderable value; the id arrays order by nothing a reader can see.
-  it('keeps unsortable-by-nature fields OUT of every whitelist', () => {
+  it('keeps unsortable-by-nature fields OUT of every whitelist', async () => {
+    /*
+     * The link arrays come from `LINK_ARRAY_FIELDS`, not from a list written here. There are THREE of them
+     * and this named two: `chronoIds` arrived with M-2 and could have been whitelisted on any collection
+     * without a word from this case, which claims to keep them out of EVERY whitelist.
+     */
+    const { LINK_ARRAY_FIELDS } = await import('../../server/dist/brain/array-write-refusal.js');
+    assert.ok(LINK_ARRAY_FIELDS.length >= 3,
+      `only ${LINK_ARRAY_FIELDS.length} link array field(s) — the import is stale and this checks less`);
     for (const [name, set] of Object.entries(SORTABLE_FIELDS)) {
-      for (const field of ['properties', 'entityIds', 'memoryIds']) {
+      for (const field of ['properties', ...LINK_ARRAY_FIELDS]) {
         assert.ok(!set.has(field), `${name}.${field} must not be sortable — it has no orderable value`);
       }
     }

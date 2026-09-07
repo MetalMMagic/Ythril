@@ -24,6 +24,26 @@ import { isStrictLinkage } from '../spaces/proxy.js';
 import { expiryForCreate } from '../brain/ttl.js';
 import { enqueueEmbedJob } from '../brain/embed-queue.js';
 import { mergePropertiesOrKeep } from '../brain/merge-fields.js';
+import { LINK_CLASSES } from '../brain/link-adjacency.js';
+
+/**
+ * The optional fields a `deleteFields` path may clear on a file's metadata record.
+ *
+ * ## Why the link half is DERIVED and the rest is not
+ *
+ * A file's link arrays are whatever `LINK_CLASSES` says a file points at — three today (`entityIds`,
+ * `memoryIds`, `chronoIds`), and one of them was added after this mechanism shipped. A field that is
+ * SETTABLE and missing from this list is accepted at the door and then silently does nothing, which is the
+ * exact failure `validateDeleteFields` exists to prevent at the other end. So a seventh link class must not
+ * depend on somebody remembering this file.
+ *
+ * The other four are this record's own optional fields and have no list to derive from — they are named,
+ * and `file-meta-merges-like-the-brain-tools.test.js` checks the derived half against `LINK_CLASSES`.
+ */
+export const DELETABLE_FILE_META_FIELDS: readonly string[] = [
+  'description', 'excerpt', 'tags', 'properties',
+  ...LINK_CLASSES.filter(c => c.kind === 'file').map(c => c.field),
+];
 import { applyDeleteFields } from '../brain/delete-fields.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
@@ -290,8 +310,7 @@ export async function updateFileMeta(
     };
     applyDeleteFields(merged, deleteFieldsPaths);
 
-    for (const field of ['description', 'excerpt', 'tags', 'entityIds', 'chronoIds', 'memoryIds',
-      'properties']) {
+    for (const field of DELETABLE_FILE_META_FIELDS) {
       if (!(field in merged)) {
         $unset[field] = '';
         delete $set[field];

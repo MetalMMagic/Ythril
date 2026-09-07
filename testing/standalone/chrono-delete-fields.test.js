@@ -75,17 +75,37 @@ describe('deletion really removes, and only what was named', () => {
 describe('the writer handles EVERY optional field', () => {
   // The silent-no-op guard. A field accepted at the edge but missing from the writer's unset list would be
   // accepted and do nothing — which is the exact behaviour X-4 exists to remove, reintroduced one field at a
-  // time. Derived from the update signature rather than hand-listed, so a new optional field fails here
-  // until it is handled.
+  // time. The LINK arrays are derived from LINK_CLASSES; the record's own optional fields are named, because
+  // there is no list to derive them from. This comment claimed the whole set was derived and it was not.
   const SRC = stripComments(readFileSync('server/src/brain/chrono.ts', 'utf8'));
 
-  it('the unset loop covers each of them', () => {
+  it('the unset loop covers each of them, and the LINK fields are derived into the list', async () => {
+    /*
+     * The comment above this block used to say the fields were "derived from the update signature rather
+     * than hand-listed". They were hand-listed, here and in the source — a docblock claiming a property the
+     * code did not have, which is worse than no claim because it stops the next reader looking.
+     *
+     * Two of the nine are not a fixed set: a chrono entry links to whatever `LINK_CLASSES` says it does, and
+     * `memoryIds` arrived after this mechanism shipped. That half is derived in the source now, and checked
+     * here against the same list rather than re-typed.
+     */
+    const { LINK_CLASSES } = await import('../../server/dist/brain/link-adjacency.js');
     const at = SRC.indexOf('if (deleteFieldsPaths && deleteFieldsPaths.length > 0)');
     assert.ok(at > 0, 'the deleteFields block was not found — the scanner is wrong, not the code');
     const block = SRC.slice(at, SRC.indexOf('\n  //', at + 10));
-    for (const f of ['description', 'tags', 'entityIds', 'memoryIds', 'properties', 'recurrence',
-      'endsAt', 'confidence', 'suppressEmbeddings']) {
-      assert.match(block, new RegExp(`'${f}'`), `${f} is optional and settable but cannot be deleted`);
+    assert.match(block, /for \(const field of DELETABLE_CHRONO_FIELDS\)/,
+      'the unset loop names its fields again instead of walking the declared list');
+
+    const declared = SRC.slice(SRC.indexOf('DELETABLE_CHRONO_FIELDS'), SRC.indexOf('];', SRC.indexOf('DELETABLE_CHRONO_FIELDS')));
+    const chronoLinkFields = [...new Set(LINK_CLASSES.filter(c => c.kind === 'chrono').map(c => c.field))];
+    assert.ok(chronoLinkFields.length >= 2,
+      `only ${chronoLinkFields.length} chrono link field(s) — the import is stale and this checks nothing`);
+    assert.match(declared, /LINK_CLASSES\.filter\(c => c\.kind === 'chrono'\)/,
+      'the link arrays must be derived: a third chrono link class would otherwise be settable and not '
+      + 'deletable, which is a path accepted at the door that silently does nothing');
+    for (const f of ['description', 'tags', 'properties', 'recurrence', 'endsAt', 'confidence',
+      'suppressEmbeddings']) {
+      assert.match(declared, new RegExp(`'${f}'`), `${f} is optional and settable but cannot be deleted`);
     }
   });
 

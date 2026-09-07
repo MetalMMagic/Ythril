@@ -29,6 +29,7 @@
  * Run: node --test testing/standalone/the-legacy-suppression-spelling-is-gone.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -38,8 +39,7 @@ const LEGACY = 'excludeFromVectorSearch';
 
 /** Tracked server sources only, comments stripped — a docblock explaining the removal is not a use. */
 function serverSources() {
-  return execFileSync('git', ['ls-files', 'server/src'], { encoding: 'utf8' })
-    .split('\n').map(s => s.trim()).filter(f => f.endsWith('.ts'));
+  return trackedSources('server/src');
 }
 
 describe('the legacy spelling is gone from the server', () => {

@@ -30,14 +30,14 @@
  * Run: node --test testing/standalone/no-runtime-import-cycles.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve, relative } from 'node:path';
 
 const ROOT = process.cwd();
-const files = execFileSync('git', ['ls-files', 'server/src'], { cwd: ROOT, encoding: 'utf8' })
-  .split('\n').filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts'));
+const files = trackedSources('server/src');
 
 const norm = (p) => relative(ROOT, p).replaceAll('\\', '/');
 

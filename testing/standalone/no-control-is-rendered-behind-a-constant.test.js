@@ -27,6 +27,7 @@
  * Run: node --test testing/standalone/no-control-is-rendered-behind-a-constant.test.js
  */
 import { test } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -47,8 +48,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONSTANT_COMPUTED = /(?:readonly\s+)?(\w+)\s*=\s*computed\s*(?:<[^>]*>)?\s*\(\s*\(\s*\)\s*(?::\s*boolean\s*)?=>\s*(true|false)\s*\)/g;
 
 test('no client computed is a hard-coded true or false', () => {
-  const listed = execFileSync('git', ['ls-files', 'client/src'], { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024 })
-    .toString('utf8').split('\n')
+  const listed = trackedSources('client/src')
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts'));
   // A FLOOR, because an empty listing passes every loop written over it — the failure this gate would
   // otherwise report as success.

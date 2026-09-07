@@ -18,6 +18,7 @@
  * Run: node --test testing/standalone/graph-spill-is-not-content.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -89,8 +90,7 @@ describe('every traverse site spills, and every site that spills reports it', ()
    * spill builds, the number that report `graphComplete`, and the number that report `graphTruncated` are
    * the same.** A site added without its reporting is what that catches, at any total.
    */
-  const doors = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-    .toString('utf8').split('\n')
+  const doors = trackedSources('server/src')
     .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/graph-spill.ts')
     .filter(f => /buildGraphWithSpill/.test(read(f)));
 

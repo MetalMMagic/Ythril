@@ -35,6 +35,7 @@
  * Run: node --test testing/standalone/one-definition-of-the-knowledge-types.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -49,8 +50,7 @@ const DECLARATIONS = [
 ];
 
 function sourceFiles() {
-  return execFileSync('git', ['ls-files', 'server/src', 'client/src'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
+  return trackedSources(['server/src', 'client/src'])
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.d.ts'));
 }
 

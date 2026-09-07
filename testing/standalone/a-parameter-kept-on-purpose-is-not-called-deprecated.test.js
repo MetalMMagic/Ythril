@@ -31,6 +31,7 @@
  * (requires a prior `npm run build` in server/ so server/dist exists)
  */
 import { describe, it, before } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -67,8 +68,7 @@ function keptParameters() {
 
 /** Every checked-in TypeScript source under `server/src`, via git so gitignored build output is excluded. */
 function serverSources() {
-  return execFileSync('git', ['ls-files', 'server/src'], { encoding: 'utf8' })
-    .split('\n').map(s => s.trim()).filter(f => f.endsWith('.ts'));
+  return trackedSources('server/src');
 }
 
 describe('a parameter kept on purpose is not called deprecated by its own implementation', () => {

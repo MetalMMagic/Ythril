@@ -13,14 +13,14 @@
  * (requires a prior `npm run build` in server/)
  */
 import { describe, it, before } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 /** Every tracked server source, read out of git rather than named — see the derived cases below. */
 function serverSources() {
-  return execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-    .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+  return trackedSources('server/src');
 }
 const read = (f) => readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8');
 

@@ -22,6 +22,7 @@
  * Run: node --test testing/standalone/no-backtick-inside-a-component-literal.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -30,10 +31,9 @@ const BT = '`';
 
 /** Tracked client sources, so a build artefact or a stray copy cannot fail this. */
 function componentFiles() {
-  return execFileSync('git', ['ls-files', 'client/src'], { encoding: 'utf8' })
-    .split('\n')
+  return trackedSources('client/src', { ext: ['.component.ts', '.directive.ts'] })
     .map(f => f.trim())
-    .filter(f => f.endsWith('.component.ts') || f.endsWith('.directive.ts'));
+    ;
 }
 
 /** Every inline literal opener in the file, as [label, index-of-its-opening-backtick]. */

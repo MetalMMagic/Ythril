@@ -205,6 +205,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Twenty-two gates that swept the source tree by hand now go through the one helper.** Each was the same
+  four lines — shell out to `git ls-files`, split, filter by extension, assert a floor — and the floor is the
+  half that matters: an empty listing passes every loop written over it, so a gate whose scan breaks reports
+  a green tick about a set it never read. In `trackedSources` it throws instead, and cannot be forgotten.
+
+  Converted one at a time, each verified on its own, because a mechanical rewrite of all of them was tried
+  first and reverted: cutting each call to the following semicolon drops whatever else was chained there, and
+  twelve gates went red at once.
+
 - **The gate sweep's own output had become a copy, and now has a module.** Six rounds of replacing
   hand-written file lists with a derived one had produced the same four lines — shell out to `git ls-files`,
   split, filter, assert a floor — ten times over, written by the work whose subject is that a rule written

@@ -26,6 +26,7 @@
  * Run: node --test testing/standalone/client-bodies-match-server.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -47,8 +48,7 @@ const SETS = new Map([
 const strip = s => s.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const clientSources = () =>
-  execFileSync('git', ['ls-files', 'client/src'], { encoding: 'utf8' })
-    .split('\n')
+  trackedSources('client/src')
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts'));
 
 /** From the `{` at `open`, the matching `}` — inclusive of both braces. */

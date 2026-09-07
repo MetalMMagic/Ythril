@@ -42,6 +42,7 @@
  * Run: node --test testing/standalone/one-definition-of-the-collections.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -91,8 +92,7 @@ const COLS = ['memories', 'entities', 'edges', 'chrono', 'files'];
 const NEAR_COMPLETE = 4;
 
 function sourceFiles() {
-  return execFileSync('git', ['ls-files', 'server/src', 'client/src'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
+  return trackedSources(['server/src', 'client/src'])
     .filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.d.ts'));
 }
 

@@ -31,13 +31,13 @@
  * Run: node --test testing/standalone/chip-styles-reach-their-markup.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 
-const files = execFileSync('git', ['ls-files', 'client/src'], { encoding: 'utf8' })
-  .split('\n').map(f => f.trim()).filter(f => f.endsWith('.ts') && !f.endsWith('.spec.ts'));
+const files = trackedSources('client/src', { specs: false });
 
 const GLOBAL_CSS = 'client/src/styles.scss';
 

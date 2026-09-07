@@ -37,6 +37,7 @@
  * Run: node --test testing/standalone/update-tools-state-merge-or-replace.test.js
  */
 import { describe, it } from 'node:test';
+import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -91,8 +92,7 @@ describe('the store still behaves the way the descriptions claim', () => {
      * writer of properties, whatever it is called and wherever it lives. That is also the exact shape of the
      * defect — an assignment is what replaces the bag, and replacing it destroys keys the caller never named.
      */
-    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+    const files = trackedSources('server/src');
     const writers = files.filter(f => /\$set\[['"]properties['"]\]\s*=/.test(stripComments(src(f))));
     assert.ok(writers.length >= 4,
       `only ${writers.length} module(s) write a properties bag; the four record families are the minimum, `

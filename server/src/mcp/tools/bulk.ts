@@ -13,6 +13,7 @@ import { bulkWrite, bulkWriteTotal } from '../../brain/bulk.js';
 import { resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { edgeEndpointKindSchema } from '../../brain/entity-refs.js';
+import { CHRONO_STATUSES } from '../../config/types.js';
 
 export const bulk_writeTool: ToolHandler = {
   name: 'bulk_write',
@@ -199,7 +200,7 @@ export const bulk_writeTool: ToolHandler = {
                       + 'sent and the entry then reads as `overdue` immediately.',
                   },
                   status:      {
-                    type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'],
+                    type: 'string', enum: [...CHRONO_STATUSES],
                     description: 'Stored status (default `upcoming`). A value outside this list is DISCARDED '
                       + 'SILENTLY — the entry is still written, with the default, and nothing appears in '
                       + '`errors`. `create_chrono` refuses the same value, because the per-item schemas here '

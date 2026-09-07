@@ -53,6 +53,8 @@
  * peers creating an edge from now on.
  */
 import { v5 as uuidv5 } from 'uuid';
+import { edgeEndpointKind } from './entity-refs.js';
+import type { RefKind } from '../config/types-knowledge.js';
 
 /**
  * The namespace for edge identity. Fixed forever: changing it re-derives every future id and silently splits
@@ -104,8 +106,17 @@ export function edgeIdFor(
   fromKind?: string,
   toKind?: string,
 ): string {
-  const fk = fromKind ?? 'entity';
-  const tk = toKind ?? 'entity';
+  /*
+   * The SHARED coalescer, not a local `?? 'entity'`.
+   *
+   * This module had its own copy — a sixth, after the four doors and the definition — and it decides the
+   * edge's IDENTITY. Agreeing today is not the property that matters: the day the default changes, an id
+   * derived here would disagree with the kind stored beside it, and the two would describe different edges
+   * while looking like one. Found by `Q-6` on 2026-09-07, when the gate whose title said "no door" stopped
+   * reading four named files and started reading the server.
+   */
+  const fk = edgeEndpointKind(fromKind as RefKind | undefined);
+  const tk = edgeEndpointKind(toKind as RefKind | undefined);
   const kinds = fk === 'entity' && tk === 'entity' ? '' : `${part(fk)}${part(tk)}`;
   return uuidv5(`${part(from)}${part(to)}${part(label)}${kinds}`, EDGE_NAMESPACE);
 }

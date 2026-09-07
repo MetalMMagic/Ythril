@@ -215,6 +215,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line: a gate looped over four type names and then read `mcp/tools/${type}.ts`, assuming a module is named
   after its type. That is true today and is a rule nowhere, so a tool moved into a shared module would have
   stopped being checked with nothing going red. Each tool is now found by the declaration it makes.
+- **A gate that asks what source files this repo has now goes through one module, and a new gate cannot roll
+  its own.** Seven more sweeps were found by the gate itself, after a grep had reported the set complete --
+  they spell the same call with a different flag, which is precisely why deriving the set beats listing it.
+
+  The module gained two things a conversion would otherwise have lost. It reads the listing NUL-separated, so
+  a path containing a space or a non-ASCII byte is no longer quoted by git and silently skipped by every
+  endsWith the caller wrote. And it takes an option for including files that are not committed yet, which two
+  gates need for the same reason: an unbounded upstream read, or a boot migration over synced data, is worth
+  refusing before it is pushed, and a tracked-only listing cannot see one written five minutes ago.
+
+  The floor is what the module is really for. A listing that returns nothing passes every loop written over
+  it -- no offenders, green tick, nothing checked -- and that guard is one line that looks like boilerplate,
+  so it is the line a copy leaves out. Asking for the sources now gives you the floor whether you remembered
+  it or not, and it throws rather than returning empty.
 
 - **Three more source sweeps moved onto the shared helper, and two were marked as ones that must NOT move.**
   The two are the useful half: `source-text-hygiene` sweeps EVERY tracked file, because a control byte in a

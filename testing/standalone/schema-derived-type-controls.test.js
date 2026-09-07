@@ -47,18 +47,16 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { blockAfter, bodyOf } from './_structural-window.mjs';
 
 const BRAIN_DIR = 'client/src/app/pages/brain';
 
 /** Tracked files only — a gitignored scratch component is not part of the product. */
 function trackedComponents() {
-  return execFileSync('git', ['ls-files', BRAIN_DIR], { encoding: 'utf8' })
-    .split('\n')
-    .map(l => l.trim())
-    .filter(f => f.endsWith('.component.ts'));
+  // `ext` narrows to components rather than every source, and the floor is 3 because this is one directory.
+  return trackedSources(BRAIN_DIR, { ext: ['.component.ts'], floor: 3 });
 }
 
 /** Comments are not code: a comment that names `store.chronoKinds` must not fail this gate, and the

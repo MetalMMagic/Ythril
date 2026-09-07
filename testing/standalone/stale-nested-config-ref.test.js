@@ -31,10 +31,10 @@
  */
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 let loadConfig, saveConfig, reloadConfig, mutateConfig, getConfig;
 let dir, cfgPath;
@@ -120,9 +120,7 @@ describe('a write through a nested config reference', () => {
 });
 
 describe('no NEW site holds a nested config reference across an await and writes through it', () => {
-  const NUL = String.fromCharCode(0);
-  const files = execFileSync('git', ['ls-files', '-z', 'server/src'], { encoding: 'utf8' })
-    .split(NUL).filter(f => f.endsWith('.ts'));
+  const files = trackedSources('server/src');
   /**
    * Blanks comments IN PLACE, so reported line numbers match the file.
    *

@@ -32,7 +32,6 @@ import { describe, it } from 'node:test';
 import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const LEGACY = 'excludeFromVectorSearch';
@@ -86,8 +85,9 @@ describe('the doors refuse it rather than ignoring it', () => {
      * MCP schemas are `additionalProperties: false` and the dispatcher validates before the handler, so
      * removing the property is what makes the tools refuse the field — the refusal is the absence.
      */
-    const offenders = execFileSync('git', ['ls-files', 'server/src/mcp'], { encoding: 'utf8' })
-      .split('\n').map(s => s.trim()).filter(f => f.endsWith('.ts'))
+    // The floor is 10 rather than the default 100: this is one subtree, and a floor above what the scan can
+    // ever return fails on correct code.
+    const offenders = trackedSources('server/src/mcp', { floor: 10 })
       .filter(f => stripComments(readFileSync(f, 'utf8')).includes(LEGACY));
     assert.deepEqual(offenders, [],
       `${offenders.join(', ')} still declares the legacy field, so the tool accepts it`);

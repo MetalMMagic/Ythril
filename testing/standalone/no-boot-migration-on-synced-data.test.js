@@ -41,7 +41,7 @@ import assert from 'node:assert/strict';
 import { balancedFrom, statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { trackedSources } from './_sources.mjs';
 
 const ROOT = process.cwd();
 
@@ -52,11 +52,15 @@ const SYNCED = ['memories', 'entities', 'edges', 'chrono', 'files'];
 const WRITES = ['updateMany', 'updateOne', 'bulkWrite', 'deleteMany', 'deleteOne', 'insertMany', 'insertOne',
   'replaceOne', 'findOneAndUpdate', 'findOneAndReplace', 'findOneAndDelete'];
 
+/*
+ * `untracked: true` — the scan includes files that are on disk but not committed yet.
+ *
+ * A boot migration is written and then run on the next start, so the moment it is worth refusing is BEFORE
+ * it is pushed. A tracked-only listing cannot see one that was written five minutes ago, which is the run
+ * where a person could still choose the lazy migration instead.
+ */
 function sourceFiles() {
-  const tracked = execFileSync('git', ['ls-files', 'server/src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' });
-  const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', 'server/src/**/*.ts'],
-    { cwd: ROOT, encoding: 'utf8' });
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))].filter(Boolean).map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 /** Comments stripped line-first, so the gate cannot fire on the prose that documents it. */

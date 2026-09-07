@@ -33,7 +33,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { trackedSources } from './_sources.mjs';
 
 const ROOT = process.cwd();
 const HELPER = 'server/src/util/bounded-read.ts';
@@ -44,27 +44,17 @@ before(async () => { mod = await import('../../server/dist/util/bounded-read.js'
 /**
  * Every .ts under server/src that is part of the repo — tracked **and** untracked-but-not-ignored.
  *
- * `git ls-files` alone cannot see a file added in the same change as the gate, so on its first run this scan
- * missed the very helper it points at. That is exactly how it failed the first time it was run, and it is the
+ * A plain `git ls-files` cannot see a file added in the same change as the gate, so on its first run this
+ * scan missed the very helper it points at. That is how it failed the first time it was run, and it is the
  * third time this repo has been bitten by treating `git ls-files` as "what files does this project have".
- * `--others --exclude-standard` adds new files while still honouring .gitignore, which is the property that
- * matters: a gitignored generated file must not enter the scan.
- */
-/*
- * NOT `trackedSources` — deliberately, and this comment is why nobody should "tidy" it into one.
  *
- * That helper answers *"what does the repository hold"*, and this asks a different question: what is on
- * disk right now, INCLUDING a file the author has not committed yet. An unbounded read added in the working
- * copy is exactly the one worth catching before it is pushed, and a tracked-only sweep cannot see it.
- *
- * `Q-18` converts the sweeps that ask the first question. This one is not one of them.
+ * `untracked: true` is that paragraph, said at the call. The default listing answers *"what does the
+ * repository hold"*; this gate asks what is on disk right now. Both questions go through one module, so the
+ * two gates needing the second one no longer each carry their own copy of the incantation — and the flag is
+ * visible at the call site, which a copy never was.
  */
 function sourceFiles() {
-  const tracked = execFileSync('git', ['ls-files', 'server/src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' });
-  const fresh = execFileSync('git', ['ls-files', '--others', '--exclude-standard', 'server/src/**/*.ts'],
-    { cwd: ROOT, encoding: 'utf8' });
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))]
-    .filter(Boolean).map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true, floor: 50 });
 }
 
 /** Strip comments line-first so the gate cannot fire on the prose explaining it. */

@@ -28,14 +28,12 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 let SchemaViolationError;
 
-const NUL = String.fromCharCode(0);
-const toolFiles = execFileSync('git', ['ls-files', '-z', 'server/src/mcp/tools'], { encoding: 'utf8' })
-  .split(NUL).filter(f => f.endsWith('.ts'));
+const toolFiles = trackedSources('server/src/mcp/tools', { floor: 10 });
 const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('the refusal keeps its classification', () => {

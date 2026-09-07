@@ -32,8 +32,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -49,10 +49,9 @@ const GUARD = 'server/src/files/media/face-descriptor.ts';
  * entries, one was fixed, and the file's documentation counted it as both.
  */
 function mediaSources() {
-  return execFileSync('git', ['ls-files', 'server/src/files/media'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.endsWith('.ts') && !l.endsWith('.spec.ts'));
+  // `specs: false` — the subject is what the PRODUCT computes; a test may legitimately write the number down
+  // to assert on it. The floor is 3 rather than the default 100 because this is one directory.
+  return trackedSources('server/src/files/media', { floor: 3, specs: false });
 }
 
 describe('face descriptor width is never a literal', () => {

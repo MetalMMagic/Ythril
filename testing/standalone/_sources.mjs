@@ -41,18 +41,46 @@ export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..
  * @param {string[]}        [opts.exclude] exact paths to drop — the module that DEFINES the thing under test
  * @param {boolean}         [opts.specs] include `.spec.ts`, default true. The one real second question:
  *                                       "what does the PRODUCT contain" against "what does the repo contain".
+ * @param {boolean}         [opts.untracked] also return files that are NOT COMMITTED yet, default false —
+ *                                       the second real second question, described below.
  * @returns {string[]} repo-relative paths, forward slashes, as git prints them
  *
  * `.d.ts` is never returned. A declaration file is not a source in the sense any of these gates mean, and
  * every caller that hand-rolled this excluded it — which is what makes it a default rather than an option.
  */
 export function trackedSources(dirs, opts = {}) {
-  const { ext = ['.ts'], floor = 100, exclude = [], specs = true } = opts;
+  const { ext = ['.ts'], floor = 100, exclude = [], specs = true, untracked = false } = opts;
   const paths = Array.isArray(dirs) ? dirs : [dirs];
+  /*
+   * `-z` and a NUL split rather than newlines.
+   *
+   * Without it, `git ls-files` QUOTES any path holding a space, a quote or a non-ASCII byte — so such a file
+   * would arrive wrapped in double quotes and match no `endsWith` any caller writes, silently leaving itself
+   * out of the sweep. Several of the sweeps folded in here already did this; doing it in the module means
+   * none of them had to remember.
+   */
+  const NUL = String.fromCharCode(0);
+  const ls = (args) => execFileSync('git', ['ls-files', '-z', ...args, ...paths],
+    { cwd: REPO_ROOT, maxBuffer: 32 * 1024 * 1024 }).toString('utf8');
 
-  const listed = execFileSync('git', ['ls-files', ...paths], { cwd: REPO_ROOT, maxBuffer: 32 * 1024 * 1024 })
-    .toString('utf8').split('\n')
-    .map(f => f.trim())
+  /*
+   * `--others --exclude-standard` adds files that exist on disk and are not committed, while still honouring
+   * .gitignore — so a build output or a scratch file never enters the scan.
+   *
+   * Two gates want it and they want it for the same reason: an unbounded upstream read, or a boot migration
+   * over synced data, is worth REFUSING before it is pushed, and a tracked-only listing cannot see one that
+   * was written five minutes ago. `upstream-reads-are-bounded` learned it the hard way — on its first run the
+   * scan missed the very helper the gate points at, because that helper was part of the same uncommitted
+   * change.
+   *
+   * It is an option rather than the default because the other question is the more common one and the two
+   * differ in a way that matters: a listing including uncommitted files is not reproducible between this
+   * machine and CI, so a gate that wants a stable set must not get one.
+   */
+  const raw = untracked ? `${ls([])}${NUL}${ls(['--others', '--exclude-standard'])}` : ls([]);
+
+  const listed = [...new Set(raw.split(NUL).map(f => f.trim()))]
+    .map(f => f.replace(/\\/g, '/'))
     .filter(f => f
       && ext.some(e => f.endsWith(e))
       && !f.endsWith('.d.ts')

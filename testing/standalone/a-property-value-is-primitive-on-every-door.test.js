@@ -50,8 +50,8 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const code = (f) => stripComments(readFileSync(f, 'utf8'));
@@ -139,9 +139,9 @@ describe('the primitive-property rule has ONE implementation', () => {
     assert.ok(declarations.length >= 2,
       `expected write_file AND update_file_meta to declare the value types, found ${declarations.length}`);
 
-    const routes = execFileSync('git', ['ls-files', 'server/src/api'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
-    assert.ok(routes.length > 10, `only ${routes.length} route sources found; the listing is broken`);
+    // One directory, so the floor is 10 rather than the default 100. A floor above what the scan can ever
+    // return fails on correct code, which is how a guard gets deleted instead of corrected.
+    const routes = trackedSources('server/src/api', { floor: 10 });
 
     const writesMeta = routes.filter(f => /file/i.test(f) && /properties/.test(code(f)));
     assert.ok(writesMeta.length >= 2,

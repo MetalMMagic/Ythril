@@ -39,6 +39,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const src = (p) => readFileSync(p, 'utf8');
@@ -80,11 +81,26 @@ describe('the store still behaves the way the descriptions claim', () => {
     assert.match(chrono, /\$set\['properties'\] = mergedUpdateProps/, 'with properties lifted out to merge');
   });
 
-  it('all four MERGE properties', () => {
-    for (const f of ['server/src/brain/entities.ts', 'server/src/brain/edges.ts',
-      'server/src/brain/memory.ts', 'server/src/brain/chrono.ts']) {
+  it('every writer that sets a properties bag MERGES it', () => {
+    /*
+     * **The count and the list both came out of this.** It read *"all four MERGE properties"* over four named
+     * brain modules — a number in a title, which is a second copy of a fact the code holds, and a list that a
+     * fifth writer would sit outside of while the title went on claiming all of them (`Q-6`, 2026-09-07).
+     *
+     * The set is now the SYMPTOM rather than the family: whoever assigns a properties bag into a `$set` is a
+     * writer of properties, whatever it is called and wherever it lives. That is also the exact shape of the
+     * defect — an assignment is what replaces the bag, and replacing it destroys keys the caller never named.
+     */
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+    const writers = files.filter(f => /\$set\[['"]properties['"]\]\s*=/.test(stripComments(src(f))));
+    assert.ok(writers.length >= 4,
+      `only ${writers.length} module(s) write a properties bag; the four record families are the minimum, `
+      + 'so the scan is wrong rather than the code');
+
+    for (const f of writers) {
       assert.match(stripComments(src(f)), /mergePropertiesOrKeep\(/,
-        `${f} must merge properties — replacing them destroys keys the caller never named`);
+        `${f} sets a properties bag without merging — replacing it destroys keys the caller never named`);
     }
   });
 });

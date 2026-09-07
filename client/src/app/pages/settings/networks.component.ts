@@ -1,8 +1,9 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.types';
+import { Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.types';
 import { NetworksApi } from '../../core/networks-api.service';
+import { NetworkInvitePanelComponent } from './network-invite-panel.component';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -22,7 +23,7 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, ErrorStateComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent, NetworkMemberRowComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, ErrorStateComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent, NetworkEnableWizardComponent, NetworkMemberRowComponent, NetworkInvitePanelComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -172,27 +173,7 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
             <div class="network-body">
 
               <!-- Invite bundle -->
-              <div style="margin-bottom:16px; margin-top:12px;">
-                <div class="section-title">{{ 'networks.network.invite.title' | transloco }}</div>
-                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
-                  @if (net.type === 'pubsub') {
-                    {{ 'networks.network.invite.pubsubDescription' | transloco }}
-                  } @else {
-                    {{ 'networks.network.invite.description' | transloco }}
-                  }
-                </p>
-                @if (inviteBundle(net.id); as bundle) {
-                  <div class="code-block" style="margin-bottom:8px; font-size:11px; white-space:pre-wrap; word-break:break-all;">{{ bundleJson(bundle) }}</div>
-                  <button class="btn-ghost btn btn-sm" (click)="copyInvite(net.id)">
-                    {{ copiedInvite() === net.id ? ('common.copied' | transloco) : ('networks.network.invite.copyBundle' | transloco) }}
-                  </button>
-                } @else {
-                  <button class="btn-secondary btn btn-sm" [disabled]="generatingInvite[net.id]" (click)="generateInvite(net.id)">
-                    @if (generatingInvite[net.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                    {{ 'networks.network.invite.generateButton' | transloco }}
-                  </button>
-                }
-              </div>
+              <app-network-invite-panel [networkId]="net.id" [networkType]="net.type" />
 
               <!-- Sync -->
               <div style="margin-bottom:16px;">
@@ -357,11 +338,9 @@ export class NetworksComponent implements OnInit {
   availableSpaces = signal<Space[]>([]);
   spacesLoadFailed = signal(false);
 
-  private inviteBundles: Record<string, InviteBundle> = {};
   private syncResults: Record<string, { ok: boolean }> = {};
   private votesByNetwork: Record<string, VoteRound[]> = {};
 
-  copiedInvite = signal('');
   // This brain's own URL — computed in ngOnInit (and the enable-networks flow) and passed to the join
   // dialog as its `myUrl`; also gates whether the enable-networks wizard is offered.
   joinMyUrl = '';
@@ -369,7 +348,6 @@ export class NetworksComponent implements OnInit {
   removingMember: Record<string, boolean> = {};
   // Per-network / per-round in-flight flags so each async action shows a spinner and disables its button
   // (default change detection re-renders on the settling HTTP response).
-  generatingInvite: Record<string, boolean> = {};
   savingSchedule: Record<string, boolean> = {};
   syncingNet: Record<string, boolean> = {};
   votingRound: Record<string, boolean> = {};
@@ -387,8 +365,6 @@ export class NetworksComponent implements OnInit {
   needsNetworkEnable = signal(false);
   showEnableNetworksWizard = signal(false);
 
-  inviteBundle(id: string): InviteBundle | undefined { return this.inviteBundles[id]; }
-  bundleJson(bundle: InviteBundle): string { return JSON.stringify(bundle, null, 2); }
   syncResult(id: string): { ok: boolean } | undefined { return this.syncResults[id]; }
 
   /** At-a-glance rollup atop the page. Recomputes when `networks` changes — and `loadVotes` always
@@ -506,30 +482,6 @@ export class NetworksComponent implements OnInit {
     this.networksApi.leaveNetwork(net.id).subscribe({
       next: () => this.networks.update(list => list.filter(n => n.id !== net.id)),
       error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.leaveFailed')),
-    });
-  }
-
-  generateInvite(networkId: string): void {
-    this.generatingInvite[networkId] = true;
-    this.networksApi.generateInvite(networkId).subscribe({
-      next: (bundle) => {
-        delete this.generatingInvite[networkId];
-        this.inviteBundles[networkId] = bundle;
-        this.networks.update(n => [...n]);
-      },
-      error: (err) => {
-        delete this.generatingInvite[networkId];
-        this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.generateInviteFailed'));
-      },
-    });
-  }
-
-  copyInvite(networkId: string): void {
-    const bundle = this.inviteBundles[networkId];
-    if (!bundle) return;
-    navigator.clipboard.writeText(JSON.stringify(bundle, null, 2)).then(() => {
-      this.copiedInvite.set(networkId);
-      setTimeout(() => this.copiedInvite.set(''), 2000);
     });
   }
 

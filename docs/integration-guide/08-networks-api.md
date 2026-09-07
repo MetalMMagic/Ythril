@@ -503,9 +503,33 @@ Optional fields:
   "networkId": "net-uuid",
   "inviteUrl": "https://me.example.com/api/invite/apply",
   "rsaPublicKeyPem": "-----BEGIN PUBLIC KEY-----\n...",
-  "expiresAt": "2026-03-25T15:00:00.000Z"
+  "expiresAt": "2026-03-25T15:00:00.000Z",
+  "inviteCode": "ythril1_eyJoYW5kc2hha2VJZCI6..."
 }
 ```
+
+#### `inviteCode` — the same bundle as one line, and the thing to give a person
+
+`inviteCode` carries every field above, base64url-encoded behind a readable prefix. It exists because the
+object does not survive being sent to somebody: a PEM key contains line breaks, so the bundle wraps in email
+and breaks in chat clients, and a recipient looking at braces and quotes has no idea what they may safely
+touch. The code is one unbroken line with none of that in it.
+
+**Prefer it when a HUMAN is in the path.** An integrator wiring two instances together can keep reading the
+fields; an operator sending an invite to a colleague should send the code.
+
+**It is an ENCODING, not encryption.** Anyone can decode it in one command, and it contains the
+`handshakeId` — which `apply` and `finalize` below accept as their only credential. Send it the way you
+would send a password. What limits the exposure is the same thing that limits any short-lived ticket: the
+handshake expires (see `expiresAt`) and is consumed when it is applied.
+
+**Why the whole bundle travels rather than a short URL to fetch it from.** `rsaPublicKeyPem` is what pins
+the handshake to the intended instance. If the joiner fetched it instead, whoever controls that fetch could
+substitute their own key, and the joiner would encrypt to them. Carrying it keeps the key out of band and
+adds no unauthenticated endpoint.
+
+A joiner that receives a code decodes it and posts the fields to `apply` exactly as before — there is no
+second endpoint and no different flow.
 
 ---
 

@@ -482,17 +482,19 @@ Click **Create Network**. The dialog asks for a **label**, a **type**, the **spa
 ### Inviting another brain
 
 1. Expand the network card and click **Generate invite**.
-2. Copy the invite bundle (a JSON blob).
-3. Send it to the other admin out-of-band (email, chat, etc.).
-
-The invite expires after 1 hour.
+2. Click **Copy invite** — one long line starting `ythril1_`, with nothing to trim or unwrap.
+3. Send it to the other admin **the way you would send a password**. Anyone holding that line can complete
+   the join, and it looks like gibberish, which is exactly why people assume posting it in a group channel
+   is safe. It is encoded, not encrypted. It expires after 1 hour and works only once. (An instance that has
+   not been upgraded still produces the older JSON blob, which keeps working.)
 
 **Both ends are recorded in the audit log.** Generating an invite appears as `network.invite.generate`, and the moment the other brain actually becomes a member — or is held for a join vote — appears as `network.member.join`. Until 2026-08-28 neither did: the whole invite path was exempt from auditing as "peer-facing", which was true about who calls it and beside the point about what it changes.
 
 ### Joining a network
 
 1. Click **Join Network**.
-2. Paste the invite bundle.
+2. Paste the invite code — the line starting `ythril1_`. (An older brain may have sent you the earlier JSON
+   form; paste that instead and it works the same.)
 3. Enter your brain's publicly reachable URL (e.g. `https://brain.example.com`).
 4. If any space IDs overlap with existing local spaces, a dialog lets you choose to merge into the existing space or map the remote space to a new local ID.
 5. Click **Join network**.

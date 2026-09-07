@@ -777,14 +777,8 @@ export interface NetworkMember {
   belowFloor?: string | null;
 }
 
-export interface InviteBundle {
-  handshakeId: string;
-  inviteUrl: string;
-  rsaPublicKeyPem: string;
-  networkId: string;
-  expiresAt: string;
-  spaces?: string[];
-}
+// The invite bundle's shape lives with the codec that reads it — `core/invite-code.ts`.
+export type { InviteBundle } from './invite-code';
 
 export interface VoteRound {
   id: string;

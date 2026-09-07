@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- **An invite to join a network is now ONE line to copy, not a JSON object to paste.**
+
+  Owner, 2026-09-02: *"i just would like it to be a single string at the end and not something that looks
+  like a json object -- thats too frightening for some tech-averse people i had to learn from my wife."*
+
+  `POST /api/invite/generate` returns an `inviteCode` beside the fields it already returned: the same bundle
+  as one unbroken line beginning `ythril1_`. No braces, no quotes, no line breaks -- a PEM key has plenty of
+  those, which is what made the old form wrap in email and break in chat clients. The joiner's dialog takes
+  either shape, so an invite generated before the upgrade still works.
+
+  **The whole bundle travels, and that is the safer choice rather than the lazy one.** The alternative was a
+  short URL the joiner fetches the rest from -- but the inviter's public key is what pins the handshake to
+  the intended instance, so a fetch is a place to substitute a key, after which the joiner encrypts to
+  whoever answered. Carrying it keeps the key out of band and adds no unauthenticated endpoint.
+
+  **It is an encoding, not encryption.** The code contains the handshake credential, so it is a secret in
+  transit and the UI now says to send it the way you would send a password. What limits it is that the
+  handshake expires and is consumed on use.
+
 - **A batch can now connect the records it creates.** `bulk_write` took four record arrays in one payload and
   its own contract said why that was not enough: you cannot reference a record the call creates, because
   identities are minted server-side. Put `"$ref": "post-1"` on an item and later items name it as

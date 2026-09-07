@@ -290,3 +290,15 @@ because each one computed them from its own copy of the bytes.
 > **Files uploaded before 4.0 need one command before their descriptions travel.** An administrator runs
 > `npm run links:convert` once; it is the same one-off that converts the connection lists, and running it
 > twice is safe.
+>
+> **You can look before you run it, and you can undo the part that changes anything.** Three things about
+> that one-off, because it sounds bigger than it is:
+>
+> - **See the size of it first.** `npm run links:convert -- --preview` reads and writes nothing, and prints
+>   per space how many records carry connection lists and how many entries those lists hold. Run it again
+>   afterwards to see the link count rise and everything else stay put.
+> - **Do one space first if you like.** Give the command a space id and only that space converts. Nothing
+>   starts being refused: the switch that makes a space reject the old way of writing connections is set only
+>   by a full run, so a single space is a genuine trial with no effect on anything already writing to it.
+> - **That switch can be turned back off.** It is an ordinary space setting. Turn it off and the old way of
+>   writing connections is accepted again; the connections the conversion created stay where they are.

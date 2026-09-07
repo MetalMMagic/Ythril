@@ -35,6 +35,7 @@ import { nextSeq } from '../util/seq.js';
 import { getConfig } from '../config/loader.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { reconcileLinksForDocument, LINK_BEARING_COLLECTIONS } from './links.js';
+import { LINK_CLASSES } from './link-adjacency.js';
 import { log } from '../util/log.js';
 
 /** What one space's conversion did, per collection and in total. */
@@ -94,6 +95,66 @@ export async function stampFileMetaSeqs(spaceId: string): Promise<number> {
     stamped++;
   }
   return stamped;
+}
+
+/** What one space's conversion WOULD do — counted, with nothing written. */
+export interface ConversionPreview {
+  spaceId: string;
+  /** Already converted on this instance, so the arrays are no longer the write surface. */
+  converted: boolean;
+  /** Records carrying a non-empty array, by class label (`memory.entityIds` and its five siblings). */
+  records: Record<string, number>;
+  /** Array entries across those records — the CEILING on links this space can gain, not the count. */
+  entries: Record<string, number>;
+  /** Link records the space already holds. Run the preview again after converting: this rises, the rest does not. */
+  links: number;
+}
+
+/**
+ * Count what a conversion would walk, writing nothing.
+ *
+ * ## Why a separate function and not a dry-run flag through `convertSpaceLinks`
+ *
+ * A dry run threaded through the writer is the defect this repository produces most — one rule, two
+ * implementations, and the weaker one wins silently. A preview sharing the writer's path is one forgotten
+ * `if` away from writing; a preview re-deriving the writer's decisions is a second implementation of them
+ * that drifts.
+ *
+ * So this answers a DIFFERENT and strictly simpler question: how much is there. It reads the same class
+ * table the writer reads, and makes no attempt to predict how many links result — an array entry naming a
+ * record that no longer exists produces none, and two entries naming the same pair produce one. `entries`
+ * is a ceiling and is named as one.
+ *
+ * ## What it is for
+ *
+ * An operator asked to run a migration against live data, who cannot see its scale beforehand and has been
+ * told nothing about reversing it, defers it. That is the whole finding. This turns *"five repositories of
+ * writers and no idea"* into a number per space, and gives a before-and-after they can read themselves.
+ */
+export async function previewSpaceLinks(spaceId: string): Promise<ConversionPreview> {
+  const out: ConversionPreview = {
+    spaceId,
+    converted: getConfig().spaces.find(s => s.id === spaceId)?.completeLinkage === true,
+    records: {},
+    entries: {},
+    links: await col(`${spaceId}_links`).countDocuments(asFilter({ spaceId })),
+  };
+
+  // DERIVED from the class table, so a seventh link class appears here on the day it is declared. A
+  // hand-written list of six field names is the shape this file's own header argues against.
+  for (const c of LINK_CLASSES) {
+    const nonEmpty = asFilter({ [c.field]: { $exists: true, $ne: [] } });
+    out.records[c.label] = await col(`${spaceId}_${c.collection}`).countDocuments(nonEmpty);
+    const grouped = await col(`${spaceId}_${c.collection}`).aggregate([
+      { $match: nonEmpty },
+      // `$isArray` because a legacy record can carry the key as something that is not an array, and `$size`
+      // on a non-array fails the whole aggregation rather than skipping that one document.
+      { $group: { _id: null, n: { $sum: { $cond: [{ $isArray: `$${c.field}` }, { $size: `$${c.field}` }, 0] } } } },
+    ]).toArray() as Array<{ n?: number }>;
+    out.entries[c.label] = grouped[0]?.n ?? 0;
+  }
+
+  return out;
 }
 
 export async function convertSpaceLinks(spaceId: string): Promise<ConversionReport> {

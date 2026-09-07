@@ -151,6 +151,21 @@ unavailable, and **none of them can fail a search** — a stage that cannot answ
    widens the pool it gets to choose from. Unreachable or unconfigured means no opinion, and the fused
    order stands. See the `mediaEmbedding.rerank.*` rows in [Configuration](05b-media-embedding.md#configuration).
 
+   **Budget for it: the cost tracks TEXT, not candidate count, and running out is silent.** The cross-encoder
+   scores every candidate passage, so the budget must cover the total text of `topK x candidateMultiplier`
+   candidates — on records of several kilobytes, **seconds per result**. Measured live, same query and space,
+   only `topK` stepped, at the default multiplier of 4 and the default 20-second budget: 4 candidates took
+   5.09 s, 12 took 15.70 s, 16 took 17.79 s, and 20 did not finish. **The third step is the informative one**
+   — 2.09 s for 198 more bytes, where earlier steps added around 1 617 each — so count is only a proxy, and
+   it holds while candidates are similar in size. A control instance on the same server and model reranked a
+   comparable set (5 097 B against 5 133 B) in **2.83 s**.
+
+   **When the budget expires the request still SUCCEEDS**: the stage logs `keeping the vector order` and a
+   reasonable-looking answer comes back without the precision this stage exists to add. Raise
+   `modelSlots.rerank.timeoutMs`, but not past whatever proxy sits in front of the API — the run above that
+   did not finish was cut off by their gateway's own twenty seconds, not by ours. Read `rerankScore` to tell
+   the cases apart: no field means the stage had no opinion.
+
 **Ordering precedence is `rerankScore` → `fusedScore` → `score`** — the order of how much each signal
 actually knows.
 

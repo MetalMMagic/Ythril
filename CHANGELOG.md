@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The link conversion can be previewed, and the guides now say what it touches and how to undo it.**
+  `npm run links:convert -- --preview` reads and writes nothing: per space, how many records carry each
+  connection list, how many entries those lists hold, and how many link records already exist. Run it again
+  after converting and only the link count has moved.
+
+  Reported by an operator who had not run the migration and said exactly why — they could not see its scale
+  beforehand, the `400` that follows lands on some other service's next write, and nothing anywhere said
+  whether it could be undone. *"An operator who believes a step is irreversible defers it, which is what we
+  are doing."*
+
+  **Three of those four answers already existed in the code and nowhere a reader would find them**, and they
+  are now on both the integrator's and the operator's page:
+
+  - **It is per space, and one space is a real pilot.** Converting a named space deliberately does not set
+    `completeLinkage`, so links are created and nothing starts being refused.
+  - **The prerequisite is therefore "before you MARK", not "before you convert".** Between the two you can
+    find your remaining array writers at your own pace — including agent sessions, since `create_chrono` and
+    its siblings accept `entityIds` directly.
+  - **The marker is reversible.** It is an ordinary space setting; turn it off and array writes are accepted
+    again. The link records stay, because they are not what it switches.
+
+  The preview is a separate function from the conversion rather than a dry-run flag through it, and a gate
+  holds it to an allowlist of read calls — a preview sharing the writer's path is one forgotten branch away
+  from writing, and a preview an operator does not trust is worse than none.
+
 - **A slot can ask a thinking model to think less.** Each model slot gains a **Reasoning effort** setting,
   sent as `reasoning_effort` on the OpenAI-shaped request. Blank means the field is not sent at all, which is
   what every installation did before this existed.
@@ -33,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Infra pins a slot as before, and both controls lock together.
 
 ### Changed
+
 - **A release note too long for GitHub now leads with what breaks, instead of with whatever came first.**
   Breaking entries are lifted above everything else, all of them, and the notice at the top says how many of
   how many are shown. The paragraphs a release opens with are kept whole; the rest follows in its original
@@ -49,6 +75,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller whether or not its author happened to write the word.
 
   A release whose notes fit is published unchanged, as before.
+
+- **The guides now say what reranking COSTS, which is the number that decides whether you get it.** The
+  cross-encoder reads your question together with each candidate passage, so its work tracks the total TEXT
+  of `topK × candidateMultiplier` candidates rather than their count. On records of several kilobytes that is
+  seconds per result — measured on a live instance, one result took 5.09 s and four took 17.79 s, while
+  another instance on the same server and model reranked a comparable set in 2.83 s. The only difference was
+  how long the records were.
+
+  Nothing about the behaviour changed. What was missing is that the failure is silent: when the budget
+  expires the search still answers, ordered by meaning alone, and looks entirely reasonable. At the default
+  multiplier of 4 and the default 20-second budget that puts the ceiling at about four results on six-to-
+  nine-kilobyte records, and nobody reports a result that looks fine.
+
+  Covered on all three pages that an operator or an integrator would open for it, including which of the two
+  possible deadlines is ours: raising `modelSlots.rerank.timeoutMs` past the limit of whatever proxy sits in
+  front of the API buys nothing.
 
 - **The question, the JSON filter and the JSON projection are three cards side by side** on Brain → Query →
   Semantic Search. They are the three controls that decide WHAT is searched; the rest of the panel decides
@@ -70,6 +112,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   19.7. Filed as `F-24` — a caller cannot cap how far one match spreads.
 
 ### Fixed
+
+- **A refused save on Media Processing now says what the server said.** Selecting an extraction mode the
+  installation cannot serve left the Save button looking inert: the request was made, the API answered with a
+  reason, and the page threw it away. An operator hit this against 4.0.0 and spent an hour not knowing which
+  field was objecting.
+
+  It was broader than the one form they hit. The bar that renders the outcome sat behind a condition that was
+  the literal `false`, so it never appeared — and that bar was the **only** place on the page where either a
+  refusal or a confirmation was ever shown. Every card and every pipeline sets both; nothing displayed
+  either. The success half mattered as much: with no confirmation, silence meant "saved" and "refused"
+  equally.
 
 - **A token that administers every space through the rights FLOOR was refused by the token routes**, where the
   guide promises it a scoped listing. It held `admin` on all four areas with no `instanceAdmin`, and

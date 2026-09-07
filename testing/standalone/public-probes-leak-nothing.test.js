@@ -30,6 +30,24 @@ import { readFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(p, 'utf8');
 const READY = read('server/src/ready.ts');
+
+/**
+ * Every reason code the `CheckReason` union declares, read out of the type.
+ *
+ * Two cases here asserted a hand-written list of them — one naming six, the other five — and the second is
+ * the one that mattered: it claims the hosting guide documents EVERY code, and `error` was outside it. That
+ * code happens to be documented, so nothing was wrong; nothing would have said so if it were not.
+ *
+ * Bounded at the next DECLARATION rather than at the first `;`, because one of the trailing comments
+ * contains a semicolon ("connected to a secondary; writes would fail") — a convenience slice hid two of the
+ * six codes once already.
+ */
+function checkReasons() {
+  const at = READY.indexOf('export type CheckReason');
+  const end = READY.indexOf('export interface CheckResult', at);
+  if (at < 0 || end <= at) throw new Error('CheckReason is gone or unbounded — re-anchor this parser');
+  return [...READY.slice(at, end).matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
+}
 const APP = read('server/src/app.ts');
 
 /** The `/ready` handler, from its registration to the next route registration. */
@@ -93,8 +111,14 @@ describe('a failing check reports a code, never the driver message', () => {
     const end = READY.indexOf('export interface CheckResult', at);
     assert.ok(end > at, 'could not bound the CheckReason declaration');
     const decl = READY.slice(at, end);
-    for (const code of ['unreachable', 'timeout', 'auth_failed', 'not_primary', 'unsupported', 'error']) {
+    // Every member of the union is a quoted literal, which is the CLAIM -- not "these six are present",
+    // which is a fixture of what the union happened to hold the day it was written.
+    const codes = checkReasons();
+    assert.ok(codes.length >= 6, `parsed only ${codes.length} reason codes -- the parser is wrong, not the code`);
+    for (const code of codes) {
       assert.match(decl, new RegExp(`'${code}'`), `the ${code} reason is missing`);
+      assert.doesNotMatch(code, /[^a-z_]/,
+        `${code} is not a fixed code an alert can key on -- a reason must be greppable and stable`);
     }
   });
 });
@@ -152,6 +176,8 @@ describe('the detail goes to the log instead of being discarded', () => {
   });
 
   it('each check reports its state on success as well as failure', () => {
+    // set-claim: the two readiness CHECKS the endpoint performs, each with its own transition assertion.
+    // A third check would arrive with its own case, because its states are per-check.
     // Without the success call there is no transition to detect, so recovery is silent.
     for (const check of ['mongodb', 'vectorSearch']) {
       assert.match(READY, new RegExp(`logTransition\\('${check}', 'ok'\\)`),
@@ -166,7 +192,9 @@ describe('it is documented', () => {
     const at = doc.indexOf('What `/ready` returns');
     assert.ok(at > 0, 'the /ready payload section is gone');
     const section = doc.slice(at, doc.indexOf('\n#### ', at + 10));
-    for (const code of ['unreachable', 'timeout', 'auth_failed', 'not_primary', 'unsupported']) {
+    // EVERY code the union declares, parsed. This named five of the six -- `error` was documented anyway,
+    // and would not have been noticed here if it had not been. A seventh must reach the guide or fail here.
+    for (const code of checkReasons()) {
       assert.match(section, new RegExp(`\`${code}\``), `${code} is undocumented, so nobody can alert on it`);
     }
     assert.match(section, /before every authentication middleware|public/i,

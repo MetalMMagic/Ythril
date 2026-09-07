@@ -208,6 +208,8 @@ describe('a link record follows the array that made it', { skip }, () => {
   });
 
   it('every link record carries what a REPLICATED document must', async () => {
+    // set-claim: the same forbidden edge fields as the source-side case, asserted here against a real
+    // stored record. What a link must not carry, not a copy of what it must.
     /*
      * `brain/merkle.ts` hashes every field of a link, so a field written here and missing from the ingest
      * schema is kept on pull and DELETED on push — same version, same document, one direction, no error.

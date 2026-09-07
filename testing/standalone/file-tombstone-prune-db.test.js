@@ -80,6 +80,8 @@ describe('file tombstone prune (real MongoDB)', { skip }, () => {
   });
 
   it('deletes NOTHING when no floor was earned', async () => {
+    // set-claim: the two refusal REASONS this case can produce, each asserted with its own fixture. The
+    // reasons are the branch outcomes of the function under test, exercised rather than enumerated.
     for (const reason of ['member-never-acked', 'peer-token-scoped']) {
       const removed = await pruneFileTombstonesToFloor(SPACE, { prune: false, reason });
       assert.equal(removed, -1, `${reason} reported a prune`);

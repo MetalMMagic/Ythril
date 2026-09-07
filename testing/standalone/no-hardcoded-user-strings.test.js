@@ -128,6 +128,7 @@ describe('a translation that exists is actually used', () => {
   });
 
   it('every key those two components reference exists in all three locales', () => {
+    // set-claim: the shipped UI locales, as a coverage input. A fourth locale is a product decision.
     // A missing key renders as the raw key in the UI, which reads as a bug rather than a translation gap.
     const KEYS = [
       'schemaLib.error.nameRequired', 'schemaLib.error.saveFailed',

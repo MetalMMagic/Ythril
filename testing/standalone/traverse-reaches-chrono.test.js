@@ -147,6 +147,8 @@ describe('traverse follows chrono.entityIds', () => {
   });
 
   it('gives every synthetic edge an id of its own, never the target node id', () => {
+    // set-claim: the two traversal entry points by name, as anchors -- each is read for its own emit loop,
+    // which is a per-function assertion.
     /*
      * REVERSED once already, because the rule it held was wrong in both halves.
      *

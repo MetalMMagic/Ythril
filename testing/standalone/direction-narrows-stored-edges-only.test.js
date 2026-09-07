@@ -46,6 +46,8 @@ const read = (p) => readFileSync(p, 'utf8').replace(/\s+/g, ' ');
 
 describe('the behaviour: neither link scan takes a direction', () => {
   it('the two link scans accept an inclusion and labels, and no direction', () => {
+    // set-claim: the two link scans by name, as SIGNATURE anchors -- the case reads each one's parameter
+    // list, which is a per-function assertion rather than a claim about a set.
     /*
      * Asserted on the SIGNATURES rather than on prose, because this is what makes the documentation true. If a
      * scan ever gains a direction parameter, every statement below becomes a lie and this fires first.

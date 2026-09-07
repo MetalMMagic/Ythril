@@ -150,6 +150,9 @@ describe('the link collection joins every set it belongs to', () => {
 
 describe('a LinkDoc carries nothing it has no meaning for', () => {
   it('no label, no type, no weight — the endpoint kinds ARE the class', () => {
+    // set-claim: the edge fields a LinkDoc must NOT have -- a design decision stated as the absence, and
+    // the case's own comment says why: the endpoint kinds ARE the class, so a label would be a second
+    // spelling of one fact.
     // Six classes, six distinct `(fromKind, toKind)` pairs: memory→entity, chrono→entity, chrono→memory,
     // file→entity, file→memory, file→chrono. So the label a traverse shows stays derived, exactly as
     // `LINK_CLASSES` prints it today. A stored one is a degree of freedom the arrays never had, and two

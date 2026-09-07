@@ -82,6 +82,8 @@ describe('tombstone prune (real MongoDB)', { skip }, () => {
   });
 
   it('deletes NOTHING when the floor says not to prune', async () => {
+    // set-claim: the refusal REASONS this function can return, each exercised with its own fixture -- the
+    // branch outcomes of the code under test rather than a list copied from it.
     for (const reason of ['member-never-pulled', 'peer-token-scoped', 'floor-at-zero']) {
       const removed = await pruneTombstonesToFloor(SPACE, { prune: false, reason });
       assert.equal(removed, -1, `${reason} reported a prune`);

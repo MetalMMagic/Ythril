@@ -21,6 +21,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { RECURRENCE_FREQ } from '../../server/dist/brain/chrono.js';
 import { fileURLToPath } from 'url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -455,7 +456,9 @@ describe('POST /api/sync/chrono — recurrence field validation', () => {
   });
 
   it('accepts valid recurrence with all allowed freq values', async () => {
-    for (const freq of ['daily', 'weekly', 'monthly', 'yearly']) {
+    // The validator's own list, so "all allowed values" means all of them -- a fifth frequency would be
+    // accepted by the server and tried by nobody.
+    for (const freq of RECURRENCE_FREQ) {
       const r = await post(INSTANCES.a, token, '/api/sync/chrono?spaceId=general', makeChronoDoc({
         recurrence: { freq, interval: 2 },
       }));

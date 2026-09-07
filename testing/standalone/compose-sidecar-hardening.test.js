@@ -192,6 +192,8 @@ describe('docker-compose.yml — untrusted-parser sidecar hardening', () => {
   });
 
   it('every heavy sidecar can be switched off from .env (infra-managed deployments)', () => {
+    // set-claim: the services that declare a replica gate, which is what "can be switched off" means. A
+    // sidecar without one is a product question rather than a drift -- the ceilings case below sweeps.
     const envExample = readFileSync(join(repoRoot, '.env.example'), 'utf8');
     for (const name of ['ollama', 'whisper', 'unstructured']) {
       const replicas = String(services[name]?.['deploy.replicas'] ?? '');
@@ -209,9 +211,22 @@ describe('docker-compose.yml — untrusted-parser sidecar hardening', () => {
   });
 
   it('the operator can raise every ceiling from .env without editing the compose file', () => {
+    /*
+     * EVERY service that declares a ceiling, read out of the compose file.
+     *
+     * Three were named and five have ceilings: `doc-render` and `doc-office` had `mem_limit: 1g` and
+     * `cpus: "2.0"` written into the file. So an operator whose documents needed more headroom had to edit
+     * `docker-compose.yml` -- the exact thing this case's title says they never have to do -- and the case
+     * reported that every ceiling was overridable.
+     */
     const envExample = readFileSync(join(repoRoot, '.env.example'), 'utf8');
-    for (const name of ['ollama', 'whisper', 'unstructured']) {
-      for (const key of ['mem_limit', 'pids_limit', 'cpus']) {
+    const LIMITS = ['mem_limit', 'pids_limit', 'cpus'];
+    const limited = Object.keys(services).filter(n => LIMITS.some(k => services[n]?.[k] !== undefined));
+    assert.ok(limited.length >= 5,
+      `only ${limited.length} service(s) with a ceiling found -- the compose parser is wrong, not the file`);
+    for (const name of limited) {
+      for (const key of LIMITS) {
+        if (services[name]?.[key] === undefined) continue;
         const value = String(services[name]?.[key] ?? '');
         const match = /\$\{([A-Z0-9_]+):-/.exec(value);
         assert.ok(match, `${name}.${key} should be overridable, e.g. \${SOME_VAR:-default} (got "${value}")`);

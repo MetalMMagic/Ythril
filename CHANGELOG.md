@@ -205,6 +205,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two sidecar containers had their memory, CPU and process ceilings written into `docker-compose.yml`**,
+  so an operator whose documents needed more headroom had to edit the compose file -- the exact thing the
+  gate covering this says they never have to do. It checked three services of the five that carry ceilings.
+  Both are `${VAR:-default}` now and the six new variables are documented in `.env.example`.
+
+- **The hosting guide's list of `/ready` reason codes is now checked against the type that declares them.**
+  The check named five of six. The sixth was documented anyway; nothing would have said so if it were not.
+
 - **`recall` and `query` held byte-identical copies of the filter key allowlist and its matching rule** --
   in two modules, one of which already imported the other. That pair is the example the parity rule was
   written from: a caller reaches one grammar or the other depending on which door they picked, and a copy

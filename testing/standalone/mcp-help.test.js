@@ -78,6 +78,8 @@ describe('MCP help tool — scope consistency', () => {
   });
 
   it('read-only non-admin token: no mutating or admin tool is mentioned ANYWHERE', async () => {
+    // set-claim: read-only tool names as a positive sample; the DENIED set that the title is about is
+    // derived from ALL_TOOLS a few lines down, which is the half that must be exhaustive.
     const text = await helpText(ctx({ isAdmin: false, readOnly: true }));
     const denied = ALL_TOOLS.filter(t => t.mutating || t.admin);
     assert.ok(denied.length > 0, 'registry sanity: some gated tools exist');

@@ -120,6 +120,8 @@ describe('the scoped guard admits on THIS space, not on any space', () => {
   });
 
   it('leaves the instance-admin path running every check it ran before', () => {
+    // set-claim: the three middleware checks the instance-admin path already ran, named as a regression
+    // guard on THIS refactor -- what must still be there, not a set that grows.
     for (const check of ['enforceMfa', 'enforceSpaceScope', 'enforceAreaRung']) {
       assert.match(scoped, new RegExp(`${check}\\(`), `${check} was dropped from the scoped guard`);
     }

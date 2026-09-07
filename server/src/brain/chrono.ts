@@ -35,7 +35,11 @@ import { wipeSpaceCollection } from './bulk-wipe.js';
 export { deriveChronoStatus } from './chrono-status.js';
 
 
-const RECURRENCE_FREQ = ['daily', 'weekly', 'monthly', 'yearly'] as const;
+/**
+ * The recurrence frequencies a chrono entry may repeat on. EXPORTED so a test can exercise all of them
+ * rather than naming four -- a fifth would otherwise be accepted by this validator and tried by nothing.
+ */
+export const RECURRENCE_FREQ = ['daily', 'weekly', 'monthly', 'yearly'] as const;
 
 /**
  * Every optional field a `deleteFields` path may clear on a chrono entry.

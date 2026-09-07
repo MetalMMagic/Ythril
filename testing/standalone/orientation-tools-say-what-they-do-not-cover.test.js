@@ -86,6 +86,8 @@ describe('get_space_meta distinguishes declared from actual', () => {
   });
 
   it('explains what each validation mode does to a WRITE', () => {
+    // set-claim: the three validation modes, which are a closed ladder (off, warn, strict) rather than a
+    // growable set -- a fourth would be a different feature, not another value.
     for (const mode of ['off', 'warn', 'strict']) {
       assert.match(META, new RegExp('`' + mode + '`'), `${mode} must be explained, not just listed`);
     }

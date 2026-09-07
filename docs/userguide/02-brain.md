@@ -297,6 +297,19 @@ same as a reranker scoring nothing.
 instance was able to write one. What is missing from a short graph are records the walk never read; the
 results themselves are unaffected.
 
+**You can create a record and its relationships in one go.** Anything that writes a memory, an entity or a
+timeline entry — the app, the API, or an AI assistant — can attach it to other records in the same action,
+rather than saving it and then connecting it four more times. Two kinds of connection, and they behave
+differently when you change them later:
+
+- **A plain connection** says two records are about each other, with no name on it. Changing the set
+  replaces it: clearing it detaches everything of that kind, and connections of other kinds are untouched.
+- **A labelled connection** says HOW they are related — *reported by*, *governed by*, *supersedes*. Writing
+  the same one again updates it, and none are ever removed by a write. Deleting one is its own action, on
+  purpose: a labelled connection can carry its own notes and may have been made by somebody else.
+
+The record at the other end has to exist already.
+
 Two options sit next to the query box:
 
 - **topK** — how many results to return. **There is no upper limit**, and asking for more than exists is

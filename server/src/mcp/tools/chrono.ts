@@ -16,6 +16,7 @@ import { getAllowedChronoTypes, resolveMetaRefs, validateChrono } from '../../sp
 import { mergePropertiesOrKeep } from '../../brain/merge-fields.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { parseRecordSuppression } from '../../brain/suppress-embeddings.js';
+import { connectionSchemas, applyConnections } from '../../brain/write-connections.js';
 
 export const create_chronoTool: ToolHandler = {
   name: 'create_chrono',
@@ -28,6 +29,10 @@ export const create_chronoTool: ToolHandler = {
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
+            // `F-27`: the `link*` fields and `edges`, from the one builder REST reads with — so a field
+            // on one door and not the other cannot happen, which is how `traverse`'s link flags shipped
+            // refused by the dispatcher while REST answered 200.
+            ...connectionSchemas(),
             space: s.requiredSpace,
             id: uuidSchema('UUID v4 of an EXISTING record to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
             title: {
@@ -199,6 +204,10 @@ export const create_chronoTool: ToolHandler = {
       }
       throw err;
     }
+    // Links REPLACE per class, edges UPSERT. Both semantics live in `applyConnections`, after the record
+    // exists — a relationship needs both ends, and the `from` is what was just minted.
+    await applyConnections(wt.target, entry._id, 'chrono', a, entry.author, ctx.actor);
+
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
     if (entry.similar && entry.similar.length > 0) {

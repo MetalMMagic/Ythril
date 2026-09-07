@@ -204,6 +204,10 @@ describe('upsert validation', () => {
       'server/src/api/brain/entities.ts',
       'server/src/api/brain/edges.ts',
       'server/src/brain/bulk.ts',
+      // `F-27`: the one-call write's `edges` field. It calls the merging writer and validates NOTHING
+      // itself — which is the property this list exists to hold every caller to, and the reason adding a
+      // row here is cheap rather than a formality.
+      'server/src/brain/write-connections.ts',
     ];
 
     const strip = src => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');

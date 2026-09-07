@@ -139,14 +139,23 @@ describe('egress is guarded whenever the endpoint is not the bundled model', () 
     assert.match(client, /allowPrivate: allowPrivateForSlot\('assist'\)/);
   });
 
-  it('each entry point names its own slot', () => {
+  it('each entry point falls back to its own slot when the caller names none', () => {
+    /*
+     * The slot became settable per call because `docVerify` was a declared slot that nothing resolved: the
+     * second-opinion pass runs on its own endpoint and was charged to `docVlm` for its budget, its egress
+     * permission and its reasoning effort.
+     *
+     * What this asserts is the half that keeps that safe — the DEFAULT is unchanged. An existing caller
+     * passes no slot and must still resolve exactly what it always did, or making the slot settable silently
+     * re-points transcription at a policy nobody chose for it.
+     */
     for (const [fn, slot] of [
       ['transcribePageImage', 'docVlm'],
       ['repairMarkdown', 'docRepair'],
       ['reconcileConsensus', 'docVlm'],
     ]) {
-      assert.match(bodyOf(client, fn), new RegExp(`asEndpoint\\(opts, '${slot}'\\)`),
-        `${fn} must resolve egress under the ${slot} slot`);
+      assert.match(bodyOf(client, fn), new RegExp(`opts\\.slot \\?\\? '${slot}'`),
+        `${fn} must still fall back to the ${slot} slot`);
     }
   });
 

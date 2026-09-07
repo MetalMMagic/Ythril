@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   19.7. Filed as `F-24` — a caller cannot cap how far one match spreads.
 
 ### Fixed
+
+- **The document verify model has its own call budget again — it never actually had one.** `docVerify` was a
+  declared slot: it had a default, the admin API accepted it, infrastructure could pin it, and the field
+  reference documented it. Nothing read it. The second-opinion pass runs against its own endpoint, usually a
+  different model, and was charged to `docVlm` for its budget, its egress permission and its reasoning
+  effort — so an operator who raised `modelSlots.docVerify.timeoutMs` because that model is slower got no
+  effect and no warning.
 - **The Query panel no longer reshapes the answer it shows you.** Records reached by graph traversal were
   appended to the result list as if they were matches — in rank order, counted in the total, and
   indistinguishable from a record that actually answered the question. They now sit under the match that

@@ -59,6 +59,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A release note too long for GitHub now leads with what breaks, instead of with whatever came first.**
+  Breaking entries are lifted above everything else, all of them, and the notice at the top says how many of
+  how many are shown. The paragraphs a release opens with are kept whole; the rest follows in its original
+  order.
+
+  Reported by an operator who read the abridged 4.0.0 notes and missed the largest change in the release —
+  the link system, which changes what happens to every caller writing `entityIds`. They found it because
+  their own owner asked, not because the release told them. **The finding is the truncation, not the
+  omission:** 81 entries of 227 were shown, chosen by nothing but document order, and no amount of raising
+  the budget fixes a selection rule that is *"whatever came first"*.
+
+  What counts as breaking is read out of the text rather than kept in a list: the word itself, in either
+  spelling this changelog has used, or membership of the `Removed` section — because a removal breaks a
+  caller whether or not its author happened to write the word.
+
+  A release whose notes fit is published unchanged, as before.
+
 - **The guides now say what reranking COSTS, which is the number that decides whether you get it.** The
   cross-encoder reads your question together with each candidate passage, so its work tracks the total TEXT
   of `topK × candidateMultiplier` candidates rather than their count. On records of several kilobytes that is

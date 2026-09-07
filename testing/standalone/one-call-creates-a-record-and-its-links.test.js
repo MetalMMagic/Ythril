@@ -31,7 +31,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const { LINK_INPUT_FIELDS, LINK_INPUT_NAMES, desiredLinksFrom, linkInputError, linkInputSchemas, edgeInputsFrom, edgeInputError, edgeInputSchema } =
-  await import('../../server/dist/brain/link-inputs.js');
+  await import('../../server/dist/brain/write-connections.js');
 const { REF_KINDS } = await import('../../server/dist/config/types-knowledge.js');
 
 const UUID = '11111111-2222-4333-8444-555555555555';

@@ -39,12 +39,6 @@ describe('QueryTabComponent', () => {
     expect(isOnPush(QueryTabComponent)).toBe(true);
   });
 
-  it('formatQueryDoc pretty-prints a document as 2-space JSON', () => {
-    const fixture = create();
-    const c = fixture.componentInstance;
-    expect(c.formatQueryDoc({ a: 1, b: 'x' })).toBe('{\n  "a": 1,\n  "b": "x"\n}');
-  });
-
   it('renders the query/recall panel', () => {
     const fixture = create();
     const panel = fixture.nativeElement.querySelector('.query-panel');

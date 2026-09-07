@@ -187,8 +187,8 @@ export interface RelatedGroups {
 /**
  * A match's `_graph`, flattened to a list per KIND, with each node kept whole.
  *
- * This replaces `flattenRecallItems` at the call site, and the difference is the bug it fixes. That function
- * appended every graph node to the RESULT list — so a traversed neighbour arrived looking exactly like a
+ * This REPLACED a flattener, and the difference is the bug it fixes. That function — deleted with this
+ * comment's last claim on it — appended every graph node to the RESULT list — so a traversed neighbour arrived looking exactly like a
  * match, in rank order, counted in the result total, with a `source: 'traverse'` marker that the panel never
  * rendered. Reported by the owner: *"the graph entries seem to be included in rank and handed as main result
  * instead of part of a graph"*.
@@ -233,45 +233,3 @@ export function relatedOf(match: RecallResult): RelatedGroups {
   return out;
 }
 
-export function flattenRecallItems(results: RecallResult[]): RecallResult[] {
-  const out: RecallResult[] = [];
-  for (const match of results) {
-    const { _graph, ...record } = match as Record<string, unknown>;
-    out.push(record as RecallResult);
-    walkGraph(_graph, out);
-  }
-  return out;
-}
-
-/** One `_graph` level, depth-first, appending each node as a row. */
-function walkGraph(nodes: unknown, out: RecallResult[]): void {
-  if (!Array.isArray(nodes)) return;
-  for (const raw of nodes) {
-    if (raw === null || typeof raw !== 'object') continue;
-    const entry = raw as Record<string, unknown>;
-    const node = entry['node'];
-    if (node === null || typeof node !== 'object' || Array.isArray(node)) continue;
-    const edge = (entry['edge'] ?? {}) as Record<string, unknown>;
-    const paths = Array.isArray(entry['paths']) ? (entry['paths'] as unknown[]) : [];
-    const primary = Array.isArray(paths[0]) ? (paths[0] as unknown[]) : [];
-    out.push({
-      ...(node as Record<string, unknown>),
-      // `type` is the KNOWLEDGE type here, and an entity's own `type` field is its user-defined one
-      // (`service`, `decision`) — so the spread must not be allowed to win, and grouping keys off this field.
-      //
-      // It was the literal `'entity'` until 3.6, on a comment reading *"traversal only ever reaches
-      // entities"*. A walk can now also reach a memory, chrono entry or file through `entityIds`, and each
-      // arrives carrying `kind`. A memory stamped `entity` renders with an empty name, because a memory has
-      // a `fact` and no `name` — a wrong row rather than a missing one.
-      type: typeof (node as Record<string, unknown>)['kind'] === 'string'
-        ? (node as Record<string, unknown>)['kind']
-        : 'entity',
-      source: 'traverse',
-      // Derived from the route rather than carried: `paths[0]` is the one it is nested under.
-      hops: Math.max(0, primary.length - 1),
-      graphLabel: edge['label'],
-      graphParentId: primary.length > 1 ? primary[primary.length - 2] : undefined,
-    } as RecallResult);
-    walkGraph(entry['_graph'], out);
-  }
-}

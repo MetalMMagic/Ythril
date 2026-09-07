@@ -24,6 +24,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { trackedSources } from './_sources.mjs';
+import { SPACE_AREAS } from '../../server/dist/config/rights-shape.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -140,10 +141,19 @@ describe('every space-scoped route is classified', () => {
     assert.ok([...found].some(r => r.includes(':spaceId')), 'no :spaceId route found — re-point SPACE_ROUTERS');
   });
 
-  it('the inventory is not empty and names all four areas', () => {
+  it('the inventory is not empty and every rights area has a route classified into it', () => {
+    /*
+     * The areas come from `SPACE_AREAS`, which is the one list the type, the validator and both rights maps
+     * are built from. Four names were written out here — so a fifth area would arrive with a validator, a
+     * type and a token control, and this case would keep reporting that the inventory names them all.
+     *
+     * The title lost its count with them. A number in a title is a second copy of a fact the code holds.
+     */
     const code = read(INVENTORY);
-    for (const area of ['knowledge', 'files', 'schema', 'dataQuality']) {
-      assert.match(code, new RegExp(`area:\\s*'${area}'`), `no route is classified as ${area}`);
+    for (const area of SPACE_AREAS) {
+      assert.match(code, new RegExp(`area:\\s*'${area}'`),
+        `no route is classified as ${area}, so a whole rights area governs nothing and a token granted it `
+        + 'reaches no route at all');
     }
   });
 

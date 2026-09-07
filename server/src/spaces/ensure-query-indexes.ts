@@ -26,6 +26,8 @@
  * Proxy spaces are skipped: they own no collections.
  */
 import { col } from '../db/mongo.js';
+import { COLLECTION_SUFFIX } from '../config/types-knowledge.js';
+import { LINK_CLASSES } from '../brain/link-adjacency.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 
@@ -37,17 +39,26 @@ import { log } from '../util/log.js';
  * a link's kind IS its two endpoint kinds, which the unique index in `lifecycle.ts` already covers. A
  * `type` index on the links collection would index a field no link document has.
  */
-const TYPE_FILTERED = ['memories', 'entities', 'edges', 'chrono'] as const;
+// The four knowledge-type collections, from the map that defines them rather than written out again.
+const TYPE_FILTERED = Object.values(COLLECTION_SUFFIX);
 
 /**
- * The collections a LINK scan reads, with the field it reads.
+ * The collections a LINK scan reads, with the field it reads — one entry per LINK CLASS, derived.
  *
  * `initSpace` creates these, and that only ever reaches a space NEW to the config — so an index added there
  * leaves every existing operator on the collection scan. That is the half this file exists for, and it is why
  * the two lists have to widen together: `entityIds` was created for memories alone, while
  * `linkedRecordsAtFrontier` reads it on all three, once per class per member space per hop.
+ *
+ * **It said three collections and one field, and a link is a (collection, FIELD) pair.** M-2 gave a chrono
+ * entry `memoryIds` and a file `memoryIds` and `chronoIds` — three link classes whose scans had no index at
+ * all, because the list named the collections while the field stayed written out as `entityIds`. Nothing
+ * reported it: an unindexed scan returns the right answer, slowly, and only on a space large enough to
+ * notice. Derived from `LINK_CLASSES` now, so a seventh class arrives with its index.
  */
-const LINK_SCANNED = ['memories', 'chrono', 'files'] as const;
+const LINK_SCANNED: readonly { collection: string; field: string }[] =
+  [...new Map(LINK_CLASSES.map(c => [`${c.collection}.${c.field}`, { collection: c.collection, field: c.field }]))
+    .values()];
 
 /**
  * Create any missing read-path index, for every space.
@@ -70,12 +81,12 @@ export async function ensureQueryIndexes(): Promise<number> {
         log.warn(`ensureQueryIndexes: ${space.id}_${name} type index: ${err}`);
       }
     }
-    for (const name of LINK_SCANNED) {
+    for (const { collection, field } of LINK_SCANNED) {
       try {
-        await col(`${space.id}_${name}`).createIndex({ entityIds: 1 });
+        await col(`${space.id}_${collection}`).createIndex({ [field]: 1 });
         issued++;
       } catch (err) {
-        log.warn(`ensureQueryIndexes: ${space.id}_${name} entityIds index: ${err}`);
+        log.warn(`ensureQueryIndexes: ${space.id}_${collection} ${field} index: ${err}`);
       }
     }
   }

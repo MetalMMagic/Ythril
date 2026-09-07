@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   changelogSection, sectionContentLines, releaseBody,
-  abridgeForRelease, RELEASE_BODY_MAX, RELEASE_BODY_TARGET,
+  abridgeForRelease, RELEASE_BODY_MAX, RELEASE_BODY_TARGET, entriesWithSection, isBreaking,
 } from '../../scripts/changelog-section.mjs';
 
 const wf = readFileSync('.github/workflows/publish.yml', 'utf8');
@@ -147,6 +147,96 @@ describe('a body too long for GitHub is abridged, not refused', () => {
     const out = abridgeForRelease(huge, '9.9.9', 1_000);
     assert.match(out, /too long to show here/);
     assert.ok(out.includes('/blob/v9.9.9/CHANGELOG.md'));
+  });
+
+  /*
+   * MEASURED AGAIN, and the second measurement is what these cases are for. An operator read the abridged
+   * 4.0.0 notes and missed the largest change in the release — the link system, which changes what happens
+   * to every caller writing `entityIds`. They found it because their own owner asked, not because the
+   * release told them. 81 of 227 entries were shown, chosen by nothing but document order.
+   *
+   * **The finding is the truncation, not the omission.** A prefix is not a summary, and no amount of
+   * raising the budget fixes a selection rule that is "whatever came first".
+   */
+  const breaker = (n) => `- **BREAKING: entry ${n}.** ${'b'.repeat(200)}`;
+  const late = [...Array.from({ length: 40 }, (_, i) => entry(i)), breaker(98), breaker(99)].join('\n');
+
+  it('keeps every breaking entry, even one written last', () => {
+    const out = abridgeForRelease(late, '9.9.9', 3_000);
+    for (const n of [98, 99]) {
+      assert.ok(out.includes(`entry ${n}.`),
+        `breaking entry ${n} was dropped. It is at the END of the section, which is exactly where the link `
+        + 'system sat in 4.0.0 — and a reader who never sees it finds out from their next failed write.');
+    }
+  });
+
+  it('puts them FIRST, because a reader who stops early has to have seen them', () => {
+    const out = abridgeForRelease(late, '9.9.9', 3_000);
+    const firstBreaking = out.indexOf('BREAKING: entry 98');
+    const firstOrdinary = out.indexOf('- **Entry 0.**');
+    assert.ok(firstBreaking > -1 && firstOrdinary > -1, 'expected both kinds in the output');
+    assert.ok(firstBreaking < firstOrdinary,
+      'the breaking entries are below the ordinary ones, so the abridgement still buries them');
+  });
+
+  it('a removal counts as breaking even when nobody wrote the word', () => {
+    /*
+     * The half that is not the word. Several genuine removals in 4.0.0 never say "breaking" — the section
+     * heading is the claim, and an entry under `### Removed` is breaking by construction.
+     */
+    const withRemoval = ['### Added', ...Array.from({ length: 40 }, (_, i) => entry(i)),
+      '', '### Removed', `- **The old endpoint is gone.** ${'r'.repeat(200)}`].join('\n');
+    const out = abridgeForRelease(withRemoval, '9.9.9', 3_000);
+    assert.ok(out.includes('The old endpoint is gone.'),
+      'an entry under ### Removed was dropped — a removal breaks a caller whether or not its author '
+      + 'happened to use the word');
+  });
+
+  it('says how many breaking entries it is showing, not only how many entries', () => {
+    const out = abridgeForRelease(late, '9.9.9', 3_000);
+    assert.match(out, /2 of 2 breaking entries are shown first/,
+      'the notice does not tell a reader whether the entries they must act on are all present');
+  });
+
+  it('leaves a body with nothing breaking in it alone, apart from the cut', () => {
+    // No headings invented where there is nothing to head. The common shape is a minor release with no
+    // breaking entries at all, and it must not grow a "Breaking changes" section containing nothing.
+    const out = abridgeForRelease(many, '9.9.9', 3_000);
+    assert.ok(!out.includes('## Breaking changes'), 'an empty Breaking changes heading was added');
+    assert.ok(!out.includes('breaking'), 'the notice mentions breaking entries in a body that has none');
+  });
+
+  it('keeps the paragraphs a release opens with, which are the only summary it has', () => {
+    /*
+     * Every major since 3.0 opens with a few paragraphs saying what the release IS, before any bullet. The
+     * previous abridger kept them by accident — its split left them stuck to the front of the first entry —
+     * and ranking the entries is exactly the change that would have silently dropped them. Which would have
+     * traded one buried summary for a missing one.
+     */
+    const intro = '**9.9 is the release where something happened.**\n\nA paragraph about it.';
+    const out = abridgeForRelease(`${intro}\n\n${late}`, '9.9.9', 3_000);
+    assert.ok(out.includes('9.9 is the release where something happened.'),
+      'the opening summary was dropped — the best description of the release, gone from its own notes');
+    assert.ok(out.indexOf('A paragraph about it.') < out.indexOf('BREAKING: entry 98'),
+      'the opening summary is no longer at the opening');
+  });
+
+  it('every breaking entry in the NEWEST real release survives being abridged hard', () => {
+    /*
+     * Against the real file rather than a fixture, because the fixtures are the shape I already thought of.
+     * Read out of the changelog for the same reason `NEWEST` exists above: a case anchored to one version
+     * is only as durable as that version's residence in this file.
+     */
+    const section = changelogSection(changelog, NEWEST);
+    const full = releaseBody(section);
+    const breaking = entriesWithSection(full).filter(isBreaking);
+    if (breaking.length === 0) return; // A release with nothing breaking has nothing to protect here.
+
+    const out = abridgeForRelease(full, NEWEST, 20_000);
+    const missing = breaking.filter(e => !out.includes(e.text.split('\n')[0]));
+    assert.deepEqual(missing.map(e => e.text.slice(0, 60)), [],
+      `abridging ${NEWEST} to 20 000 characters dropped ${missing.length} breaking `
+      + `${missing.length === 1 ? 'entry' : 'entries'} of ${breaking.length}.`);
   });
 });
 

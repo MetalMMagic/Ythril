@@ -170,30 +170,51 @@ describe('the constants say what the ruling said', () => {
   });
 
   it('the file goes to a MEMBER space, never to the space the call was addressed to', () => {
-    // A proxy space is a lens, not a store: `resolveWriteTarget` refuses a write to one without an explicit
-    // `targetSpace` because it owns no files. Addressing the spill at the request's space would have created a
-    // tree and a `{proxy}_files` record for a space meant to have neither. A seed's `spaceId` is always a
-    // concrete member.
+    /*
+     * A proxy space is a lens, not a store: `resolveWriteTarget` refuses a write to one without an explicit
+     * `targetSpace` because it owns no files. Addressing the spill at the request's space would have created
+     * a tree and a `{proxy}_files` record for a space meant to have neither. A seed's `spaceId` is always a
+     * concrete member.
+     */
     const spill = read('server/src/brain/graph-spill.ts');
     assert.match(spill, /writeSpill\(seeds\[0\]!\.spaceId,/,
       'the write space must come from a seed, not from a parameter a route can fill with a proxy id');
     assert.ok(!/writeSpaceId/.test(spill),
       'no caller-supplied write space — the routes had `spaceId` and `callSpace` to hand, and both can be a proxy');
-    for (const src of ['server/src/api/brain/search.ts', 'server/src/mcp/tools/search.ts']) {
+
+    /*
+     * **DERIVED from who imports the builder, and the COUNT is gone.** It named the two doors and asserted
+     * exactly two calls in each — two facts the code already holds, and both the kind that rot: a third door
+     * would be outside the list, and a door that legitimately gains or loses a call fails on the number
+     * rather than on the rule (`Q-6`, 2026-09-07).
+     *
+     * What remains is a FLOOR on what was found — an empty scan passes every loop written over it — and the
+     * rule applied to every call there is.
+     */
+    const doors = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n')
+      .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/graph-spill.ts')
+      .filter(f => /buildGraphWithSpill/.test(read(f)));
+    assert.ok(doors.length >= 2,
+      `only ${doors.length} door(s) build a spill; REST and MCP are the minimum, so the scan is wrong`);
+
+    let checked = 0;
+    for (const src of doors) {
       const code = read(src);
       // A WINDOW, converted: the subject is each call's ARGUMENT LIST, and its bound is the paren that closes
-      // it. At 320 characters a call that gained an argument would have stopped matching, and the assertion
-      // below counts the calls — so a missed one reads as "there is only one spill build", not as an error.
+      // it. At 320 characters a call that gained an argument would have stopped matching.
       const calls = [...code.matchAll(/buildGraphWithSpill\(/g)]
         // Outer parens stripped so the assertion below sees exactly what the capture group used to give it —
         // this is a re-bounding, not a change of what is checked.
         .map(m => balancedFrom(code, m.index, `buildGraphWithSpill in ${src}`).slice(1, -1));
-      assert.equal(calls.length, 2, `${src}: expected two spill builds, found ${calls.length}`);
+      assert.ok(calls.length >= 1, `${src} imports the builder and never calls it`);
       for (const args of calls) {
+        checked++;
         assert.ok(!/spaceId,\s*\)?\s*$/.test(args.trim()),
           `${src} passes a space id to the builder again: ${args.trim().slice(-60)}`);
       }
     }
+    assert.ok(checked >= 2, `only ${checked} spill build(s) examined; the scan found doors but no calls`);
   });
 
   it('the download link is the authenticated file route', () => {

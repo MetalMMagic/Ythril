@@ -781,12 +781,23 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
           }
         }
 
-        // The CHANGELOG and guides rows, both checked against the diff. Compared against the working tree
-        // rather than HEAD, because preflight runs before the commit as often as after it.
+        /*
+         * The CHANGELOG and guides rows, both checked against the diff. Compared against the working tree
+         * rather than HEAD, because preflight runs before the commit as often as after it.
+         *
+         * **`origin/main` FIRST, because the local ref is whatever it was last fetched at.** This read
+         * `main`, and a branch cut while that ref was behind diffs against an older tree — so files the
+         * branch never touched appear as changes and both rows below pass on somebody else's commits. Three
+         * pull requests shipped with no `[Unreleased]` entry that way, each ticking the CHANGELOG row, each
+         * green (`Q-6`, 2026-09-07). The local ref stays as the fallback for a checkout with no remote.
+         */
         let changed = '';
-        try {
-          changed = execFileSync('git', ['diff', '--name-only', 'main'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-        } catch { /* main not present locally — nothing to compare against */ }
+        for (const base of ['origin/main', 'main']) {
+          try {
+            changed = execFileSync('git', ['diff', '--name-only', base], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+            break;
+          } catch { /* try the next base */ }
+        }
 
         // The CHANGELOG row: the one surface every change owes, without exception.
         if (changed && workingOrderRow(src, 'CHANGELOG') !== null && !/^CHANGELOG\.md$/m.test(changed)) {

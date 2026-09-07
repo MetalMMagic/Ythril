@@ -113,6 +113,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Nine gates that asserted a whole set while reading a hand-written list of files now read the codebase.**
+  Each had a title claiming *"nothing in `server/src`"*, *"no module"*, *"any route"*, *"every reader"*,
+  *"every list function"*, *"no door"* — and a body that looked at between one and five named files, which
+  were the files somebody had open on the day it was written. Their sets are derived from `git ls-files` or
+  from who imports the thing under test, each with a floor on what it found, because an empty scan passes
+  every loop written over it.
+
+  Three assertions carrying an exact call count went with them. A number in a title or an assertion is a
+  second copy of a fact the code already holds, and it fails in both directions: a new site is invisible to
+  it, and a site that legitimately appears goes red on arithmetic rather than on the rule.
+
+  **One found a real defect.** Three modules in the access layer each kept their own copy of the four
+  permission areas — two as arrays, one as a hand-written type — and nothing compared them; one of the three
+  is what decides whether a token may touch a space at all. They agreed, so nothing was wrong today. What
+  they cost is the day a fifth area is declared, when the copies nobody remembers keep governing access with
+  the old vocabulary and the compiler is happy with every one of them. All three now read the one list.
+
+- **The tracker gate compared against whatever `main` pointed at locally**, so a branch cut while that ref
+  was behind diffed against an older tree — files the branch never touched read as changes, and the rule
+  that every change owes an `[Unreleased]` entry passed on somebody else's commits. Three pull requests
+  shipped with no entry that way, each ticking the row, each green. It asks `origin/main` first now.
+
 - **Three modules in the access layer each kept their own copy of the four permission areas**, and nothing
   compared them. Two held the names as an array — including the module that decides whether a token may
   touch a space at all — and a third held them as a hand-written type. All three now read the one list.

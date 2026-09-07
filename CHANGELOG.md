@@ -54,6 +54,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The vector-index panel no longer declares every space broken on a self-hosted MongoDB, next to a button
+  that would re-embed everything.** `listSearchIndexes` is the Atlas Search API; a replica set running
+  `$vectorSearch` natively has nothing behind it, so the call succeeds and returns an empty list — which was
+  read as "no index exists". Every space then showed as drifted, in red, each row offering **Rebuild**.
+
+  Reported against a live fleet where recall on those exact spaces returned correctly ranked results with
+  real scores. **The danger was the button**: a 79-file re-ingest on that host took embedding from 80 ms to
+  2–9 seconds for forty minutes and starved the reranker; fifteen spaces would have been hours of it, on a
+  false alarm.
+
+  When not one index is found anywhere on the instance, the panel now says the deployment does not report
+  search indexes, and points at the check that actually answers the question — whether recall returns ranked
+  results. A single space missing an index among others that have them still reports as missing.
+
 - **The document verify model has its own call budget again — it never actually had one.** `docVerify` was a
   declared slot: it had a default, the admin API accepted it, infrastructure could pin it, and the field
   reference documented it. Nothing read it. The second-opinion pass runs against its own endpoint, usually a

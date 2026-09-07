@@ -104,7 +104,10 @@ describe('the page says when an answer was shortened', () => {
     };
     expect(between('runRecall(): void', 'clearRecall(): void'))
       .toMatch(/this\.recallTruncated\.set\(null\);/);
-    expect(between('clearRecall(): void', 'formatQueryDoc('))
+    // Bounded by the NEXT member rather than by a name that happened to follow it: this read
+    // `formatQueryDoc(`, which was deleted when every record moved onto the JSON tree, and the case then
+    // failed on a method that is gone rather than on the reset it is about.
+    expect(between('clearRecall(): void', 'graphTargetOf('))
       .toMatch(/this\.recallTruncated\.set\(null\);/);
   });
 
@@ -113,10 +116,21 @@ describe('the page says when an answer was shortened', () => {
      * Ordering is the point rather than a detail. Below the list, the notice is found only by someone who has
      * already read to the end and drawn the wrong conclusion — which is the failure this fixes.
      */
+    /*
+     * ANCHORED ON THE BLOCK THAT RENDERS RESULTS, not on a class name. It was `query-results-header`, and
+     * that class was renamed when the answer became a card — so this went red on a layout change that
+     * obeyed the rule perfectly. A gate pinned to a spelling fails on the wrong day and passes on the day
+     * somebody moves the notice.
+     */
     const notice = component.indexOf('recallTruncated(); as t');
-    const resultsHeader = component.indexOf('query-results-header', component.indexOf('recallGroups().length'));
-    expect(notice).toBeGreaterThan(-1);
-    expect(notice).toBeLessThan(resultsHeader);
+    // The LOOP that draws them. `@if (recallResults().length)` also guards the Clear button on the panel
+    // bar, which sits above the notice quite correctly — anchoring there compared the notice to the wrong
+    // thing and failed on a passing layout.
+    const results = component.indexOf('@for (g of recallGroups()');
+    expect(notice, 'the truncation notice is gone').toBeGreaterThan(-1);
+    expect(results, 'the results block is gone — re-anchor this case').toBeGreaterThan(-1);
+    expect(notice, 'the notice renders after the results, where only a reader who already drew the wrong '
+      + 'conclusion would find it').toBeLessThan(results);
   });
 
   it('states BOTH guarantees, or "shortened" reads as "unreliable"', () => {

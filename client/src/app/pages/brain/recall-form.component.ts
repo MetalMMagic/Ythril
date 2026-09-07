@@ -148,7 +148,6 @@ export interface RecallTypeOpt {
     .rf-type { display:inline-flex; align-items:center; gap:4px; font-size:12px; }
     .rf-type input[type=number] { width:52px; }
     .rf-hint { color:var(--text-muted); font-size:11px; display:inline-flex; vertical-align:middle; }
-    .rf-actions { display:flex; align-items:center; gap:10px; margin-top:10px; }
     /* The request sits BESIDE the groups on a wide screen and under them when there is no room, which is
        the same rule as the groups themselves rather than a second layout. It scrolls rather than growing:
        a traversal with six labels is a tall body, and pushing the Search button off the screen to show a
@@ -463,18 +462,14 @@ export interface RecallTypeOpt {
   </div>
 </div>
 
-<div class="rf-actions">
-  <button class="btn btn-sm btn-primary" [disabled]="running() || !form().query.trim()" (click)="run.emit()">
-    @if (running()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-    {{ 'brain.query.searchButton' | transloco }}
-  </button>
-  @if (hasResults()) {
-    <button class="btn btn-sm btn-secondary" (click)="clear.emit()">{{ 'brain.query.clearResults' | transloco }}</button>
-  }
-  @if (error()) {
-    <span style="font-size:12px; color:var(--error);">{{ error() }}</span>
-  }
-</div>
+<!--
+  NO ACTION ROW HERE. The run and clear controls live on the panel's sticky bar, top-right, because this
+  form is tall: a button at the BOTTOM of it is a full row holding one control, wedged between the request
+  and the answer, and it scrolls out of reach exactly when a parameter has just been changed.
+
+  The run and clear outputs are unchanged — Enter in the question field still emits run — so the contract
+  holds and the host decides where the controls are drawn.
+-->
 </div>
 `,
 })

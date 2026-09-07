@@ -276,6 +276,16 @@ model, reranked a similar-sized set in under three seconds — the difference wa
 So there is no single number to expect. **If your records are long and you want reranking on more than a
 handful of results, ask your administrator to raise the reranking time limit** (`modelSlots.rerank.timeoutMs`).
 
+**The answer arrives in its own card, and you can read it two ways.** *Rendered* is the default: one card
+per result with its score, its neighbourhood underneath it, and the record itself as a tree you can fold. Any
+nested part — a properties bag, a tag list — starts collapsed with a count beside it (`{…} 4 keys`), so a
+long record is a few lines until you open the part you want. *JSON* shows the whole response exactly as the
+API returned it, which is what an assistant calling the same search receives; **Expand all** and **Collapse
+all** appear beside it. Every level has a copy button that copies that part alone.
+
+The **Search** button sits at the top right of the panel and stays there while you scroll, so a parameter
+changed at the bottom of a long form does not send you back up to run it.
+
 Two options sit next to the query box:
 
 - **topK** — how many results to return. **There is no upper limit**, and asking for more than exists is

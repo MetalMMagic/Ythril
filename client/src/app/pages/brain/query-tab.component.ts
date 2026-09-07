@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewChild, computed, inject, input, output, signal } from '@angular/core';
 import { groupRecallResults, chunkLabel, passageText, relatedOf } from './recall-grouping';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -7,6 +7,7 @@ import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RECORD
 import { BrainApi } from '../../core/brain-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { RecallFormComponent, type RecallFormState, type RecallTypeOpt } from './recall-form.component';
+import { JsonTreeComponent } from '../../shared/json-tree.component';
 import { recallRequestFrom } from './recall-request';
 import { BrainStore } from './brain-store.service';
 
@@ -24,7 +25,7 @@ import { BrainStore } from './brain-store.service';
   selector: 'app-query-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, RecallFormComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, RecallFormComponent, JsonTreeComponent],
   styles: [`
     .query-panel {
       display: flex;
@@ -94,13 +95,102 @@ import { BrainStore } from './brain-store.service';
       color: var(--text-muted);
       font-size: 14px;
     }
+    /*
+      THE PANEL BAR — mode on the left, the run control on the right, and it stays put.
+
+      A sticky position with a background of its own: the form below is tall, and an action that scrolls
+      away is one the reader has to hunt for after every edit. The bottom border is what separates the
+      request from the answer now that no button sits between them.
+    */
+    .query-bar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 8px 0 10px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-page, var(--bg-surface));
+    }
+    .query-bar-modes { display: flex; gap: 8px; }
+    .query-bar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .query-bar-error { font-size: 12px; color: var(--error); max-width: 46ch; }
+
+    /*
+      THE ANSWER IS A CARD, so it reads as a different thing from the request rather than as more of it.
+      Its header carries what the answer IS — how many, how big, and which view — and sticks to the top of
+      the card while a long result scrolls under it.
+    */
+    .query-answer {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .query-answer-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-subtle, var(--bg-surface));
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .query-answer-head strong { color: var(--text-primary); }
+    .query-answer-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+    .query-answer-body { padding: 10px 12px; }
+    /* A wide record scrolls inside the card rather than pushing the page sideways. */
+    .query-answer-body { overflow-x: auto; }
   `],
   template: `
           <div class="query-panel">
-            <!-- Mode switcher -->
-            <div style="display:flex; gap:8px; margin-bottom:12px;">
-              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'search'" [class.btn-secondary]="queryMode() !== 'search'" (click)="queryMode.set('search')">{{ 'brain.query.mode.semanticSearch' | transloco }}</button>
-              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'advanced'" [class.btn-secondary]="queryMode() !== 'advanced'" (click)="queryMode.set('advanced')">{{ 'brain.query.mode.advancedQuery' | transloco }}</button>
+            <!--
+              THE MODE AND THE ACTION ON ONE BAR, and the action on the right.
+
+              Owner, 2026-09-07: *"lets place the search button top-right. after results are returned it
+              looks bad between there taking a line but only be a button."* It sat under a tall form, so it
+              was a full row holding one control, wedged between the request and the answer — the one place
+              on the panel where a horizontal rule would have been doing the work instead.
+
+              Sticky, because the form is tall enough to scroll the action off screen: the thing you press
+              after editing a parameter should not require scrolling back up to find it.
+            -->
+            <div class="query-bar">
+              <div class="query-bar-modes">
+                <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'search'" [class.btn-secondary]="queryMode() !== 'search'" (click)="queryMode.set('search')">{{ 'brain.query.mode.semanticSearch' | transloco }}</button>
+                <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'advanced'" [class.btn-secondary]="queryMode() !== 'advanced'" (click)="queryMode.set('advanced')">{{ 'brain.query.mode.advancedQuery' | transloco }}</button>
+              </div>
+              <div class="query-bar-actions">
+                @if (queryMode() === 'search') {
+                  @if (recallError()) {
+                    <span class="query-bar-error">{{ recallError() }}</span>
+                  }
+                  @if (recallResults().length) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearRecall()">{{ 'brain.query.clearResults' | transloco }}</button>
+                  }
+                  <button class="btn btn-sm btn-primary" [disabled]="recallRunning() || !recallForm.query.trim()" (click)="runRecall()">
+                    @if (recallRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    {{ 'brain.query.searchButton' | transloco }}
+                  </button>
+                } @else {
+                  @if (queryError()) {
+                    <span class="query-bar-error">{{ queryError() }}</span>
+                  }
+                  @if (queryResult()) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearQuery()">{{ 'brain.query.clearResults' | transloco }}</button>
+                  }
+                  <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
+                    @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    {{ 'brain.query.runQuery' | transloco }}
+                  </button>
+                }
+              </div>
             </div>
 
             <!-- Semantic Search mode. The FORM is its own component, app-recall-form: U-1 adds eleven
@@ -139,14 +229,45 @@ import { BrainStore } from './brain-store.service';
               }
 
               @if (recallResults().length) {
-                <div class="query-results-header" style="margin-top:12px;">
-                  <strong>{{ recallGroups().length }}</strong> {{ 'brain.query.resultsCount' | transloco: { count: recallGroups().length } }}
-                  <!-- Grouping makes a topK of 10 look like 6, so the passage count is stated rather than
-                       left for the reader to wonder about. Only shown when grouping actually happened. -->
-                  @if (recallResults().length !== recallGroups().length) {
-                    <span style="font-size:11px; color:var(--text-muted); margin-left:6px;">{{ 'brain.query.groupedPassages' | transloco: { count: recallResults().length } }}</span>
-                  }
-                </div>
+                <!--
+                  THE ANSWER, IN ITS OWN CARD. Owner, 2026-09-07: put the result in a card or separate it
+                  with a real UI element. The header says what came back before any of it is read — how
+                  many, how many passages they were grouped from, and how big the answer was.
+
+                  The RENDERED view is the one that reads; the JSON view is the one that matches what an
+                  MCP caller receives, which is the point of this panel. Neither is a summary of the other.
+                -->
+                <div class="query-answer">
+                  <div class="query-answer-head">
+                    <span><strong>{{ recallGroups().length }}</strong> {{ 'brain.query.resultsCount' | transloco: { count: recallGroups().length } }}</span>
+                    <!-- Grouping makes a topK of 10 look like 6, so the passage count is stated rather than
+                         left for the reader to wonder about. Only shown when grouping actually happened. -->
+                    @if (recallResults().length !== recallGroups().length) {
+                      <span>{{ 'brain.query.groupedPassages' | transloco: { count: recallResults().length } }}</span>
+                    }
+                    @if (answerSize(); as size) {
+                      <span>{{ size }}</span>
+                    }
+                    <div class="query-answer-tools">
+                      @if (answerView() === 'json') {
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="tree?.expandAll()">{{ 'brain.query.expandAll' | transloco }}</button>
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="tree?.collapseAll()">{{ 'brain.query.collapseAll' | transloco }}</button>
+                      }
+                      <button class="btn btn-sm" type="button"
+                        [class.btn-primary]="answerView() === 'rendered'" [class.btn-secondary]="answerView() !== 'rendered'"
+                        (click)="answerView.set('rendered')">{{ 'brain.query.view.rendered' | transloco }}</button>
+                      <button class="btn btn-sm" type="button"
+                        [class.btn-primary]="answerView() === 'json'" [class.btn-secondary]="answerView() !== 'json'"
+                        (click)="answerView.set('json')">{{ 'brain.query.view.json' | transloco }}</button>
+                    </div>
+                  </div>
+                  <div class="query-answer-body">
+                    @if (answerView() === 'json') {
+                      <!-- The RESPONSE, not the result list: the count, the budget fields and every graph
+                           subtree are what a caller has to reason about, and hiding them here is what made
+                           this panel teach a shape the product does not have. -->
+                      <app-json-tree [value]="recallRaw()" [openTo]="2" />
+                    } @else {
                 @for (g of recallGroups(); track $index) {
                   <div class="query-result-card" style="margin-top:6px;">
                     @if (g.file; as f) {
@@ -176,7 +297,7 @@ import { BrainStore } from './brain-store.service';
                             @if (passageOf(h); as text) {
                               <div style="white-space:pre-wrap; word-break:break-word; font-size:12px;">{{ text }}</div>
                             } @else {
-                              <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(h) }}</div>
+                              <app-json-tree [value]="h" [openTo]="1" />
                             }
                           </li>
                         }
@@ -195,7 +316,7 @@ import { BrainStore } from './brain-store.service';
                             [attr.aria-label]="'common.viewInGraph' | transloco" (click)="viewInGraph.emit(target)"><ph-icon name="graph" [size]="16"/></button>
                         }
                       </div>
-                      <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(g.hits[0]) }}</div>
+                      <app-json-tree [value]="g.hits[0]" [openTo]="1" />
                     }
 
                     <!--
@@ -229,7 +350,7 @@ import { BrainStore } from './brain-store.service';
                                     <span>{{ 'brain.query.related.hops' | transloco: { hops: r.hops } }}</span>
                                     @if (r.label) { <span class="rel-via">{{ r.label }}</span> }
                                   </div>
-                                  <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(r.record) }}</div>
+                                  <app-json-tree [value]="r.record" [openTo]="1" />
                                 </div>
                               }
                             }
@@ -239,6 +360,9 @@ import { BrainStore } from './brain-store.service';
                     }
                   </div>
                 }
+                    }
+                  </div>
+                </div>
               }
             }
 
@@ -289,31 +413,34 @@ import { BrainStore } from './brain-store.service';
                     <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
                   }
                 </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                  <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
-                    @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                    {{ 'brain.query.runQuery' | transloco }}
-                  </button>
-                  @if (queryResult()) {
-                    <button class="btn btn-sm btn-secondary" (click)="clearQuery()">{{ 'brain.query.clearResults' | transloco }}</button>
-                  }
-                  @if (queryError()) {
-                    <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
-                  }
-                </div>
+                <!-- Run, clear and the error live on the panel bar, top-right. -->
               </div>
 
               @if (queryResult(); as res) {
-                <div class="query-results-header">
-                  <strong>{{ res.count }}</strong> {{ 'brain.query.resultsFrom' | transloco: { count: res.count, collection: res.collection } }}
+                <!--
+                  THE SAME CARD AS THE SEARCH ANSWER, so the panel has one idiom for "this is what came
+                  back". The documents were a pretty-printed blob per result, which is unreadable the moment
+                  a record has a properties bag — the tree is the whole reason this mode is usable on real
+                  data.
+                -->
+                <div class="query-answer">
+                  <div class="query-answer-head">
+                    <span><strong>{{ res.count }}</strong> {{ 'brain.query.resultsFrom' | transloco: { count: res.count, collection: res.collection } }}</span>
+                    @if (res.results.length) {
+                      <div class="query-answer-tools">
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="tree?.expandAll()">{{ 'brain.query.expandAll' | transloco }}</button>
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="tree?.collapseAll()">{{ 'brain.query.collapseAll' | transloco }}</button>
+                      </div>
+                    }
+                  </div>
+                  <div class="query-answer-body">
+                    @if (res.results.length === 0) {
+                      <div class="query-empty">{{ 'brain.query.noDocuments' | transloco }}</div>
+                    } @else {
+                      <app-json-tree [value]="res.results" [openTo]="2" />
+                    }
+                  </div>
                 </div>
-                @if (res.results.length === 0) {
-                  <div class="query-empty">{{ 'brain.query.noDocuments' | transloco }}</div>
-                } @else {
-                  @for (doc of res.results; track $index) {
-                    <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
-                  }
-                }
               }
             }
           </div>
@@ -416,6 +543,42 @@ export class QueryTabComponent {
 
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
+  /** The response as it arrived, for the JSON view. Never read by the rendered view. */
+  recallRaw = signal<unknown>(null);
+
+  /**
+   * Which view of the answer is showing.
+   *
+   * RENDERED by default, because that is the one that answers a question. The JSON view is for checking
+   * what an MCP caller would receive from the same request, which is what this panel is for — and a reader
+   * who wants it asks for it, rather than being handed a wall of braces first.
+   */
+  answerView = signal<'rendered' | 'json'>('rendered');
+
+  @ViewChild(JsonTreeComponent) tree?: JsonTreeComponent;
+
+  /**
+   * The tree currently on screen, so the header's expand/collapse buttons can drive it.
+   *
+   * ONE handle for both modes, and it cannot be ambiguous: the modes are mutually exclusive, so at most one
+   * tree exists at a time. A template reference per tree was the first attempt and does not compile — a
+   * reference does not cross an `@if` boundary, and the buttons live in the card header while the tree
+   * lives in its body. The AOT build is what said so; the spec transpile had passed.
+   */
+
+  /**
+   * How big the answer was, in the unit a caller pays in.
+   *
+   * Serialised here rather than taken from the response's own `charsReturned`: that field counts the RESULT
+   * LIST as the server framed it, and what the reader is looking at is the whole response. Two numbers that
+   * disagree by a little are worse than one number that is what it says it is.
+   */
+  answerSize = computed(() => {
+    const raw = this.recallRaw();
+    if (raw === null) return '';
+    const chars = JSON.stringify(raw).length;
+    return chars < 1024 ? `${chars} chars` : `${(chars / 1024).toFixed(1)} KB`;
+  });
   recallError = signal('');
 
   /**
@@ -519,6 +682,10 @@ export class QueryTabComponent {
         this.recallRunning.set(false);
         this.recallRan.set(true);
         this.recallResults.set(res.results);
+        // THE WHOLE RESPONSE, kept for the JSON view. The rendered view reads the result list; the JSON view
+        // has to show `count`, the budget fields and every `_graph` — those are what a caller reasons about,
+        // and showing only the results is what made this panel teach a shape the product does not have.
+        this.recallRaw.set(res);
         // `=== true` rather than truthy: the field is optional on the type (an older server sends none), and an
         // absent one must read as "not truncated" rather than as "unknown".
         this.recallTruncated.set(res.truncated === true
@@ -534,12 +701,9 @@ export class QueryTabComponent {
   clearRecall(): void {
     this.recallRan.set(false);
     this.recallResults.set([]);
+    this.recallRaw.set(null);
     this.recallError.set('');
     this.recallTruncated.set(null);
-  }
-
-  formatQueryDoc(doc: Record<string, unknown>): string {
-    return JSON.stringify(doc, null, 2);
   }
 
   /**

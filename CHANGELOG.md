@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The Query panel's answer is a card, its records fold, and the Search button is where you look for it.**
+  Owner-directed, 2026-09-07. Three things at once, because they are one complaint:
+
+  - **A long record is a few lines until you open it.** Every result renders as a JSON tree — a nested part
+    starts collapsed with its size beside it (`{…} 4 keys`, `[…] 3 items`), each level has a copy button that
+    copies that part alone, and *Expand all* / *Collapse all* sit in the card header. It replaces a
+    pretty-printed dump per result, which is unreadable the moment a record carries a properties bag.
+  - **The answer sits in its own card**, with a header saying how many results and how big the answer was.
+    There is no longer a row holding one button wedged between the request and the answer.
+  - **Run and Clear are on a sticky bar at the top right**, so a parameter changed at the bottom of a long
+    form does not send you back up to run it.
+
+  A **JSON** view beside the rendered one shows the whole response exactly as the API returned it — the
+  count, the truncation flag, the budget figures and every graph subtree. That is what an assistant calling
+  the same search receives, and this panel is where a search is tried before it is sent by something else.
+
+  The tree walks only into what is OPEN, so a hundred elements behind a closed caret cost one line rather
+  than a hundred. That is what keeps it usable on the answers the byte budget exists for.
+
 - **The link conversion can be previewed, and the guides now say what it touches and how to undo it.**
   `npm run links:convert -- --preview` reads and writes nothing: per space, how many records carry each
   connection list, how many entries those lists hold, and how many link records already exist. Run it again

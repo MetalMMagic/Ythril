@@ -287,8 +287,10 @@ async function runConsensus(
   repairEp: VlmEndpoint,
 ): Promise<{ text: string; coverage: number }> {
   const parts = await mapLimit(pages, cfg.concurrency, async (img) => {
+    // `docVerify`, not `docVlm`: this is the second-opinion model, on its own endpoint, and the slot it is
+    // charged to decides its budget, its egress permission and how hard it is asked to think.
     const t = await transcribePageImage(img, {
-      ...verifyEp, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+      ...verifyEp, slot: 'docVerify', prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
     });
     return t.text.trim();
   });

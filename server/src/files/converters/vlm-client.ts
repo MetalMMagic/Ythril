@@ -140,6 +140,18 @@ export interface VlmTarget {
   external?: boolean;
   apiKey?: string;
   timeoutMs?: number;
+  /**
+   * Which model slot this call belongs to. Defaults to `docVlm`, which is what every caller got before.
+   *
+   * It exists because `docVerify` did not. That slot is declared in `MODEL_SLOTS`, carries a default budget,
+   * is accepted by the admin PATCH, is pinnable through `YTHRIL_PINNED_FIELDS` and is documented in the
+   * field table — and no code resolved it. The second-opinion pass runs against its OWN endpoint, a
+   * deliberately different model, and then charged everything to `docVlm`: its budget, its egress
+   * permission, and now its reasoning effort. An operator who set `modelSlots.docVerify` got no effect and
+   * no warning, which is the failure shape this repository keeps paying for — a control that looks applied
+   * and never was.
+   */
+  slot?: EgressSlot;
 }
 
 const asEndpoint = (t: VlmTarget, slot: EgressSlot) => ({
@@ -157,10 +169,13 @@ export async function transcribePageImage(
   opts: VlmTarget & { prompt: string },
 ): Promise<VlmTranscription> {
   const b64 = imageBytes.toString('base64');
+  // The caller's slot, or the one every caller had before. `transcribePageImage` serves both the primary
+  // transcription and the verify pass, on different endpoints and different models.
+  const slot = opts.slot ?? 'docVlm';
   return postChat(
-    asEndpoint(opts, 'docVlm'),
+    asEndpoint(opts, slot),
     [{ role: 'user', content: opts.prompt, images: [b64] }],
-    opts.timeoutMs ?? slotTimeoutMs('docVlm', getModelSlots()),
+    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
   );
 }
 
@@ -176,10 +191,13 @@ const REPAIR_PROMPT =
 export async function repairMarkdown(
   opts: VlmTarget & { draft: string; evidence: string; issues?: string[] },
 ): Promise<VlmTranscription> {
+  // Its own slot, honoured the same way the other entry points honour theirs — three call sites resolving a
+  // slot two different ways is how one of them ends up wrong.
+  const slot = opts.slot ?? 'docRepair';
   return postChat(
-    asEndpoint(opts, 'docRepair'),
+    asEndpoint(opts, slot),
     [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
-    opts.timeoutMs ?? slotTimeoutMs('docRepair', getModelSlots()),
+    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
   );
 }
 
@@ -198,11 +216,14 @@ export async function reconcileConsensus(
 ): Promise<VlmTranscription> {
   const content =
     `${CONSENSUS_PROMPT}\n\n--- DRAFT A ---\n${opts.draftA}\n\n--- DRAFT B ---\n${opts.draftB}\n\n--- OCR TEXT ---\n${opts.evidence}`;
+  // Consensus runs on whichever endpoint its caller passed, so it takes that caller's slot for the same
+  // reason transcription does — the comment here used to say "the same VLM endpoint as transcription", which
+  // was true of the primary path and not of the one that reconciles against the verify model.
+  const slot = opts.slot ?? 'docVlm';
   return postChat(
-    // Consensus runs on the same VLM endpoint as transcription — same slot, same policy.
-    asEndpoint(opts, 'docVlm'),
+    asEndpoint(opts, slot),
     [{ role: 'user', content }], // text-only — no page image
-    opts.timeoutMs ?? slotTimeoutMs('docVlm', getModelSlots()),
+    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
   );
 }
 

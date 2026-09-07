@@ -758,6 +758,12 @@ The face records themselves are kept, with their label cleared. That is delibera
 
 These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned by your infrastructure through the matching environment variable (`FACE_RECOGNITION_ENABLED`, `_CONFIDENCE_THRESHOLD`, `_MIN_FACE_SIZE_FRACTION`, `_MODEL_PATH`, `_PERSON_ENTITY_TYPES`, `_REPROCESS_SYNCED_IMAGES`). An environment value wins over `config.json`, so `FACE_RECOGNITION_ENABLED=false` guarantees no faces are processed on that instance — including after restoring a backup taken where it was on. Neither is editable from the UI:
 
+>
+> **If a save on Media Processing is refused, the page now tells you which field the API objected to.** The
+> outcome of every save on that page — the refusal with its reason, or the confirmation that it was stored —
+> appears below the tabs. It previously appeared nowhere, so a refused save looked exactly like a button that
+> did nothing, and so did a successful one.
+>
 > **If Save on Models or Media Processing did nothing at all, that was a bug and it is fixed.** On 3.2.0 both pages sent one field the API had stopped accepting — the face-recognition master switch, which is now set only by your infrastructure — and because the whole request is checked at once, the API refused *everything* on the page rather than that one field. The symptom was a Save that appeared to work and changed nothing, on either page, whatever you had edited. Nothing was lost; nothing was ever written.
 >
 > **Any field your infrastructure pins is refused by the API too, not just greyed out in the interface** — and from 3.2.0 that holds for every pinnable field rather than only the face-recognition ones. Before then, a pinned model or key elsewhere in Media Processing could be saved without complaint: the value that actually ran was still the pinned one, but the save reported success and left the stored settings disagreeing with the running ones. If you saw a setting that would not stay changed, that was this.

@@ -32,6 +32,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf } from './_structural-window.mjs';
 
@@ -198,12 +199,20 @@ describe('the reading of an absent kind is in one place', () => {
   it('no door reads the absent case for itself', () => {
     /*
      * `kind ?? 'entity'` written at a call site is the coalesce nobody notices is missing at the fourth one.
-     * The four-argument form in `edges.ts` is the function's own definition, which is why it is excluded.
+     *
+     * **DERIVED, because "no door" is the claim.** It named four files — the four doors that existed when it
+     * was written — so a fifth was outside everything the gate read while its title went on covering all of
+     * them (`Q-6`, 2026-09-07). `brain/edges.ts` is excluded because the four-argument form there is the
+     * function's own definition.
      */
-    for (const p of ['server/src/api/brain/edges.ts', 'server/src/mcp/tools/edge.ts', 'server/src/brain/bulk.ts',
-      'server/src/api/sync/_shared.ts']) {
-      assert.doesNotMatch(src(p), /(fromKind|toKind)\s*\?\?\s*'entity'/,
-        `${p} reads the absent case itself instead of calling edgeEndpointKind`);
-    }
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n')
+      .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/edges.ts');
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+
+    const offenders = files.filter(f => /(fromKind|toKind)\s*\?\?\s*'entity'/.test(src(f)));
+    assert.deepEqual(offenders, [],
+      `${offenders.join(', ')} reads the absent case itself instead of calling edgeEndpointKind. One door `
+      + 'that coalesces differently is an edge stored with an endpoint kind the others would have refused.');
   });
 });

@@ -162,6 +162,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside, and keep one question per module — a shared thing that grows a flag per caller is a switch
   statement with extra steps.
 
+- **Two more copies of a shared vocabulary, both on paths where a copy is expensive.** `edge-id.ts` had its
+  own default for an edge endpoint's kind — and that module decides an edge's IDENTITY, so the day the
+  default changes an id derived there would disagree with the kind stored beside it, and the two would
+  describe different edges while looking like one. The five chrono statuses were spelled out again in the
+  sync INGEST schema, where a list two words wrong refuses a status the rest of the product accepts and holds
+  the replication watermark on it, and in the bulk tool's published schema.
+
+  All three now read the one list. Nothing behaves differently today: every copy agreed with what it was
+  copying, which is exactly why nothing had reported them.
+
+  Found by finishing the file-path half of the gate sweep — four more titles that claimed a whole set
+  (*"no door"*, *"nothing writes them out again"*, *"neither door"*, *"every door"*) while reading between
+  one and four named files. Two hard-coded counts went with them.
+
 - **The next-PR plan can no longer be a receipt for work that shipped.** The check on it looked for a merged
   pull-request NUMBER, and a plan is written in tracker ids rather than numbers — so a second half was added
   asking whether it names an open row. That half is skipped entirely by the words `owner-directed`, which

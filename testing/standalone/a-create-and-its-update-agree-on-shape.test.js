@@ -35,7 +35,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
+import { CHRONO_STATUSES } from '../../server/dist/config/types.js';
 
 const { shapeError, shapedFields, MAX_FACT_LENGTH } =
   await import('../../server/dist/brain/write-shape.js');
@@ -94,12 +96,22 @@ describe('the table itself', () => {
     assert.equal(shapeError('chrono', { status: 'active' }), null, 'so is active');
     assert.ok(shapeError('chrono', { status: 'ongoing' }), 'ongoing is not, and never was');
 
-    const written = /\[\s*'upcoming'\s*,\s*'active'/;
-    const offenders = [];
-    for (const f of ['server/src/brain/write-shape.ts', 'server/src/api/brain/chrono.ts',
-      'server/src/brain/bulk.ts', 'server/src/mcp/tools/chrono.ts']) {
-      if (written.test(code(f))) offenders.push(f);
-    }
+    /*
+     * **BOTH the pattern and the file list are derived now** (`Q-6`, 2026-09-07).
+     *
+     * The pattern was the literal `['upcoming', 'active'` — itself a copy of the first two words of the list
+     * it exists to keep singular, and one that would stop matching the day the order changes, passing over
+     * every copy of the new list. It is built from `CHRONO_STATUSES` instead.
+     *
+     * The file list named the four modules that had a copy when it was written, while the title claims
+     * "nothing writes them out again". A fifth was outside everything it read.
+     */
+    const written = new RegExp(`\\[\\s*${[...CHRONO_STATUSES].map(v => `'${v}'`).join('\\s*,\\s*')}`);
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n')
+      .filter(f => f.endsWith('.ts') && f !== 'server/src/config/types.ts');
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+    const offenders = files.filter(f => written.test(code(f)));
     assert.deepEqual(offenders, [],
       `${offenders.join(', ')} writes the chrono statuses out instead of importing CHRONO_STATUSES. A second `
       + 'copy of a five-word list is a copy that can be two words wrong while every test that only asks it to '

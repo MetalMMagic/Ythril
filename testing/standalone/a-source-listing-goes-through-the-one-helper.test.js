@@ -73,7 +73,16 @@ function handRolledSourceSweep(text) {
   const src = stripComments(text);
   const found = [];
   for (const m of src.matchAll(/['"]ls-files['"]/g)) {
-    const stmt = src.slice(m.index, src.indexOf(';', m.index) + 1 || undefined);
+    /*
+     * The window reaches BACKWARDS as well, and this is not symmetry for its own sake.
+     *
+     * `one-merge-rule` hoisted its pathspecs into a variable — `const specs = ['server/src/**\/*.ts'];` and
+     * then `run(['ls-files', ...specs])` — so the statement holding the call names no extension at all. The
+     * first version of this detector read forward only, reported that file clean, and the gate was believed.
+     * Two lines back is where a hoisted pathspec lives.
+     */
+    const from = src.lastIndexOf('\n', src.lastIndexOf('\n', m.index - 1) - 1) + 1;
+    const stmt = src.slice(from, src.indexOf(';', m.index) + 1 || undefined);
     // Two spellings, and the second is why this is not just an `endsWith` check: the filter can live in the
     // ARGUMENTS as a `*.ts` glob rather than in a `.filter()` on the result. That version was missed by the
     // first draft of this detector, which is the reminder that a predicate matching one way of writing a

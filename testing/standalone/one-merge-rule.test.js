@@ -38,9 +38,10 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
+import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 
@@ -53,17 +54,12 @@ let merge;
  * Tracked AND newly-added sources. `git ls-files` alone misses a file a contributor has just written,
  * which is precisely when a fresh copy of the rule gets introduced.
  *
- * Two pathspecs, not one: `server/src/*.ts` does not descend in git's glob, so a single pattern would
- * silently skip every subdirectory — which is all of them.
+ * It used to pass two pathspecs, because `server/src/*.ts` does not descend in git's glob and a single
+ * pattern silently skipped every subdirectory — which is all of them. A directory has no such edge, and the
+ * shared helper is now the one place that has to know it.
  */
 function sourceFiles() {
-  const run = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-  const specs = ['server/src/*.ts', 'server/src/**/*.ts'];
-  const tracked = run(['ls-files', ...specs]);
-  const fresh = run(['ls-files', '--others', '--exclude-standard', ...specs]);
-  return [...new Set(`${tracked}\n${fresh}`.split(/\r?\n/))]
-    .filter(Boolean)
-    .map(p => p.replace(/\\/g, '/'));
+  return trackedSources('server/src', { untracked: true });
 }
 
 /**
@@ -217,10 +213,25 @@ describe('one merge rule', () => {
     it('every update tool that merges properties says so in its schema', () => {
       // The defect was a schema promising "to merge" over code that replaced. The promise is now true;
       // this keeps the two moving together.
-      for (const f of ['memory', 'entity', 'edge', 'chrono']) {
-        const src = schema(`server/src/mcp/tools/${f}.ts`);
-        assert.match(src, /properties to merge|properties to merge into the stored map/i,
-          `update_${f}'s properties description must state the merge — the code does it`);
+      /*
+       * The TYPES come from the source that defines them, and each tool is then located by the declaration
+       * it makes rather than by its filename.
+       *
+       * Two lists were hiding in one line before. Four type names, which is a copy of `KNOWLEDGE_TYPES` — a
+       * fifth record type would arrive with an update tool nothing here asked about. And `${f}.ts`, which
+       * assumes the module is named after the type; that holds today and is not a rule anywhere, so a tool
+       * moved into a shared module would silently stop being checked while the gate stayed green.
+       *
+       * NOT "every update tool that has a properties bag", which was the first attempt: `update_file_meta`
+       * has one and REPLACES it, deliberately and documented. The merge is the brain records' rule.
+       */
+      const toolFiles = trackedSources('server/src/mcp/tools/*.ts', { floor: 10 });
+      for (const t of KNOWLEDGE_TYPES) {
+        const file = toolFiles.find(f => new RegExp(`name: 'update_${t}'`).test(schema(f)));
+        assert.ok(file, `no MCP module declares an update_${t} tool — either it is gone, or it moved and this `
+          + 'gate can no longer find it, and both need reading rather than a passing tick');
+        assert.match(schema(file), /properties to merge|properties to merge into the stored map/i,
+          `update_${t}'s properties description must state the merge — the code does it`);
       }
     });
   });

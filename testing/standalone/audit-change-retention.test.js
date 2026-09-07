@@ -21,6 +21,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 
 let mod;
 before(async () => { mod = await import('../../server/dist/audit/change-retention.js'); });
@@ -40,8 +41,10 @@ describe('which operations expire early', () => {
   it('covers every brain record edit', () => {
     // If a record type is missing here its content silently keeps the FULL 90-day retention — the
     // exact exposure the TTL was granted to prevent, and nothing would report it.
-    for (const op of ['memory.update', 'entity.update', 'edge.update', 'chrono.update',
-      'file.meta.update', 'entity.merge']) {
+    // Derived for the record edits, NAMED for the two that are not one-per-type: a file's metadata edit and
+    // an entity merge have no knowledge type to be generated from, and hiding them inside a derivation would
+    // make the set look complete while resting on a coincidence of spelling.
+    for (const op of [...KNOWLEDGE_TYPES.map(t => `${t}.update`), 'file.meta.update', 'entity.merge']) {
       assert.ok(mod.RECORD_CHANGE_OPERATIONS.includes(op), `${op} must expire early`);
     }
   });

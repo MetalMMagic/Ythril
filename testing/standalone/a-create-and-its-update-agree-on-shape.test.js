@@ -39,6 +39,15 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 import { CHRONO_STATUSES } from '../../server/dist/config/types.js';
+/*
+ * The record types come from the SOURCE that defines them, never from a list written here.
+ *
+ * `write-shape.ts` derives its own table type from `KnowledgeType` for exactly this reason, so a fifth type
+ * would give it a table entry and a compiler error — while a list copied into this file would keep passing,
+ * asserting the rule over four types and reporting nothing about the fifth. That is the whole subject of the
+ * `Q-6` sweep, and this file is one of its own suspicions.
+ */
+import { KNOWLEDGE_TYPES } from '../../server/dist/config/types-knowledge.js';
 
 const { shapeError, shapedFields, MAX_FACT_LENGTH } =
   await import('../../server/dist/brain/write-shape.js');
@@ -61,7 +70,9 @@ const DOORS = {
   'server/src/mcp/tools/chrono.ts': ['chrono'],
   'server/src/mcp/tools/entity.ts': ['entity'],
   'server/src/mcp/tools/edge.ts': ['edge'],
-  'server/src/brain/bulk.ts': ['memory', 'chrono', 'entity', 'edge'],
+  // The importer writes every knowledge type there is, which is a statement about the SET rather than
+  // about four names — so it is spelled that way.
+  'server/src/brain/bulk.ts': [...KNOWLEDGE_TYPES],
 };
 
 describe('the table itself', () => {
@@ -176,7 +187,7 @@ describe('the table itself', () => {
     assert.ok(shapeError('entity', { properties: { nested: { a: 1 } } }),
       'and the entity rule that DOES exist has been lost');
     // The container rule still applies to all four — a non-object cannot have its values read.
-    for (const t of ['memory', 'chrono', 'entity', 'edge']) {
+    for (const t of KNOWLEDGE_TYPES) {
       assert.ok(shapeError(t, { properties: 'not-an-object' }), `${t} accepted a non-object property bag`);
     }
   });
@@ -184,7 +195,7 @@ describe('the table itself', () => {
   it('never checks REQUIREDNESS, which stays at the create door', () => {
     // A table that cannot see whether a request is a create must not decide whether a field is required. An
     // empty body is a create problem and never a shape problem.
-    for (const t of ['memory', 'chrono', 'entity', 'edge']) {
+    for (const t of KNOWLEDGE_TYPES) {
       assert.equal(shapeError(t, {}), null, `${t} refused an empty body — that is requiredness, not shape`);
     }
   });

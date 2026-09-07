@@ -21,6 +21,14 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { openTestMongo, closeTestMongo, mongoSkipReason } from './_mongo-harness.mjs';
+/*
+ * The knowledge types and their collections come from the source that DEFINES them.
+ *
+ * This file's title says every typed collection, and three of its cases read a list written here -- which is
+ * how a fourth collection can be added and reported on by nothing. The case below that leaves an unpoliced
+ * type alone read entity, memory and edge, and never chrono.
+ */
+import { KNOWLEDGE_TYPES, RECORD_COLLECTION } from '../../server/dist/config/types-knowledge.js';
 
 const skip = await mongoSkipReason();
 
@@ -77,7 +85,7 @@ describe('schema retention reaches every typed collection (real MongoDB)', { ski
   after(async () => { await closeTestMongo(); });
 
   beforeEach(async () => {
-    for (const c of ['entities', 'memories', 'edges', 'chrono', 'files']) {
+    for (const c of Object.values(RECORD_COLLECTION)) {
       await mongo.col(`${SPACE}_${c}`).deleteMany({});
     }
   });
@@ -117,16 +125,23 @@ describe('schema retention reaches every typed collection (real MongoDB)', { ski
 
   it('leaves a type with no window alone, in every collection', async () => {
     const created = ago(400);
-    await mongo.col(`${SPACE}_entities`).insertOne(docs.entities('p-1', 'person', created));
-    await mongo.col(`${SPACE}_memories`).insertOne(docs.memories('m-2', 'idea', created));
-    await mongo.col(`${SPACE}_edges`).insertOne(docs.edges('e-2', 'mentions', created));
-
-    for (const c of ['entity', 'memory', 'edge']) {
-      assert.equal(await backfillTypedExpiry(SPACE, POLICY, c), 0, c);
+    /*
+     * A type name the policy does NOT police, per knowledge type -- values, so they are written here, but the
+     * SET is derived. Asserted to cover every type first: an unnamed one would insert a record with an
+     * undefined type, which no window matches either, so the case would pass while testing nothing.
+     */
+    const unpoliced = { entity: 'person', memory: 'idea', edge: 'mentions', chrono: 'meeting' };
+    for (const t of KNOWLEDGE_TYPES) {
+      assert.ok(unpoliced[t], `no unpoliced ${t} type is named, so this case would assert nothing about it`);
+      await mongo.col(`${SPACE}_${RECORD_COLLECTION[t]}`)
+        .insertOne(docs[RECORD_COLLECTION[t]](`u-${t}`, unpoliced[t], created));
     }
-    assert.equal((await load('entities', 'p-1'))._expireAt, undefined);
-    assert.equal((await load('memories', 'm-2'))._expireAt, undefined);
-    assert.equal((await load('edges', 'e-2'))._expireAt, undefined);
+
+    for (const t of KNOWLEDGE_TYPES) {
+      assert.equal(await backfillTypedExpiry(SPACE, POLICY, t), 0, t);
+      assert.equal((await load(RECORD_COLLECTION[t], `u-${t}`))._expireAt, undefined,
+        `an unpoliced ${t} was stamped with an expiry, so the policy reaches a type it does not name`);
+    }
   });
 
   it('never re-slides an expiry that is already there', async () => {
@@ -160,8 +175,8 @@ describe('schema retention reaches every typed collection (real MongoDB)', { ski
 
   it('a space with no schema windows costs nothing', async () => {
     await mongo.col(`${SPACE}_entities`).insertOne(docs.entities('t-5', 'ticket', ago(100)));
-    for (const c of ['entity', 'memory', 'edge', 'chrono']) {
-      assert.equal(await backfillTypedExpiry(SPACE, { recordTtlDays: 90 }, c), 0, c);
+    for (const t of KNOWLEDGE_TYPES) {
+      assert.equal(await backfillTypedExpiry(SPACE, { recordTtlDays: 90 }, t), 0, t);
     }
     // The SPACE tier deliberately does not backfill: widening it would start deleting historic records on every
     // space that ever set one.

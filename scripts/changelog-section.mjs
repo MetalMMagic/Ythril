@@ -70,24 +70,88 @@ export const RELEASE_BODY_MAX = 125_000;
 export const RELEASE_BODY_TARGET = 118_000;
 
 /**
- * Fit a release body inside GitHub's limit, cutting at an ENTRY boundary and saying that it did.
+ * Whatever a release says before its first bullet — kept whole, whatever else is cut.
  *
- * ## What this is for, measured
+ * Every major since 3.0 opens with a few paragraphs saying what the release IS, and it is the best summary
+ * of it anybody writes. Splitting a body into entries throws it away, which the previous abridger did not
+ * do only because its split happened to leave it stuck to the front of the first entry. Reading it out
+ * deliberately means it survives on purpose rather than by accident.
+ */
+export function releasePreamble(body) {
+  const lines = body.split('\n');
+  const first = lines.findIndex(l => /^- /.test(l) || /^#{2,3} /.test(l.trim()));
+  return (first < 0 ? body : lines.slice(0, first).join('\n')).trim();
+}
+
+/**
+ * The section each top-level entry belongs to, so an abridger can rank them.
+ *
+ * Splitting on `\n- ` alone loses that: the `### Removed` heading ends up trailing the entry BEFORE the
+ * section it introduces, which is fine for output and useless for classification. This walks the lines
+ * instead and carries the current heading forward.
+ *
+ * @param {string} body
+ * @returns {Array<{section: string|null, text: string}>}
+ */
+export function entriesWithSection(body) {
+  const out = [];
+  let section = null;
+  let cur = null;
+  const flush = () => { if (cur) { out.push({ section: cur.section, text: cur.lines.join('\n').trimEnd() }); cur = null; } };
+
+  for (const line of body.split('\n')) {
+    const heading = /^#{2,3} (.+)$/.exec(line.trim());
+    if (heading) { flush(); section = heading[1].trim(); continue; }
+    if (/^- /.test(line)) { flush(); cur = { section, lines: [line] }; continue; }
+    if (cur) cur.lines.push(line);
+  }
+  flush();
+  return out;
+}
+
+/**
+ * Does this entry describe something that will break a caller who does not read it?
+ *
+ * TWO signals, both already in the text and neither a list anybody maintains:
+ *
+ * - **The word.** This changelog has marked breaking entries since 3.x, in two spellings — `**BREAKING:` at
+ *   the front of an entry and `(breaking)` at the end of its first sentence. Matching the word covers both,
+ *   and covers the third spelling somebody uses next year.
+ * - **The `Removed` section.** A removal is breaking whether or not its author wrote the word, and this is
+ *   the half that caught `M-2`: the link entries sit in `Added` and `Changed` and say `breaking` outright,
+ *   while several genuine removals never use the word at all.
+ *
+ * Scoped to the entry's own text, so a section-wide preamble mentioning breaking changes does not promote
+ * every entry under it.
+ */
+export function isBreaking(entry) {
+  return entry.section === 'Removed' || /\bbreaking\b/i.test(entry.text);
+}
+
+/**
+ * Fit a release body inside GitHub's limit, keeping what a reader cannot afford to miss.
+ *
+ * ## What this is for, measured twice
  *
  * `v4.0.0` was tagged, both registries took the image, and the Release step failed with
- * `422 body is too long (maximum is 125000 characters)` against **335 002 characters** of notes. Every
- * release before it fitted, so nothing had ever exercised a ceiling — the script had a FLOOR, refusing a
- * section too short to describe anything, and nothing at the other end.
+ * `422 body is too long (maximum is 125000 characters)` against **335 002 characters** of notes. That is
+ * why an abridger exists at all.
  *
- * A major is where that breaks: 4.0.0 carries 221 entries because it carries everything since 3.0.0.
+ * Then an operator read the abridged notes and missed the largest change in the release. The link system
+ * changes how every caller writing `entityIds` behaves, and it sat past the fold — they found it because
+ * their own owner asked *"what about the new link system"*, not because the release told them. **The
+ * finding is the truncation, not the omission: a prefix is not a summary.** 81 entries of 227 were shown,
+ * chosen by nothing but document order.
  *
- * ## Why the cut is at an entry boundary, and why it announces itself
+ * ## So breaking entries are lifted, and the rest keeps its order
  *
- * The module header already states the rule this obeys: *"a slice bounded by a character count would ship a
- * truncated release note that reads as complete"*. That is exactly the failure to avoid here, so the cut
- * lands between top-level entries and the body ends with a line saying how many were kept, how many there
- * are, and where the rest is. A reader who reaches the end knows they reached a boundary rather than the
- * end of the news.
+ * Everything that breaks a caller goes first, under its own heading, whatever the length. What follows is
+ * the same document-order prefix as before, of what is left. A reader who stops after the first screen has
+ * then seen the entries they had to act on, which is the one property a prefix could never offer.
+ *
+ * **The lift only happens when the body does not fit.** A body under the limit is returned untouched — the
+ * common case, every release before 4.0.0 — because reordering notes that fit would be a change to what
+ * gets published for no reason at all.
  *
  * @param {string} body      the full release body
  * @param {string} version   the version, for the pointer at the end
@@ -96,37 +160,55 @@ export const RELEASE_BODY_TARGET = 118_000;
 export function abridgeForRelease(body, version, limit = RELEASE_BODY_TARGET) {
   if (body.length <= limit) return body;
 
-  const entries = body.split(/\n(?=- )/);
+  const entries = entriesWithSection(body);
+  const preamble = releasePreamble(body);
   const link = `https://github.com/ythril-network/Ythril/blob/v${version}/CHANGELOG.md`;
+  const breaking = entries.filter(isBreaking);
+  const rest = entries.filter(e => !isBreaking(e));
 
-  /*
-   * THE NOTICE GOES AT BOTH ENDS, and the top one is the one that matters.
-   *
-   * A reader who stops halfway — which is the likely reader of a body this size — never reaches a footer.
-   * Told at the top, they know from the first line that this is a window onto the notes rather than all of
-   * them, and where the rest is.
-   */
-  const head = (kept) => `> **These notes are abridged** — ${kept} of ${entries.length} entries. The full `
-    + `${version} notes are in [CHANGELOG.md at this tag](${link}).\n\n`;
+  const head = (kept, shownBreaking) => `> **These notes are abridged** — ${kept} of ${entries.length} entries. `
+    + (breaking.length
+      ? `**${shownBreaking} of ${breaking.length} breaking ${breaking.length === 1 ? 'entry is' : 'entries are'} `
+        + `shown first**, ahead of everything else. `
+      : '')
+    + `The full ${version} notes are in [CHANGELOG.md at this tag](${link}).\n\n`;
   const foot = (kept) => `\n\n---\n\n**End of the abridged notes** — ${kept} of ${entries.length} entries `
     + `shown. GitHub caps a release body at ${RELEASE_BODY_MAX.toLocaleString('en-US')} characters and the `
     + `full ${version} notes are ${body.length.toLocaleString('en-US')}. Read all of them in `
     + `[CHANGELOG.md at this tag](${link}).`;
 
+  const BREAKING_HEADING = '## Breaking changes\n\n';
+  const REST_HEADING = '\n\n## Everything else, in order\n\n';
+
   // Sized against the WORST case the notices can grow to, because their own numbers are part of their
   // length: sizing against the final count could push the body back over the limit it just fitted.
-  const budget = limit - head(entries.length).length - foot(entries.length).length;
+  let budget = limit
+    - head(entries.length, breaking.length).length
+    - foot(entries.length).length
+    - (breaking.length ? BREAKING_HEADING.length + REST_HEADING.length : 0)
+    - (preamble ? preamble.length + 2 : 0);
 
-  const kept = [];
-  let used = 0;
-  for (const e of entries) {
-    if (used + e.length + 1 > budget) break;
-    kept.push(e);
-    used += e.length + 1;
-  }
+  const take = (list) => {
+    const kept = [];
+    for (const e of list) {
+      if (budget - (e.text.length + 1) < 0) break;
+      kept.push(e.text);
+      budget -= e.text.length + 1;
+    }
+    return kept;
+  };
+
+  const keptBreaking = take(breaking);
+  const keptRest = take(rest);
+  const kept = keptBreaking.length + keptRest.length;
+
   // A single entry longer than the whole budget would leave nothing. Better an honest pointer than a
   // mid-sentence cut — but say so, rather than returning a body that reads as though nothing changed.
-  if (kept.length === 0) return `**These notes are too long to show here.** Read them in [CHANGELOG.md at this tag](${link}).`;
+  if (kept === 0) return `**These notes are too long to show here.** Read them in [CHANGELOG.md at this tag](${link}).`;
 
-  return head(kept.length) + kept.join('\n') + foot(kept.length);
+  const parts = keptBreaking.length
+    ? BREAKING_HEADING + keptBreaking.join('\n') + (keptRest.length ? REST_HEADING + keptRest.join('\n') : '')
+    : keptRest.join('\n');
+
+  return head(kept, keptBreaking.length) + (preamble ? preamble + '\n\n' : '') + parts + foot(kept);
 }

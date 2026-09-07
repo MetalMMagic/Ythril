@@ -17,6 +17,7 @@ import {
   Gauge,
 } from 'prom-client';
 import { COLLECTION_SUFFIX } from '../config/types-knowledge.js';
+import { POSTURE_LEVELS } from '../config/posture-levels.js';
 import { col } from '../db/mongo.js';
 import { getConfig, getStorageConfig } from '../config/loader.js';
 import { peekUsage, refreshUsageInBackground, usageMeasurementCount, usageIsComplete, USAGE_AREAS } from '../quota/quota.js';
@@ -1004,4 +1005,4 @@ let postureProvider: (() => Array<{ level: string }>) | null = null;
 export function setPostureProvider(fn: () => Array<{ level: string }>): void {
   postureProvider = fn;
 }
-for (const level of ['pass', 'warn', 'fail']) securityPostureChecks.set({ level }, 0);
+for (const level of POSTURE_LEVELS) securityPostureChecks.set({ level }, 0);

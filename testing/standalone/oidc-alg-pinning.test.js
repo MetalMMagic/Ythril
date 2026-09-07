@@ -33,6 +33,8 @@ describe('DEFAULT_OIDC_ALGORITHMS', () => {
   });
 
   it('excludes every HMAC algorithm', () => {
+    // set-claim: HS256/384/512 is the COMPLETE HMAC family in the JWA registry, an external closed set --
+    // not a copy of anything this codebase enumerates. A fourth would be a new JWA algorithm.
     for (const alg of ['HS256', 'HS384', 'HS512']) {
       assert.ok(!DEFAULT_OIDC_ALGORITHMS.includes(alg), `${alg} must not be accepted`);
     }

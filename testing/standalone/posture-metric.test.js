@@ -19,6 +19,7 @@
  */
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { POSTURE_LEVELS } from '../../server/dist/config/posture-levels.js';
 import { readFileSync } from 'node:fs';
 
 let register, securityPostureChecks, setPostureProvider;
@@ -43,7 +44,9 @@ describe('ythril_security_posture_checks', () => {
   it('reports ZERO for every level when nothing has been computed', async () => {
     // Absent and zero look identical in a graph and mean opposite things: "no findings" versus "nobody
     // asked". An alert on fail > 0 must not depend on a series existing.
-    for (const l of ['pass', 'warn', 'fail']) {
+    // The levels come from `POSTURE_LEVELS`, the runtime list the type is now derived from. A fourth level
+    // would be pre-declared by the registry and unchecked here, which is the half a graph cannot show.
+    for (const l of POSTURE_LEVELS) {
       assert.equal(await level(l), 0, `level=${l}`);
     }
   });

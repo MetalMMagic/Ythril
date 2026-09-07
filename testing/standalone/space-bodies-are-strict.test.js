@@ -72,6 +72,8 @@ before(() => { bodies = exportedObjects(strip(readFileSync(SRC, 'utf8'))); });
 
 describe('space request bodies refuse unknown keys', () => {
   it('finds every exported body — the parser is checked before the property is', () => {
+    // set-claim: parser ANCHORS, not the subject. The strictness rule below iterates every body the
+    // scanner found; these four are named to prove the scanner survives the four shapes it must parse.
     // A gate that parses nothing passes everything. These four names are stable and span the shapes the
     // scanner has to survive: a flat body, one with a nested object, one ending in `.refine`, one with a
     // union field.

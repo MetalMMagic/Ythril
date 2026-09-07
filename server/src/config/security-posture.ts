@@ -14,7 +14,8 @@ import { allowPrivateOidcIssuer } from './oidc-egress-policy.js';
 import { modelEndpointExposure, formatExposure, classifyEndpoint } from './model-egress-exposure.js';
 import { publicBaseUrlIsFallback } from './public-url.js';
 
-export type PostureLevel = 'pass' | 'warn' | 'fail';
+export { POSTURE_LEVELS, type PostureLevel } from './posture-levels.js';
+import type { PostureLevel } from './posture-levels.js';
 
 export interface PostureCheck {
   id: string;

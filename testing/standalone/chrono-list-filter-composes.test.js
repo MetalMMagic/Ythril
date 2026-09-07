@@ -84,6 +84,8 @@ describe('the other status branches are unchanged', () => {
   });
 
   it('completed and cancelled are plain matches with no clock in them', () => {
+    // set-claim: a deliberate SUBSET, not a set -- the two statuses with no clock in them, contrasted
+    // with the clocked ones in the case above. Naming all five here would assert the opposite rule.
     for (const s of ['completed', 'cancelled']) {
       const { query, comparesAgainstTheClock } = build({ status: s });
       assert.equal(query['status'], s);

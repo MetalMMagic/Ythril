@@ -205,6 +205,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The three security-posture verdict levels were a type union plus a copy of it in the metrics registry.**
+  The registry pre-declares one series per level at zero, because an absent series and a zero one look
+  identical on a graph and mean opposite things -- so a fourth level added to the type would have been the
+  one an operator's alert never sees, with nothing failing anywhere to say so.
+
+  A union is erased at runtime, which is why there was a copy at all; the levels are a runtime list in a leaf
+  module now, with the type derived from it, and both ends import it. A leaf module because the registry
+  cannot import the posture module without inverting the dependency direction.
+
 - **The four size-budget parameter names were written out at three read routes, and the routes refuse what
   they do not name.** A fifth budget parameter would have been accepted by the resolver and answered with a
   400 by `/query`, `recall` and `find_similar` -- a refusal nothing described, on a parameter the product

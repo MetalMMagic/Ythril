@@ -225,7 +225,9 @@ describe('normalizeDocExtractionMode — the legacy max spelling', () => {
   });
 
   it('every other value passes through untouched', () => {
-    for (const m of ['off', 'ocr', 'vlm', 'repair', 'auto']) {
+    // `DOC_EXTRACTION_MODES_IN` is the runtime list the source already declares against the mode type, so a
+    // sixth mode is normalised-checked here without anybody editing this case.
+    for (const m of DOC_EXTRACTION_MODES_IN) {
       assert.equal(normalizeDocExtractionMode(m), m);
     }
   });

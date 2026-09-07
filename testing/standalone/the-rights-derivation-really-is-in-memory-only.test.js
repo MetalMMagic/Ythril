@@ -37,6 +37,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
 const BACKFILL = 'server/src/auth/backfill-token-rights.ts';
@@ -68,12 +69,17 @@ describe('no CommonJS require survives in an ESM package', () => {
      *
      * Comments are stripped first — this file's own docblock says the word, and so does an eslint-disable
      * line, which is how a source-reading gate fires on the explanation of the fix.
+     *
+     * **DERIVED, because the title says "nothing in server/src" and the body used to name five files.**
+     * Those five were the ones being read on the day the sweep happened; a sixth written since then was
+     * outside everything this gate looked at while the assertion message went on claiming the directory.
+     * `Q-6`, 2026-09-07.
      */
-    const offenders = [];
-    for (const f of ['server/src/auth/backfill-token-rights.ts', LOADER,
-      'server/src/config/types.ts', 'server/src/app.ts', 'server/src/index.ts']) {
-      if (/\brequire\s*\(/.test(code(f))) offenders.push(f);
-    }
+    const files = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+      .toString('utf8').split('\n').filter(f => f.endsWith('.ts'));
+    assert.ok(files.length > 100, `only ${files.length} server sources found; the listing is broken`);
+
+    const offenders = files.filter(f => /\brequire\s*\(/.test(code(f)));
     assert.deepEqual(offenders, [],
       `${offenders.join(', ')} calls require() in an ESM package — it throws at the moment it runs, and a `
       + 'try/catch around it turns a permanent failure into a warning that names a retry that cannot happen');

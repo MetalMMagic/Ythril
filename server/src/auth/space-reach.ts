@@ -18,9 +18,11 @@
  * inventory (`space-rights.ts`) and is a LATER step: wiring both at once means a defect in either reads as a
  * defect in the other, and the failure mode of the pair is the one nobody sees.
  */
-import type { TokenRights, SpaceArea } from '../config/rights-shape.js';
-
-const AREAS: readonly SpaceArea[] = ['knowledge', 'files', 'schema', 'dataQuality'];
+import type { TokenRights } from '../config/rights-shape.js';
+// The ONE list. This module kept its own copy of the four names, in the same file that decides whether a
+// token may touch a space at all — so a fifth area would have been invisible to the reach check while every
+// other reader saw it (`Q-6`, 2026-09-07).
+import { SPACE_AREAS as AREAS } from '../config/rights-shape.js';
 
 /**
  * True when the token holds ANY rung above `none` in this space — via its floor or its explicit row.

@@ -32,8 +32,16 @@
  * reasoning from the name.
  */
 
-/** The four space-scoped areas. Instance-level capabilities are NOT here — they have no space to scope to. */
-export type SpaceArea = 'knowledge' | 'files' | 'schema' | 'dataQuality';
+/**
+ * The space-scoped areas. Instance-level capabilities are NOT here — they have no space to scope to.
+ *
+ * RE-EXPORTED, not declared. This was a hand-written union spelling the same four names that
+ * `config/rights-shape.ts` derives from `SPACE_AREAS`, which is two sources of truth for one vocabulary and
+ * the reason a fifth area would have compiled fine here while failing everywhere that reads the list.
+ * Found by `Q-6`, 2026-09-07, alongside two modules keeping their own array of the names.
+ */
+import type { SpaceArea } from '../config/rights-shape.js';
+export type { SpaceArea };
 
 /** Rungs, lowest first. Each CONTAINS the one below, so "write but not read" is unrepresentable. */
 export const RUNGS = ['none', 'read', 'write', 'admin'] as const;

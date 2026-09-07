@@ -106,7 +106,10 @@ describe('the primitive-property rule has ONE implementation', () => {
       `expected the create route and the patch route to call it, found ${calls.length} call(s)`);
   });
 
-  it('FILE-META is covered too, on all three of its doors', () => {
+  // The count came out of this title: it said THREE doors while the docblock below names four and the body
+  // checks four. A number in a title is a second copy of a fact the body already holds, and it is the copy
+  // everybody afterwards believes (`Q-6`, 2026-09-07).
+  it('FILE-META is covered too, on every door that writes it', () => {
     /*
      * The report named entities. Reading the source found the identical shape on file meta, and it would
      * have survived a fix scoped to what was reported — which is the whole reason a reporter's location is

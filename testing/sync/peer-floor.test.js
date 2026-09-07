@@ -266,15 +266,38 @@ process.stdout.write('OK');
      * into a refusal sentence, and both doors say the same thing. That is what this asserts, read before
      * a sync cycle can repair the pin.
      */
-    assert.match(await pinStoredVersion('ythril-a', networkId, idB, '1.0.0', INSTANCES.a, tokenA), /^OK/,
-      'could not stage a stale peer');
+    /*
+     * **STAGED IN A RETRY LOOP, because the pin is racing a gossip round that erases it.**
+     *
+     * The docblock above says the subject self-heals — one gossip round relearns B's real version — and the
+     * first version of this staging read the pin back once, immediately after writing it. That is a race the
+     * test can lose without anything being wrong: it lost in CI on 2026-09-07 with `'4.0.1' !== '1.0.0'`,
+     * which is the pin having been repaired between the write and the read.
+     *
+     * **What repairs it is B, and A cannot prevent it.** An inbound announce is a completed exchange, so
+     * `api/sync/members.ts` stamps `version` from what the caller reports on the way in — not only on A's
+     * own outbound cycle. The previous case awaits its own `triggerSync` and leaks nothing; the repair
+     * arrives from the other container, on its schedule, at a moment this test neither picks nor observes.
+     *
+     * Re-staging until the read observes the pin removes the race from the STAGING. The assertions after it
+     * are then read from ONE response captured in the same iteration, so they cannot disagree with each
+     * other either — which the previous shape could, if the repair landed between two of them.
+     */
+    let net = null;
+    await waitFor(async () => {
+      assert.match(await pinStoredVersion('ythril-a', networkId, idB, '1.0.0', INSTANCES.a, tokenA), /^OK/,
+        'could not stage a stale peer');
+      const r = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+      const body = (r.body?.network ?? r.body);
+      const stored = body?.members?.find(m => m.instanceId === idB)?.version;
+      if (stored !== '1.0.0') return false;
+      net = { body };
+      return true;
+    }, 40_000, 1_000);
 
-    // Proven through the API rather than assumed from the file write: without the reload the pin never
-    // reaches the running instance and every assertion below would be about nothing.
-    assert.equal(await storedVersionOfB(), '1.0.0',
-      'the pin did not reach the running instance — config.json was written but never re-read');
+    assert.ok(net, 'the pin never survived long enough to be read — a gossip round repairs it every time, '
+      + 'so this case cannot observe the state it is about');
 
-    const net = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
     const member = (net.body?.network ?? net.body)?.members?.find(m => m.instanceId === idB);
     assert.ok(member, 'B is not in the member list');
     assert.ok(member.belowFloor, 'a member pinned at 1.0.0 is not reported as below the floor');

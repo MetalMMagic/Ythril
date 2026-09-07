@@ -76,52 +76,62 @@ describe('the spill tree is hidden from browsing', () => {
   });
 });
 
-describe('every traverse site spills — there are four and they must agree', () => {
-  const rest = read('server/src/api/brain/search.ts');
-  const mcp = read('server/src/mcp/tools/search.ts');
+describe('every traverse site spills, and every site that spills reports it', () => {
+  /**
+   * The doors, DERIVED — and the count is gone from both the title and the body.
+   *
+   * It read *"there are four and they must agree"* over two named files, each asserted to hold exactly two
+   * calls. Three copies of a number the code already holds: a third door is invisible to it, a door that
+   * legitimately gains or loses a site fails on the arithmetic rather than on the rule, and the title
+   * commits to a total nobody re-counts (`Q-6`, 2026-09-07).
+   *
+   * What replaces it is the property the number was standing in for: **within each door, the number of
+   * spill builds, the number that report `graphComplete`, and the number that report `graphTruncated` are
+   * the same.** A site added without its reporting is what that catches, at any total.
+   */
+  const doors = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
+    .toString('utf8').split('\n')
+    .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/graph-spill.ts')
+    .filter(f => /buildGraphWithSpill/.test(read(f)));
 
-  it('REST recall and find-similar both build through the spill builder', () => {
-    assert.equal((rest.match(/buildGraphWithSpill\(/g) ?? []).length, 2, rest.match(/buildGraphWithSpill\(/g));
+  it('both doors are found, or this whole block is about nothing', () => {
+    assert.ok(doors.length >= 2,
+      `only ${doors.length} door(s) build a spill; REST and MCP are the minimum, so the scan is wrong`);
   });
 
-  it('MCP recall and find_similar do too', () => {
-    assert.equal((mcp.match(/buildGraphWithSpill\(/g) ?? []).length, 2, mcp.match(/buildGraphWithSpill\(/g));
-  });
+  for (const door of doors) {
+    it(`${door} reports a spill at every site that builds one`, () => {
+      const code = read(door);
+      const count = (re) => (code.match(re) ?? []).length;
+      const builds = count(/buildGraphWithSpill\(/g);
+      assert.ok(builds >= 1, `${door} imports the builder and never calls it`);
+
+      // Computing a spill and dropping it would leave the caller exactly where they started.
+      assert.equal(count(/graphComplete: spill/g), builds,
+        `${door}: ${builds} spill build(s) and ${count(/graphComplete: spill/g)} report the download link`);
+
+      /*
+       * The truncation flag has its OWN source, and that is the point of asserting it separately. The two
+       * were one expression — `graphTruncated: true, graphComplete: spill` — because a spill was the only
+       * way a graph could be short. It is not: a bounded link scan that stops reading leaves a short graph
+       * with no complete copy to write, since the records missing from it are exactly the ones never read.
+       */
+      assert.equal(count(/graphTruncated \? \{ graphTruncated: true \}/g), builds,
+        `${door}: a site still derives truncation from the spill file, so a scan that stopped reading is `
+        + 'reported as a complete graph');
+      assert.doesNotMatch(code, /graphTruncated: true, graphComplete: spill/,
+        `${door} still couples the two`);
+    });
+  }
 
   it('nothing calls the un-spilled builder any more', () => {
     // `buildRecallGraph` was the pre-spill entry point. Leaving it exported would let a new site silently opt
     // out of the whole mechanism — so it is gone, not deprecated.
-    const graph = read('server/src/brain/recall-graph.js'.replace('.js', '.ts'));
+    const graph = read('server/src/brain/recall-graph.ts');
     assert.ok(!/export async function buildRecallGraph/.test(graph),
       'a second way to build a graph is a second way to truncate one silently');
-    for (const [name, src] of [['REST', rest], ['MCP', mcp]]) {
-      assert.ok(!/buildRecallGraph\(/.test(src), `${name} still calls the un-spilled builder`);
-    }
-  });
-
-  it('all four report the spill in the response, not just compute it', () => {
-    // Computing a spill and dropping it would leave the caller exactly where they started.
-    assert.equal((rest.match(/graphComplete: spill/g) ?? []).length, 2);
-    assert.equal((mcp.match(/graphComplete: spill/g) ?? []).length, 2);
-  });
-
-  it('and all four report a short graph even when there is no spill to offer', () => {
-    /*
-     * The two were one expression — `graphTruncated: true, graphComplete: spill` — because a spill was the
-     * only way a graph could be short. It is not: a bounded link scan that stops reading leaves a short graph
-     * with no complete copy to write, since the records missing from it are exactly the ones never read.
-     * Deriving the flag from the file reported that case as complete.
-     *
-     * So the flag has its own source. Asserted on both doors and both sites in each, because a fix applied to
-     * three of four would make `graphTruncated` mean different things depending on which one answered.
-     */
-    assert.equal((rest.match(/graphTruncated \? \{ graphTruncated: true \}/g) ?? []).length, 2,
-      'a REST site still derives truncation from the spill file');
-    assert.equal((mcp.match(/graphTruncated \? \{ graphTruncated: true \}/g) ?? []).length, 2,
-      'an MCP site still derives truncation from the spill file');
-    for (const [door, src] of [['REST', rest], ['MCP', mcp]]) {
-      assert.doesNotMatch(src, /graphTruncated: true, graphComplete: spill/,
-        `${door} still couples the two, so a scan that stopped reading is reported as a complete graph`);
+    for (const door of doors) {
+      assert.ok(!/buildRecallGraph\(/.test(read(door)), `${door} still calls the un-spilled builder`);
     }
   });
 });

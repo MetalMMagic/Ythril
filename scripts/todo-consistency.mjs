@@ -555,6 +555,75 @@ console.log(`\n${YELLOW}todo/ consistency${R}  ${DIM}(owner rules 2026-08-02 and
         + 'or move the context to `_REFERENCE.md`.');
     }
 
+    /*
+     * ## The BRANCH is the third spelling of "describes the past", and it is the one that held
+     *
+     * The two checks above are about the plan's CONTENT: no merged PR number, and at least one id the queue
+     * still holds. A plan that says `owner-directed` skips the second entirely — that escape exists because
+     * work arrives by message before it is filed, and it is honest — and the first only ever fires on a
+     * spelling a plan rarely uses.
+     *
+     * So on 2026-09-07 the owner opened this file and found it describing a branch that had shipped two days
+     * and about a dozen pull requests earlier. Both halves were green throughout: no PR number, and
+     * `owner-directed` present.
+     *
+     * **A plan names the branch it is for, and a branch that has been CUT and is not in hand is a receipt.**
+     * A branch that does not exist yet is the opposite — this file used as its name says, planning the next
+     * pull request before cutting it — so absence passes and only an existing-but-other branch fails.
+     *
+     * The first version demanded the planned branch BE the current one, which forbade planning ahead
+     * entirely. Correcting it is the point: a rule that makes the file's own purpose impossible gets
+     * disabled or worked around, and then it protects nothing.
+     *
+     * **Two other formulations were tried and both stayed green on the very plan that prompted this.**
+     * "The branch exists somewhere" passed on a local leftover, because deleting a remote branch does not
+     * touch the local copy. "The branch has an `origin/` ref" passed too, because a remote-tracking ref goes
+     * stale until somebody prunes it. Both were asking git about a branch instead of asking what is being
+     * worked on — and every merge here squashes, so ancestry cannot answer it either.
+     *
+     * `owner-directed` does not excuse this one. It says the work is unfiled, which is a statement about the
+     * QUEUE; whether the branch still exists is a statement about the work, and those are different claims.
+     */
+    const branchLine = /^\*\*Branch:\*\*\s*`([^`]+)`/m.exec(src);
+    if (branchLine) {
+      let current = '';
+      try {
+        current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'],
+          { cwd: ROOT, encoding: 'utf8', timeout: 15_000 }).trim();
+      } catch (err) {
+        fail(`${PLAN} could not be checked against the branch in hand: \`git rev-parse\` failed (${err}). `
+          + 'An unreadable HEAD is an unanswered question, not a pass.');
+      }
+      const planned = branchLine[1].trim();
+      let known = null;
+      try {
+        known = execFileSync('git', ['branch', '-a', '--format=%(refname:short)'],
+          { cwd: ROOT, encoding: 'utf8', timeout: 15_000, maxBuffer: 1 << 24 })
+          .split('\n').map(b => b.trim().replace(/^origin\//, ''));
+      } catch (err) {
+        fail(`${PLAN} could not be checked against the branch list: \`git branch\` failed (${err}).`);
+      }
+      /*
+       * A branch that does not exist YET is the file being used as its name says — planning the next pull
+       * request before cutting it. That has to stay possible: the first version of this rule demanded the
+       * planned branch BE the current one, which forbade the one thing `_NEXT-PR-PLAN.md` is for.
+       *
+       * What is refused is a plan naming some OTHER branch that already exists. That is not a plan; it is a
+       * receipt for work that has been cut, and usually shipped.
+       */
+      const existsElsewhere = known !== null && known.includes(planned);
+      if (current && current !== 'HEAD' && planned !== current && existsElsewhere) {
+        fail(`${PLAN} plans branch \`${planned}\`, which already exists and is not the one in hand `
+          + `(\`${current}\`).
+
+`
+          + '      A branch that does not exist yet is fine — that is this file planning the next pull '
+          + 'request. One that has been cut and is not in hand is a receipt: that is how a plan sat here for '
+          + 'two days describing a branch that had shipped, green on both the checks above, because it '
+          + 'carried no pull-request number and `owner-directed` switched the other one off.');
+      }
+    }
+
     // The half the PR-number check was standing in for. `orderedHomeRows` is what the queue still holds, so an
     // id of the plan's that appears there is work ahead; anything else the plan names is context.
     const ordered = readFileSync(join(TODO, ORDERED), 'utf8');

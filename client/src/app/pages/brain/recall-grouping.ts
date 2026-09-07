@@ -233,3 +233,49 @@ export function relatedOf(match: RecallResult): RelatedGroups {
   return out;
 }
 
+/** The per-stage scores a result carries, with the one that DECIDED its place named. */
+export interface Ordering {
+  /** The deciding field's name — `rerankScore`, `fusedScore` or `score`. */
+  by: 'rerankScore' | 'fusedScore' | 'score';
+  /** Its value. */
+  value: number;
+  /** Every stage that ran, deciding one first, for the reader who wants the rest. */
+  stages: Array<{ name: string; value: number }>;
+}
+
+/**
+ * Which number ordered this result, and what the other stages said.
+ *
+ * ## Why the panel has to show this
+ *
+ * Precedence is `rerankScore` → `fusedScore` → `score`, and the guide says so: *"on an instance with a
+ * cross-encoder configured, `score` — plain vector similarity — is NOT the number that ordered the answer"*.
+ * The panel showed `score` and called it "Score", so on exactly those instances it displayed a number that
+ * had not decided anything, beside results in an order it did not explain.
+ *
+ * None of these sit behind `includeDiagnostics` — that flag covers `matchedText`, `embeddingModel` and
+ * `seq`. Three floats per result are not a cost, which is why they are always sent, and showing them costs
+ * nothing either.
+ *
+ * ## Absent means the stage did not RUN
+ *
+ * No reranker configured, no lexical channel for that query. So a missing field is information rather than a
+ * gap, and it is left out rather than rendered as zero — a zero would read as "the reranker scored this
+ * nothing", which is the opposite of "the reranker never saw it".
+ */
+export function orderingOf(hit: Record<string, unknown>): Ordering | null {
+  const num = (k: string): number | null => (typeof hit[k] === 'number' ? hit[k] as number : null);
+
+  // Highest precedence FIRST, and the deciding one is simply the first present. Written as a list rather
+  // than as nested conditionals so the order is the rule, visible in one line.
+  const PRECEDENCE = ['rerankScore', 'fusedScore', 'score'] as const;
+  const decider = PRECEDENCE.find(k => num(k) !== null);
+  if (!decider) return null;
+
+  const stages: Array<{ name: string; value: number }> = [];
+  for (const k of [...PRECEDENCE, 'lexicalScore']) {
+    const v = num(k);
+    if (v !== null) stages.push({ name: k, value: v });
+  }
+  return { by: decider, value: num(decider)!, stages };
+}

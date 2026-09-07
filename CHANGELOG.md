@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Each search result now says which score put it there, and a short graph says it is short.**
+  Ordering precedence is `rerankScore` → `fusedScore` → `score`, so on an instance with a reranking model
+  configured, plain vector similarity is not the number that ordered the answer — and the panel was showing
+  exactly that number, labelled "Score". It names the deciding field now, with any other stage that ran
+  beside it.
+
+  A stage that did not run is left out rather than shown as zero: no reranker configured is a different
+  statement from a reranker scoring nothing, and the second one is what a zero says.
+
+  **A traversal that stopped short was indistinguishable from a complete one.** `graphTruncated` and
+  `graphComplete` were not in the client types at all, so `graphNodes: 7` could be the whole neighbourhood or
+  the first seven of forty with nothing to tell them apart. The panel reports it above the results and offers
+  the whole graph as a download where the instance could write one — which it cannot always: a bounded link
+  scan leaves nothing complete to write, because the records missing are precisely the ones never read.
+
 - **The Query panel's answer is a card, its records fold, and the Search button is where you look for it.**
   Owner-directed, 2026-09-07. Three things at once, because they are one complaint:
 
@@ -145,6 +160,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Found by finishing the file-path half of the gate sweep — four more titles that claimed a whole set
   (*"no door"*, *"nothing writes them out again"*, *"neither door"*, *"every door"*) while reading between
   one and four named files. Two hard-coded counts went with them.
+
+- **The next-PR plan can no longer be a receipt for work that shipped.** The check on it looked for a merged
+  pull-request NUMBER, and a plan is written in tracker ids rather than numbers — so a second half was added
+  asking whether it names an open row. That half is skipped entirely by the words `owner-directed`, which
+  exists because work arrives by message before it is filed.
+
+  So a plan sat there for two days describing a branch that had shipped, green on both: no number, and
+  `owner-directed` present. It now also checks the BRANCH the plan names. A branch that does not exist yet is
+  fine — that is the file used as its name says, planning ahead — and one that has been cut and is not the
+  branch in hand is a receipt.
 
 - **The function that flattened a graph into the result list is deleted, not merely unused.** The Query panel
   stopped calling it when the reported bug was fixed — a traversed neighbour arriving in rank order, counted

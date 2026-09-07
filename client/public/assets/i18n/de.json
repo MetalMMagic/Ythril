@@ -827,7 +827,7 @@
   "networks.network.invite.title": "Einladen",
   "networks.network.invite.pubsubDescription": "Erstellen Sie ein wiederverwendbares Einladungspaket. Teilen Sie es in der Dokumentation, in QR-Codes oder an anderer Stelle – Abonnenten können ohne Genehmigung beitreten. Durch die Neugenerierung eines neuen Bundles wird das vorherige widerrufen.",
   "networks.network.invite.description": "Erstellen Sie ein einmaliges Einladungspaket und teilen Sie es mit dem Gehirn, mit dem Sie eine Verbindung herstellen möchten. Die Einladung läuft nach 24 Stunden ab.",
-  "networks.network.invite.copyBundle": "Bündel kopieren",
+  "networks.network.invite.copyBundle": "Einladung kopieren",
   "networks.network.invite.generateButton": "Einladung generieren",
   "networks.network.sync.title": "Synchronisieren",
   "networks.network.sync.schedulePlaceholder": "0 * * * * (cron) – nur für manuelle Zwecke leer lassen",
@@ -869,8 +869,8 @@
   "networks.dialog.create.votingDeadline": "Abstimmungsschluss (Stunden)",
   "networks.dialog.create.submitButton": "Netzwerk erstellen",
   "networks.dialog.join.title": "Treten Sie einem bestehenden Netzwerk bei",
-  "networks.dialog.join.bundleLabel": "Paket einladen (JSON)",
-  "networks.dialog.join.bundlePlaceholder": "Fügen Sie hier das vom anderen Gehirn generierte Einladungspaket ein ...",
+  "networks.dialog.join.bundleLabel": "Einladungscode",
+  "networks.dialog.join.bundlePlaceholder": "Füge den Einladungscode des anderen Brains ein (beginnt mit ythril1_)...",
   "networks.dialog.join.collisions.title": "⚠ Kollisionen von Space-Namen",
   "networks.dialog.join.collisions.body": "Das Remote-Netzwerk umfasst Räume, die lokal bereits vorhanden sind. Wählen Sie, ob Sie sich in den bestehenden Raum einfügen oder einen neuen lokalen Alias ​​erstellen möchten.",
   "networks.dialog.join.collision.merge": "Mit dem Bestehenden verschmelzen",
@@ -2044,5 +2044,7 @@
   "tokens.table.perMin": "/min",
   "tokens.table.quotaInherited": "(geerbt)",
   "graph.recordUnavailable.file": "Für diese Datei gibt es hier keine Datensatzansicht — öffnen Sie sie im Reiter „Dateien“.",
-  "graph.recordUnavailable.derived": "Diese Verbindung ist aus einer Verknüpfung abgeleitet und keine gespeicherte Beziehung, hat also keinen eigenen Datensatz."
+  "graph.recordUnavailable.derived": "Diese Verbindung ist aus einer Verknüpfung abgeleitet und keine gespeicherte Beziehung, hat also keinen eigenen Datensatz.",
+  "networks.network.invite.secretWarning": "Sende dies wie ein Passwort. Wer es hat, kann den Beitritt abschließen. Es läuft nach 24 Stunden ab und ist nur einmal verwendbar.",
+  "networks.dialog.join.error.invalidCode": "Das sieht nicht nach einem Einladungscode aus. Kopiere die ganze Zeile, die das andere Brain erzeugt hat — sie beginnt mit ythril1_."
 }

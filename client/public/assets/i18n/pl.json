@@ -827,7 +827,7 @@
   "networks.network.invite.title": "Zapraszać",
   "networks.network.invite.pubsubDescription": "Wygeneruj pakiet zaproszeń wielokrotnego użytku. Udostępnij go w dokumentacji, kodach QR lub gdziekolwiek indziej — subskrybenci mogą dołączyć bez zgody. Regeneracja nowego pakietu anuluje poprzedni.",
   "networks.network.invite.description": "Wygeneruj jednorazowy pakiet zaproszeń i udostępnij go mózgowi, z którym chcesz się połączyć. Zaproszenie wygasa po 24 godzinach.",
-  "networks.network.invite.copyBundle": "Skopiuj pakiet",
+  "networks.network.invite.copyBundle": "Kopiuj zaproszenie",
   "networks.network.invite.generateButton": "Wygeneruj zaproszenie",
   "networks.network.sync.title": "Synchronizuj",
   "networks.network.sync.schedulePlaceholder": "0 * * * * (cron) — pozostaw puste tylko w przypadku ręcznego",
@@ -869,8 +869,8 @@
   "networks.dialog.create.votingDeadline": "Termin głosowania (godziny)",
   "networks.dialog.create.submitButton": "Utwórz sieć",
   "networks.dialog.join.title": "Dołącz do istniejącej sieci",
-  "networks.dialog.join.bundleLabel": "Pakiet zaproszeń (JSON)",
-  "networks.dialog.join.bundlePlaceholder": "Wklej tutaj pakiet zaproszeń wygenerowany przez drugi mózg...",
+  "networks.dialog.join.bundleLabel": "Kod zaproszenia",
+  "networks.dialog.join.bundlePlaceholder": "Wklej kod zaproszenia z drugiego brainu (zaczyna się od ythril1_)...",
   "networks.dialog.join.collisions.title": "⚠ Kolizje nazw kosmicznych",
   "networks.dialog.join.collisions.body": "Sieć zdalna obejmuje przestrzenie, które już istnieją lokalnie. Wybierz połączenie z istniejącą przestrzenią lub utwórz nowy lokalny alias.",
   "networks.dialog.join.collision.merge": "Połącz się z istniejącymi",
@@ -2044,5 +2044,7 @@
   "tokens.table.perMin": "/min",
   "tokens.table.quotaInherited": "(odziedziczony)",
   "graph.recordUnavailable.file": "Ten plik nie ma tutaj widoku rekordu — otwórz go w zakładce „Pliki”.",
-  "graph.recordUnavailable.derived": "To połączenie jest wyprowadzone z odnośnika, a nie zapisaną relacją, więc nie ma własnego rekordu."
+  "graph.recordUnavailable.derived": "To połączenie jest wyprowadzone z odnośnika, a nie zapisaną relacją, więc nie ma własnego rekordu.",
+  "networks.network.invite.secretWarning": "Wyślij to tak, jak wysyłasz hasło. Każdy, kto je ma, może dokończyć dołączenie. Wygasa po 24 godzinach i działa tylko raz.",
+  "networks.dialog.join.error.invalidCode": "To nie wygląda na kod zaproszenia. Skopiuj całą linię wygenerowaną przez drugi brain — zaczyna się od ythril1_."
 }

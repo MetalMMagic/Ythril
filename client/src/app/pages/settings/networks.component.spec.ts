@@ -117,14 +117,6 @@ describe('NetworksComponent (characterization)', () => {
     expect(c.networks().map(n => n.id)).toEqual(['n2']);
   });
 
-  it('generateInvite() stores the returned bundle keyed by network id', () => {
-    const bundle = { handshakeId: 'h', inviteUrl: 'u', networkId: 'n1' };
-    api.generateInvite.mockReturnValue(of(bundle));
-    const c = make();
-    c.generateInvite('n1');
-    expect(c.inviteBundle('n1')).toEqual(bundle);
-  });
-
   it('saveSchedule() sends the per-network override and reflects it on success', () => {
     const c = make();
     c.networks.set([net({ id: 'n1' })]);
@@ -214,17 +206,12 @@ describe('NetworksComponent (characterization)', () => {
 
   it('each async action flags in-flight while pending and clears it on completion', () => {
     const c = make();
-    const gi = new Subject<any>(), ss = new Subject<any>(), sy = new Subject<any>(), cv = new Subject<any>();
-    api.generateInvite.mockReturnValue(gi);
+    // `generateInvite` moved to `network-invite-panel.component.spec.ts` with the panel itself.
+    const ss = new Subject<any>(), sy = new Subject<any>(), cv = new Subject<any>();
     api.updateNetworkSchedule.mockReturnValue(ss);
     api.triggerSync.mockReturnValue(sy);
     api.castVote.mockReturnValue(cv);
     c.networks.set([net({ id: 'n1' })]);
-
-    c.generateInvite('n1');
-    expect(c.generatingInvite['n1']).toBe(true);
-    gi.next({ handshakeId: 'h', inviteUrl: 'u', networkId: 'n1' }); gi.complete();
-    expect(c.generatingInvite['n1']).toBeUndefined();
 
     c.saveSchedule(net({ id: 'n1' }));
     expect(c.savingSchedule['n1']).toBe(true);

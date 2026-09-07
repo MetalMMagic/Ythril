@@ -196,7 +196,11 @@ describe('invite generate — the RESPONSE is built from fresh config, not the e
 
   it('builds both stale-able response fields from the fresh read', () => {
     // `publicUrl` and the network's `spaces` are the two fields the joining instance acts on.
-    const responseAt = handler.indexOf('res.status(201)');
+    // From where the RESPONSE BODY is assembled, not from `res.status(201)`. The 201 line now sends a
+    // `bundle` built a few lines above it -- the same object, one indirection later -- and anchoring on the
+    // send call read past the very fields this case is about.
+    const responseAt = handler.indexOf('const bundle = {');
+    assert.ok(responseAt > 0, 'the response body is no longer assembled as `bundle` -- re-anchor this');
     const response = handler.slice(responseAt);
     assert.match(handler.slice(0, responseAt), /const baseUrl = \(fresh\.publicUrl/,
       'the invite URL must come from the fresh config');

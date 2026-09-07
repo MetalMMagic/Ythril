@@ -42,6 +42,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
+import { encodeInviteCode } from './invite-code.js';
 import { z } from 'zod';
 import { requireAdmin } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
@@ -242,14 +243,21 @@ inviteRouter.post('/generate', globalRateLimit, requireAdmin, async (req, res) =
   // Use the operator-configured publicUrl when available to prevent Host header
   // injection (a crafted Host header could point the inviteUrl at an attacker's server).
   const baseUrl = (fresh.publicUrl ?? `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  res.status(201).json({
+  const bundle = {
     handshakeId,
     networkId,
     inviteUrl: `${baseUrl}/api/invite/apply`,
-    rsaPublicKeyPem: publicKey,
+    rsaPublicKeyPem: publicKey as string,
     expiresAt: new Date(expiresAt).toISOString(),
     spaces: freshNet.spaces,
-  });
+  };
+  /*
+   * `inviteCode` is the SAME bundle as one opaque line, and it is what an operator is meant to send.
+   *
+   * Beside the fields rather than instead of them: an integrator may already read them, and operators have
+   * blobs in flight. The old shape goes when it is deprecated on its own terms, not as a side effect.
+   */
+  res.status(201).json({ ...bundle, inviteCode: encodeInviteCode(bundle) });
 });
 
 // ── POST /api/invite/apply ─────────────────────────────────────────────────────

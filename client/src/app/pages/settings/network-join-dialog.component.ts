@@ -2,6 +2,7 @@ import { Component, inject, signal, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Space } from '../../core/api.types';
+import { decodeInviteCode, looksLikeInviteCode } from '../../core/invite-code';
 import { NetworksApi } from '../../core/networks-api.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
@@ -149,16 +150,36 @@ export class NetworkJoinDialogComponent {
     this.joinError.set('');
     this.joinSuccess.set('');
     this.joinCollisionSpaces.set([]);
+    /*
+     * TWO input shapes, and which one it is decided by what the text STARTS with rather than by trying
+     * both and seeing what sticks.
+     *
+     * `ythril1_...` is the one-line invite code, which is what an operator is handed now. The JSON bundle
+     * is what older instances produce and what people already have in flight, so it keeps working -- an
+     * invite generated before the upgrade must not become unusable by upgrading the joiner.
+     *
+     * The two failures need different messages: a mistyped code and a truncated JSON blob are different
+     * mistakes, and "invalid JSON" for a pasted code is the message that sends someone looking in the
+     * wrong place.
+     */
     let bundle: any;
-    try {
-      bundle = JSON.parse(this.joinBundle);
-    } catch {
-      this.joinError.set(this.transloco.translate('networks.dialog.join.error.invalidJson'));
-      return;
-    }
-    if (!bundle.handshakeId || !bundle.inviteUrl || !bundle.rsaPublicKeyPem || !bundle.networkId) {
-      this.joinError.set(this.transloco.translate('networks.dialog.join.error.incompleteBundle'));
-      return;
+    if (looksLikeInviteCode(this.joinBundle)) {
+      bundle = decodeInviteCode(this.joinBundle);
+      if (!bundle) {
+        this.joinError.set(this.transloco.translate('networks.dialog.join.error.invalidCode'));
+        return;
+      }
+    } else {
+      try {
+        bundle = JSON.parse(this.joinBundle);
+      } catch {
+        this.joinError.set(this.transloco.translate('networks.dialog.join.error.invalidJson'));
+        return;
+      }
+      if (!bundle.handshakeId || !bundle.inviteUrl || !bundle.rsaPublicKeyPem || !bundle.networkId) {
+        this.joinError.set(this.transloco.translate('networks.dialog.join.error.incompleteBundle'));
+        return;
+      }
     }
     if (!this.myUrl().trim()) {
       this.joinError.set(this.transloco.translate('networks.dialog.join.error.missingMyUrl'));

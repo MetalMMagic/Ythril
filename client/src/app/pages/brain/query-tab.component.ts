@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, ViewChild, computed, inject, input, output, signal } from '@angular/core';
-import { groupRecallResults, chunkLabel, passageText, relatedOf } from './recall-grouping';
+import { groupRecallResults, chunkLabel, passageText, relatedOf, orderingOf } from './recall-grouping';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RECORD_TYPES, BRAIN_COLLECTIONS } from '../../core/api.types';
+import { QueryCollection, QueryResult, RecallKnowledgeType, RecallResult, RecallResponse, RECORD_TYPES, BRAIN_COLLECTIONS } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { RecallFormComponent, type RecallFormState, type RecallTypeOpt } from './recall-form.component';
@@ -147,6 +147,27 @@ import { BrainStore } from './brain-store.service';
     .query-answer-body { padding: 10px 12px; }
     /* A wide record scrolls inside the card rather than pushing the page sideways. */
     .query-answer-body { overflow-x: auto; }
+
+    /*
+      THE DECIDING SCORE reads as the primary figure; the stages that also ran sit behind it. Both monospace,
+      because they are values a reader compares between rows, and a proportional font makes 0.750 and 0.705
+      the same width.
+    */
+    .score-by {
+      font-family: var(--font-mono, monospace);
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: var(--bg-subtle, rgba(127,127,127,0.10));
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      white-space: nowrap;
+    }
+    .score-also {
+      font-family: var(--font-mono, monospace);
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
   `],
   template: `
           <div class="query-panel">
@@ -224,6 +245,26 @@ import { BrainStore } from './brain-store.service';
               <!-- A SEARCH THAT MATCHED NOTHING SAYS SO. Without this the panel showed exactly what it
                    shows before the first search — nothing — so a reader could not tell an answered question
                    from an unasked one, and the natural reading is that the button did not work. -->
+              <!-- THE WALK STOPPED SHORT, which is a different fact from the answer being shortened: what is
+                   missing here are records the traversal never read. Placed beside the truncation notice and
+                   above the results for the same reason — a reader who reaches the end has already concluded
+                   the neighbourhood was complete. The download is offered only when there IS one: a bounded
+                   link scan leaves nothing complete to write. -->
+              @if (graphShort(); as g) {
+                <div class="alert alert-warning" style="margin-top:12px;">
+                  <div><strong>{{ 'brain.query.graphShort.title' | transloco: { nodes: g.nodes } }}</strong></div>
+                  <div style="font-size:12px; margin-top:4px;">{{ 'brain.query.graphShort.body' | transloco }}</div>
+                  @if (g.complete; as c) {
+                    <div style="font-size:12px; margin-top:4px;">
+                      <a [href]="c.download" target="_blank" rel="noopener">{{ 'brain.query.graphShort.download' | transloco: { nodes: c.nodes } }}</a>
+                      @if (c.ceilingHit) {
+                        <span style="margin-left:6px;">{{ 'brain.query.graphShort.ceilingHit' | transloco }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+
               @if (recallRan() && !recallResults().length && !recallError()) {
                 <div class="query-empty">{{ 'brain.query.noMatches' | transloco }}</div>
               }
@@ -275,8 +316,21 @@ import { BrainStore } from './brain-store.service';
                       <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center; flex-wrap:wrap;">
                         <span class="badge badge-purple">file</span>
                         <strong style="font-size:12px; word-break:break-all;">{{ f.path }}</strong>
-                        @if (g.score != null) {
-                          <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
+                        <!--
+                          THE SCORE THAT DECIDED THE PLACE, named. It read "Score" and showed plain vector
+                          similarity — which on an instance with a cross-encoder configured is not the number
+                          that ordered the answer, so the panel was labelling a figure that decided nothing.
+                          The other stages follow it, dimmer, for a reader asking why.
+                        -->
+                        @if (orderingOf(g.hits[0]); as ord) {
+                          <span class="score-by" [attr.title]="'brain.query.orderedBy' | transloco: { by: ord.by }">
+                            {{ ord.by }}: {{ ord.value.toFixed(3) }}
+                          </span>
+                          @for (st of ord.stages; track st.name) {
+                            @if (st.name !== ord.by) {
+                              <span class="score-also">{{ st.name }}: {{ st.value.toFixed(3) }}</span>
+                            }
+                          }
                         }
                         @if (g.hitCount > 1) {
                           <span class="badge">{{ 'brain.query.passages' | transloco: { count: g.hitCount } }}</span>
@@ -305,8 +359,21 @@ import { BrainStore } from './brain-store.service';
                     } @else {
                       <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
                         <span class="badge badge-purple">{{ g.hits[0].type }}</span>
-                        @if (g.score != null) {
-                          <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
+                        <!--
+                          THE SCORE THAT DECIDED THE PLACE, named. It read "Score" and showed plain vector
+                          similarity — which on an instance with a cross-encoder configured is not the number
+                          that ordered the answer, so the panel was labelling a figure that decided nothing.
+                          The other stages follow it, dimmer, for a reader asking why.
+                        -->
+                        @if (orderingOf(g.hits[0]); as ord) {
+                          <span class="score-by" [attr.title]="'brain.query.orderedBy' | transloco: { by: ord.by }">
+                            {{ ord.by }}: {{ ord.value.toFixed(3) }}
+                          </span>
+                          @for (st of ord.stages; track st.name) {
+                            @if (st.name !== ord.by) {
+                              <span class="score-also">{{ st.name }}: {{ st.value.toFixed(3) }}</span>
+                            }
+                          }
                         }
                         <!-- A hit that HAS a node in the graph gets the same jump the entities and edges tabs
                              offer. Traverse results are entities too, so an expanded neighbour is reachable
@@ -546,6 +613,9 @@ export class QueryTabComponent {
   /** The response as it arrived, for the JSON view. Never read by the rendered view. */
   recallRaw = signal<unknown>(null);
 
+  /** Set when the traversal stopped short, with the download link if the instance could write one. */
+  graphShort = signal<{ nodes: number; complete: RecallResponse['graphComplete'] | null } | null>(null);
+
   /**
    * Which view of the answer is showing.
    *
@@ -593,6 +663,7 @@ export class QueryTabComponent {
 
   /** A match's neighbourhood, grouped by kind — rendered under the match, never beside it in the ranking. */
   relatedOf(hit: RecallResult) { return relatedOf(hit); }
+  orderingOf(hit: RecallResult) { return orderingOf(hit as Record<string, unknown>); }
 
   /** The heading a passage sits under, when the chunker recorded one. */
   chunkHeading(r: RecallResult): string | undefined {
@@ -686,6 +757,20 @@ export class QueryTabComponent {
         // has to show `count`, the budget fields and every `_graph` — those are what a caller reasons about,
         // and showing only the results is what made this panel teach a shape the product does not have.
         this.recallRaw.set(res);
+        /*
+         * A SHORT GRAPH IS ITS OWN FACT, not a shade of `truncated`.
+         *
+         * `truncated` is the byte budget dropping whole matches off the end of the ranking. This is the WALK
+         * stopping, so what is missing are records it never read — and the panel showed `graphNodes` with
+         * nothing to say whether that was the whole neighbourhood or the first few of forty.
+         *
+         * `graphComplete` may be absent while this is true: a bounded link scan leaves nothing complete to
+         * write, because the missing records are precisely the ones never read. So the link is optional and
+         * its absence is not an error.
+         */
+        this.graphShort.set(res.graphTruncated === true
+          ? { nodes: res.graphNodes ?? 0, complete: res.graphComplete ?? null }
+          : null);
         // `=== true` rather than truthy: the field is optional on the type (an older server sends none), and an
         // absent one must read as "not truncated" rather than as "unknown".
         this.recallTruncated.set(res.truncated === true
@@ -702,6 +787,7 @@ export class QueryTabComponent {
     this.recallRan.set(false);
     this.recallResults.set([]);
     this.recallRaw.set(null);
+    this.graphShort.set(null);
     this.recallError.set('');
     this.recallTruncated.set(null);
   }

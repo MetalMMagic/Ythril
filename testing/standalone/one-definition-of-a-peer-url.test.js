@@ -48,14 +48,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
+import { trackedSources } from './_sources.mjs';
 
 /**
  * The surface a peer or instance URL can arrive on. Derived from the files, not hand-listed: anything under
  * the networks router plus the invite route, which is the other half of the same handshake.
  */
 function peerSurfaceFiles() {
-  return execFileSync('git', ['ls-files', 'server/src/api/networks/*.ts', 'server/src/api/invite.ts'],
-    { encoding: 'utf8' }).split('\n').filter(Boolean);
+  // A glob and one named file, so the floor is 2 rather than the default 100 — a floor above what a scan
+  // can ever return fails on correct code, which is how a guard gets deleted instead of corrected.
+  return trackedSources(['server/src/api/networks/*.ts', 'server/src/api/invite.ts'], { floor: 2 });
 }
 
 const THE_DECLARATION = 'server/src/api/networks/_shared.ts';

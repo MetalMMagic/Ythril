@@ -6,6 +6,7 @@
  * whitelist, the ReDoS-safe sanitiser, and the projection guard that never lets `embedding` out.
  */
 import { col } from '../db/mongo.js';
+import { BUDGET_REQUEST_FIELDS } from './result-budget.js';
 import { BRAIN_COLLECTIONS, type BrainCollection } from '../config/types.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { normaliseProjection, toMongoProjection } from './projection.js';
@@ -90,7 +91,7 @@ export const QUERY_BODY_FIELDS: ReadonlySet<string> = new Set([
    * `nextSkip` is the whole answer and a file would be a write on a read path nobody needs. Accepting the flag
    * and ignoring it would be the silent-drop defect this body was made strict to prevent.
    */
-  'maxChars', 'maxBytes', 'maxTokens', 'charsPerToken',
+  ...BUDGET_REQUEST_FIELDS,
 ]);
 
 /**
@@ -120,7 +121,7 @@ export const RECALL_BODY_FIELDS: ReadonlySet<string> = new Set([
   'includeFreshWrites', 'includeContent', 'includeDiagnostics', 'projection',
   // `maxChars` is the ceiling that carries the defaults, and `maxBytes` now means real UTF-8 bytes — both
   // apply when both are set. See `result-budget.ts`.
-  'maxChars', 'maxBytes', 'maxTokens', 'charsPerToken', 'skip', 'remainderDump',
+  ...BUDGET_REQUEST_FIELDS, 'skip', 'remainderDump',
 
 ]);
 
@@ -130,7 +131,7 @@ export const FIND_SIMILAR_BODY_FIELDS: ReadonlySet<string> = new Set([
   // neither. Found by the gate that compares every declared surface against these sets, not by a report — the
   // strict body turned a silently-ignored parameter into a 400, which is how it surfaced at all.
   'traverse', 'includeContent', 'includeDiagnostics', 'projection',
-  'maxChars', 'maxBytes', 'maxTokens', 'charsPerToken',
+  ...BUDGET_REQUEST_FIELDS,
   'skip', 'remainderDump',
 ]);
 

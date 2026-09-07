@@ -117,6 +117,25 @@ export interface BudgetRequest {
   charsPerToken?: unknown;
 }
 
+/**
+ * The four parameter names above, at RUNTIME, for every door that has to admit them.
+ *
+ * ## Why this is exported rather than written out at each door
+ *
+ * A strict request body refuses what it does not name, which is the right failure — a silently dropped
+ * budget is worse than a 400. It also means the allowed set has to widen in the same change as this
+ * interface, and the vocabulary was written out THREE TIMES in `brain/query.ts` alone, once per read route.
+ * A fifth budget parameter added here and accepted by `resolveBudget` would have been a 400 on three routes
+ * that nothing described as not supporting it.
+ *
+ * The interface is erased at runtime, so this cannot be derived from it — but one list in the module that
+ * OWNS the vocabulary is what the doors can share, and a name added here without a home in `resolveBudget`
+ * is visible in this file rather than three routes away.
+ */
+export const BUDGET_REQUEST_FIELDS: readonly string[] = Object.freeze([
+  'maxChars', 'maxBytes', 'maxTokens', 'charsPerToken',
+]);
+
 /** The two ceilings a response is held to. `bytes` is `null` when the caller did not ask for one. */
 export interface ResolvedBudget {
   chars: number;

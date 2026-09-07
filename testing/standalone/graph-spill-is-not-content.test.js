@@ -21,7 +21,6 @@ import { describe, it } from 'node:test';
 import { trackedSources } from './_sources.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { balancedFrom } from './_structural-window.mjs';
 
 const { isSpillPath, SPILL_DIR } = await import('../../server/dist/brain/spill-path.js');
@@ -191,9 +190,9 @@ describe('the constants say what the ruling said', () => {
      * What remains is a FLOOR on what was found — an empty scan passes every loop written over it — and the
      * rule applied to every call there is.
      */
-    const doors = execFileSync('git', ['ls-files', 'server/src'], { maxBuffer: 32 * 1024 * 1024 })
-      .toString('utf8').split('\n')
-      .filter(f => f.endsWith('.ts') && f !== 'server/src/brain/graph-spill.ts')
+    // The module that DEFINES the thing under test is excluded: it builds the spill, so it would match the
+    // search and then fail the rule it exists to implement.
+    const doors = trackedSources('server/src', { exclude: ['server/src/brain/graph-spill.ts'] })
       .filter(f => /buildGraphWithSpill/.test(read(f)));
     assert.ok(doors.length >= 2,
       `only ${doors.length} door(s) build a spill; REST and MCP are the minimum, so the scan is wrong`);

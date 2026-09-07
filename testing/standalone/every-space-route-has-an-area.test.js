@@ -23,8 +23,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -71,8 +71,9 @@ const SPACE_ROUTERS = [
 ];
 
 function filesUnder(p) {
-  return execFileSync('git', ['ls-files', p], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n').map(l => l.trim()).filter(l => l.endsWith('.ts') && !l.endsWith('_shared.ts'));
+  // One router at a time, so the floor is 1 — a floor above what the scan can ever return fails on correct
+  // code, which is how a guard gets deleted instead of corrected.
+  return trackedSources(p, { floor: 1 }).filter(l => !l.endsWith('_shared.ts'));
 }
 
 /** Every `router.VERB('path')` in the given routers, as `METHOD mount+path`. */

@@ -32,8 +32,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { bodyOf, enclosingBlockAround, statementUpTo } from './_structural-window.mjs';
 
 const ENDPOINT_SRC = 'server/src/files/converters/vlm-endpoint.ts';
@@ -212,9 +212,7 @@ describe('no operator-configurable URL is fetched without the guard', () => {
    * VLM paths survived it. This asks the opposite question: which files reach the network at all, and is
    * each one either guarded or a declared piece of infrastructure?
    */
-  const NUL = String.fromCharCode(0);
-  const files = execFileSync('git', ['ls-files', '-z', 'server/src'], { encoding: 'utf8' })
-    .split(NUL).filter(f => f.endsWith('.ts'));
+  const files = trackedSources('server/src');
 
   /**
    * Files whose URLs are NOT operator-configurable model endpoints, and may fetch freely.

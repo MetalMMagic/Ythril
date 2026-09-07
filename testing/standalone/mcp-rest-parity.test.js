@@ -31,7 +31,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { trackedSources } from './_sources.mjs';
 
 let REST_ONLY_CAPABILITIES, restOnlyCapabilityMap, ALL_TOOLS;
@@ -77,8 +76,7 @@ function toolNames() {
 
 /** Every tool DECLARED in the tool modules, by source. Used only to compare against the registry. */
 function declaredToolNames() {
-  const files = execFileSync('git', ['ls-files', 'server/src/mcp/tools'], { encoding: 'utf8' })
-    .split('\n').map(f => f.trim()).filter(f => f.endsWith('.ts'));
+  const files = trackedSources('server/src/mcp/tools', { floor: 10 });
   const names = new Set();
   for (const f of files) {
     for (const m of readFileSync(f, 'utf8').matchAll(/^\s*name: '([a-z_]+)',/gm)) names.add(m[1]);

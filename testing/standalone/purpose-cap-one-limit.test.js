@@ -24,15 +24,13 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 let SPACE_PURPOSE_MAX;
 
 /** Files that could plausibly bound this field — enumerated from the repo, not listed here. */
-const NUL = String.fromCharCode(0);
-const sources = execFileSync('git', ['ls-files', '-z', 'server/src'], { encoding: 'utf8' })
-  .split(NUL).filter(f => f.endsWith('.ts'));
+const sources = trackedSources('server/src');
 
 const strip = s => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 

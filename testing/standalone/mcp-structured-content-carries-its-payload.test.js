@@ -27,13 +27,17 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackedSources } from './_sources.mjs';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { stripComments } from './_strip-comments.mjs';
 
-/** From git, not the filesystem — see `gitignored-files-break-local-checks`. */
-const toolFiles = execFileSync('git', ['ls-files', 'server/src/mcp/tools/*.ts'], { encoding: 'utf8' })
-  .split('\n').map(l => l.trim()).filter(Boolean);
+/**
+ * From git, not the filesystem — see `gitignored-files-break-local-checks`.
+ *
+ * The floor is 10 rather than the default 100: this is one directory, and a floor above what the scan can
+ * ever return fails on correct code, which is how a guard gets deleted instead of corrected.
+ */
+const toolFiles = trackedSources('server/src/mcp/tools/*.ts', { floor: 10 });
 
 /**
  * Keys that describe an answer rather than BEING one.

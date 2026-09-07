@@ -173,9 +173,29 @@ describe('sync reports a schema mismatch and refuses nonsense', () => {
      * schema is a DISAGREEMENT between two instances' rules, and the sender validated against its own. Refusing
      * discards data over an opinion the sender never agreed to — so it is counted and kept.
      */
-    for (const stat of ['memStats', 'entStats', 'edgeStats', 'chronoStats']) {
+    /*
+     * EVERY per-collection stats block the ingest declares, swept rather than named.
+     *
+     * Four were named and there are six. The other two are exempt for a reason that is a fact about the
+     * records rather than an oversight: a LINK is a pair of ids, and a FILE's metadata has no type schema —
+     * neither can violate one. Named here with that reason, so a seventh block has to decide which it is
+     * instead of being quietly outside a list.
+     */
+    const NO_SCHEMA = {
+      linkStats: 'a link is a pair of ids — there is no type schema for it to violate',
+      fileMetaStats: 'a file has no type, so no type schema, so nothing to count',
+    };
+    const blocks = [...docs.matchAll(/const (\w+Stats) = \{/g)].map(m => m[1]);
+    assert.ok(blocks.length >= 6, `only ${blocks.length} stats block(s) found — the sweep is wrong, not the code`);
+    for (const stat of blocks) {
       const at = docs.indexOf(`const ${stat} = {`);
       const decl = docs.slice(at, docs.indexOf('\n', at));
+      if (stat in NO_SCHEMA) {
+        assert.doesNotMatch(decl, /schemaViolations/,
+          `${stat} counts schema violations, and ${NO_SCHEMA[stat]} — so the count can only ever read zero, `
+          + 'which an operator reads as "no disagreements here"');
+        continue;
+      }
       assert.match(decl, /schemaViolations/, `${stat} must COUNT the mismatch`);
     }
     /*

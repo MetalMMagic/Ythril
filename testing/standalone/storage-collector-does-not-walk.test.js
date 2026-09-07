@@ -46,6 +46,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { COLLECTION_SUFFIX } from '../../server/dist/config/types-knowledge.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -192,8 +193,12 @@ describe('the storage collector', () => {
 
 describe('lost-update detection covers every brain record type', () => {
   it('6. all four collections are pre-declared at zero', async () => {
+    // set-claim: the two outcomes a lost-update series is pre-declared for. `refused` is deliberately not
+    // here -- it means a write was STOPPED, which is the opposite of the pair this case is about.
     const text = await reg.register.metrics();
-    for (const collection of ['memories', 'entities', 'edges', 'chrono']) {
+    // From `COLLECTION_SUFFIX`, which is what the registry's pre-declaration loops -- the two cannot
+    // disagree, and a fifth record type is pre-declared and checked without either being edited.
+    for (const collection of Object.values(COLLECTION_SUFFIX)) {
       for (const outcome of ['clean', 'collision']) {
         assert.notEqual(
           valueOf(text, `ythril_brain_write_seq_total{collection="${collection}",outcome="${outcome}"}`), null,

@@ -99,6 +99,8 @@ describe('the media pipeline is skipped only when re-running it could not change
   });
 
   it('NO caller hash re-processes, even against a stored hash', async () => {
+  // set-claim: the NON-terminal media statuses -- everything except `complete`, which is the one that may
+  // skip. A partition stated by its larger half, not a copy of the status list.
     // A writer that does not compute one is the pre-upgrade case, and every record written before this
     // shipped. Unknown must mean "process it".
     await seed();

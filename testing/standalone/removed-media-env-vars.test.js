@@ -152,6 +152,8 @@ describe('the removed media env vars', () => {
     });
 
     it('locks nothing when no env var is set', () => {
+    // set-claim: sample config paths, one per shape the lock rule has to survive -- a nested provider URL,
+    // another provider's, and a model name beside it.
       const locked = getMediaEmbeddingConfig().lockedByInfra;
       for (const f of ['vision.baseUrl', 'stt.baseUrl', 'stt.model']) {
         assert.ok(!locked.includes(f), `${f} must be editable when infra has not pinned it`);

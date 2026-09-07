@@ -105,6 +105,8 @@ describe('a memory with no vector survives the push door', () => {
   });
 
   it('NO incoming schema declares a vector — every one of them alike', async () => {
+    // set-claim: the vector and its model name, which are set and unset together -- either one alone is a
+    // lie about the other, as the comment below says. A pair, not a set.
     /*
      * Widened from three to four by the ruling. It was three because memories were the exception, and the
      * exception was the bug: a vector that crosses the wire is derived data computed by somebody else's model,

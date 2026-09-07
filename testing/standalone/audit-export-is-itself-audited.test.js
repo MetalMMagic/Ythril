@@ -154,6 +154,8 @@ describe('the UI does not claim to export more than it does', () => {
   });
 
   it('every locale has the new strings', () => {
+    // set-claim: the shipped UI locales, as a coverage input -- the set is the i18n bundle, and adding a
+    // fourth locale is a product decision that would bring its own work.
     // A missing key renders as the raw key in the UI, which looks like a bug rather than a translation gap.
     const keys = ['auditLog.exportAll', 'auditLog.exportAllBusy', 'auditLog.exportAllTitle', 'auditLog.exportAllFailed'];
     for (const lang of ['en', 'de', 'pl']) {

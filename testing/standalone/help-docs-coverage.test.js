@@ -74,6 +74,7 @@ describe('Help page — the offered guides and the shipped ones are the same set
   });
 
   it('gives every offered guide a title in all three locales', () => {
+    // set-claim: the shipped UI locales, as a coverage input. A fourth locale is a product decision.
     // An unregistered key renders as the raw key — visible, but it looks like a bug rather than a guide.
     for (const locale of ['en', 'de', 'pl']) {
       const dict = JSON.parse(readFileSync(`client/public/assets/i18n/${locale}.json`, 'utf8'));

@@ -17,11 +17,12 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 
-let validateFilterExpression, buildMongoFilter;
+let validateFilterExpression, buildMongoFilter, ALLOWED_FILTER_KEY_PREFIXES;
 let isSeqImplausible, MAX_INGEST_SEQ, MAX_SYNC_SEQ, SEQ_CEILING_RESERVE;
 
 before(async () => {
-  ({ validateFilterExpression, buildMongoFilter } = await import('../../server/dist/brain/filter.js'));
+  ({ validateFilterExpression, buildMongoFilter, ALLOWED_FILTER_KEY_PREFIXES } =
+    await import('../../server/dist/brain/filter.js'));
   ({ isSeqImplausible, MAX_INGEST_SEQ, MAX_SYNC_SEQ, SEQ_CEILING_RESERVE } =
     await import('../../server/dist/util/seq.js'));
 });
@@ -31,7 +32,9 @@ const rejected = f => assert.match(validateFilterExpression(f) ?? '', /not allow
 
 describe('filter key allowlist — what a caller may filter on', () => {
   it('accepts each allowed key, bare and dotted', () => {
-    for (const k of ['tags', 'type', 'name', 'status', 'label']) ok({ [k]: { eq: 'x' } });
+    // The allowlist itself, exported by the module under test -- the bare prefixes, since the dotted forms
+    // are exercised by the three cases below. Written out here, a sixth allowed key would be untested.
+    for (const k of ALLOWED_FILTER_KEY_PREFIXES.filter(p => !p.endsWith('.'))) ok({ [k]: { eq: 'x' } });
     ok({ 'properties.owner': { eq: 'x' } });
     ok({ 'properties.a.b.c': { eq: 'x' } });
     ok({ 'tags.0': { eq: 'x' } });

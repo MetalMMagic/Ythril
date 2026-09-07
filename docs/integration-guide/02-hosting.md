@@ -261,6 +261,15 @@ by **Ollama** when you start it, and the speech model by the **faster-whisper** 
 you run, and both pull at *their* start-up rather than mid-request. The `unstructured` sidecar's layout
 models are baked into its image and it runs with `HF_HUB_OFFLINE=1` on an internal network with no route out.
 
+**Every sidecar ceiling is raisable from `.env`, and none of them requires editing `docker-compose.yml`.**
+Each container that carries a memory, CPU or process limit reads it from a variable with a default:
+`OLLAMA_*`, `WHISPER_*` and `UNSTRUCTURED_*` for the model and extraction services, and for the two
+document sidecars `DOC_RENDER_MEM_LIMIT`, `DOC_RENDER_PIDS_LIMIT`, `DOC_RENDER_CPUS`,
+`DOC_OFFICE_MEM_LIMIT`, `DOC_OFFICE_PIDS_LIMIT` and `DOC_OFFICE_CPUS`. A job that exceeds its memory ceiling is OOM-killed, which
+surfaces as a failed caption, transcription or extraction rather than a hung stack — so if large or dense
+documents are failing, that is the first thing to check. The full list with defaults is in
+[`docs/dependencies.md`](../dependencies.md).
+
 ### Security Posture Check
 
 At boot Ythril prints an aggregated **security posture** — one `✓`/`⚠`/`✗` line per check across transport

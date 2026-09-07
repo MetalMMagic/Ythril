@@ -338,7 +338,14 @@ scans, raise the relevant ceiling in `.env` rather than editing `docker-compose.
 OLLAMA_MEM_LIMIT=16g       # default 8g  / OLLAMA_PIDS_LIMIT 2048       / OLLAMA_CPUS 8.0
 WHISPER_MEM_LIMIT=8g       # default 4g  / WHISPER_PIDS_LIMIT 1024      / WHISPER_CPUS 4.0
 UNSTRUCTURED_MEM_LIMIT=8g  # default 6g  / UNSTRUCTURED_PIDS_LIMIT 1024 / UNSTRUCTURED_CPUS 4.0
+DOC_RENDER_MEM_LIMIT=2g    # default 1g  / DOC_RENDER_PIDS_LIMIT 128    / DOC_RENDER_CPUS 1.0
+DOC_OFFICE_MEM_LIMIT=4g    # default 2g  / DOC_OFFICE_PIDS_LIMIT 512    / DOC_OFFICE_CPUS 2.0
 ```
+
+The last two are the document sidecars: `doc-render` turns PDF pages into images, and `doc-office`
+(the `office` profile) converts Word and similar through LibreOffice. Their ceilings used to be fixed in
+`docker-compose.yml`, so raising them meant editing that file -- dense or very large documents are exactly
+the case where you would need to.
 
 A job that exceeds its memory ceiling is OOM-killed by the kernel: the affected caption/transcription/
 extraction fails and is reported as such, the rest of the stack keeps running. To confirm that is what

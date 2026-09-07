@@ -181,6 +181,8 @@ describe('a collection list derives from the one tuple, or declares itself a sub
   });
 
   it('the deliberate subsets each say so, so the exemption cannot be silent', () => {
+    // set-claim: the deliberate SUBSETS, each listed with the reason it is one -- this case exists to
+    // make an exemption say so, so the list is its subject rather than a copy of anything.
     // An exemption nobody has to justify is a hole. These are the ones the rule exists to protect: a vector
     // index a link must never get, the UI's tabs — which answer a different question entirely — and the four
     // four-member lists that mean "the typed knowledge collections" and route files elsewhere.

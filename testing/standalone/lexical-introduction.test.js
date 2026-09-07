@@ -117,6 +117,8 @@ describe('the mapping has one implementation, reachable two ways', () => {
   ];
 
   it('atlasVectorScore and atlasScoreFromParts agree on every metric', () => {
+    // set-claim: the three similarity metrics Atlas vector search offers, an external vocabulary -- the
+    // same closed set as the case above, asserted for the second scoring path.
     // Currently true by construction — atlasVectorScore delegates. That is the point: this fails the day
     // someone reintroduces a second implementation, which is exactly when it needs to.
     for (const sim of ['cosine', 'dotProduct', 'euclidean']) {

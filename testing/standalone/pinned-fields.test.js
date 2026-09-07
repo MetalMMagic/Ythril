@@ -181,6 +181,8 @@ describe('the pin reaches lockedByInfra, which is what makes it a pin', () => {
 
 describe('the vocabulary', () => {
   it('covers every family a pin could name', () => {
+    // set-claim: the provider FAMILIES a pin can name -- a product decision about which config blocks are
+    // infra-pinnable, not a copy of the media config's block list, which also holds `levels`.
     const blocks = new Set(PINNABLE_FIELD_PATHS.filter(p => p.includes('.')).map(p => p.split('.')[0]));
     for (const b of ['vision', 'stt', 'nli', 'rerank', 'embedding', 'documentProcessing', 'faceRecognition']) {
       assert.ok(blocks.has(b), `${b} has no pinnable paths`);

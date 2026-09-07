@@ -77,6 +77,8 @@ describe('every slot has a default, and the list is the one that already exists'
   });
 
   it('keeps the shipped values, so this change alters nothing by itself', () => {
+    // set-claim: the four slots that share the vlm-client fallback value, inside a case pinning SHIPPED
+    // numbers. Exhaustiveness against EGRESS_SLOTS is the case immediately above this one.
     // A settability change that also moves the defaults would make any regression impossible to attribute.
     assert.equal(MODEL_SLOT_DEFAULT_MS.vision, 120_000);
     assert.equal(MODEL_SLOT_DEFAULT_MS.stt, 300_000);

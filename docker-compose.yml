@@ -329,11 +329,13 @@
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 1g
+    # Overridable from .env like every other ceiling: a host that renders large or dense PDFs needs more
+    # headroom than the default, and an operator raising it should not have to edit this file.
+    mem_limit: ${DOC_RENDER_MEM_LIMIT:-1g}
     # This is our own tiny single-process (uvicorn --workers 1) service, so CPU/PID ceilings are safe to
     # set here — they bound a malformed-PDF CPU-spin or a fork attempt without risking normal operation.
-    cpus: "1.0"
-    pids_limit: 128
+    cpus: ${DOC_RENDER_CPUS:-1.0}
+    pids_limit: ${DOC_RENDER_PIDS_LIMIT:-128}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
       interval: 30s
@@ -361,10 +363,11 @@
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # LibreOffice needs more headroom than the tiny PDF renderer, and forks helper processes.
-    mem_limit: 2g
-    cpus: "2.0"
-    pids_limit: 512
+    # LibreOffice needs more headroom than the tiny PDF renderer, and forks helper processes — and how much
+    # more depends on the documents, so the ceilings are overridable from .env rather than fixed here.
+    mem_limit: ${DOC_OFFICE_MEM_LIMIT:-2g}
+    cpus: ${DOC_OFFICE_CPUS:-2.0}
+    pids_limit: ${DOC_OFFICE_PIDS_LIMIT:-512}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
       interval: 30s

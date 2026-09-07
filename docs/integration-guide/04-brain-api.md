@@ -161,6 +161,45 @@ dangling relationship cannot be created by accident. One exception worth knowing
 filename, so a `toKind: "file"` end holding an entity id is not a *shape* error. It is caught by the
 existence check instead, which is why that check is not optional.
 
+#### A batch that connects what it creates
+
+`POST /api/brain/spaces/:spaceId/bulk` and `bulk_write` take memories, entities, chrono entries and edges in
+one payload. Until now they could not be joined up: identities are minted server-side, so an id you invent
+for a record in the payload is not the id it gets, and an edge naming it points at nothing.
+
+Put `"$ref"` on an item and name it later in the same call:
+
+```json
+{
+  "entities": [
+    { "$ref": "post-1", "name": "2026-09-07 status", "type": "message" }
+  ],
+  "edges": [
+    { "from": "$ref:post-1", "to": "3f2b1c9e-…", "label": "posted_by" },
+    { "from": "$ref:post-1", "to": "7a1e4d2b-…", "label": "answers" }
+  ]
+}
+```
+
+**It is a correlation key, not an id.** It is scoped to the one call, never stored, and means nothing in the
+response — the record's identity is still minted by the write.
+
+**Every record array is written before any edge**, so an edge can reference any record in the payload.
+Within a single array a reference cannot point forwards: an item can only name something declared above it.
+
+**The KIND comes from the array, not from you.** `fromKind`/`toKind` exist because a bare UUID can name
+records in two collections and a wrong guess stores a relationship that reads as correct and points at
+nothing. A `$ref` cannot be ambiguous, so stating a kind becomes a CHECK — one that disagrees with the array
+the key was declared in is refused rather than resolved.
+
+**A key used twice is refused**, not overwritten. Two items claiming one name is a mistake with two readings,
+and picking one silently means half your payload points somewhere you did not intend.
+
+**On a converted space, references are checked for EXISTENCE.** This door is otherwise laxer than the
+single-record ones — shape only — which is a deliberate trade for an import where records arrive in an order
+nobody controls. Once a space uses link records, that trade is off: a well-formed id pointing at nothing is
+refused here as it is everywhere else. A resolved `$ref` always exists, so this costs a batch nothing.
+
 **Response** `201`:
 
 ```json

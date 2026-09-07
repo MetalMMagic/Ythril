@@ -90,8 +90,16 @@ describe('partial success is stated as the trap it is', () => {
 });
 
 describe('the reference-checking asymmetry is stated', () => {
-  it('says shape is checked and existence is not', () => {
-    assert.match(DESC, /SHAPE, NEVER FOR EXISTENCE/, 'the difference from the single-record tools');
+  it('says shape is always checked, and existence only on a converted space', () => {
+    /*
+     * This asserted `SHAPE, NEVER FOR EXISTENCE` — true until `F-27` item 2, when the owner ruled that a
+     * space using link records checks resolution here as everywhere else. Re-pointed rather than relaxed:
+     * the description still has to state BOTH halves, because "sometimes" is the one answer a caller cannot
+     * act on.
+     */
+    assert.match(DESC, /CHECKED FOR SHAPE/, 'the half that is always true');
+    assert.match(DESC, /EXISTENCE ONLY ON A CONVERTED SPACE/i, 'and the condition on the other half');
+    assert.match(DESC, /UNCONVERTED/i, 'stated from both sides, or a reader has to infer the complement');
   });
 
   it('states the COST of the asymmetry, and what to do about it', () => {
@@ -113,8 +121,15 @@ describe('the reference-checking asymmetry is stated', () => {
 
   it('and the asymmetry is real: bulk checks format, the single-record path checks resolution', () => {
     assert.match(CORE, /UUID_V4_RE\.test\(id\)/, 'bulk checks the shape');
-    assert.doesNotMatch(CORE, /assertRefsResolve/,
-      'bulk gained an existence check — the description now misdescribes it');
+    /*
+     * The asymmetry is CONDITIONAL since `F-27` item 2, on the owner's ruling: a converted space
+     * existence-checks, an unconverted one keeps the import trade. Asserting the check is absent would now
+     * pin the old behaviour — what has to hold is that the description states the condition, so the claim
+     * and the code cannot drift apart.
+     */
+    assert.match(CORE, /assertRefsResolve/, 'a converted space must check that a reference resolves');
+    assert.match(DESC, /CONVERTED SPACE/i,
+      'the description must say WHEN existence is checked, or the asymmetry it describes is simply wrong');
     assert.match(MEMORY_TOOL, /assertRefsResolve\(/,
       'and the single-record path still resolves, which is what makes this a contrast');
   });
@@ -122,7 +137,9 @@ describe('the reference-checking asymmetry is stated', () => {
 
 describe('the processing order is stated with its consequence', () => {
   it('names the order', () => {
-    assert.match(DESC, /memories → entities → edges → chrono/, 'the order itself');
+    // EDGES LAST since `F-27` item 2: a reference cannot point forwards, so an edge to a chrono entry in
+    // the same payload could never have resolved under the old order.
+    assert.match(DESC, /memories → entities → chrono → edges/, 'the order itself');
   });
 
   it('and says what it buys — an UPDATED record is written before an edge reads it', () => {
@@ -142,7 +159,10 @@ describe('the processing order is stated with its consequence', () => {
     const iEnt = CORE.indexOf('const entities = slice(input.entities)');
     const iEdge = CORE.indexOf('const edges = slice(input.edges)');
     const iChrono = CORE.indexOf('const chrono = slice(input.chrono)');
-    assert.ok(iMem > 0 && iEnt > iMem && iEdge > iEnt && iChrono > iEdge,
-      `order changed: memories=${iMem} entities=${iEnt} edges=${iEdge} chrono=${iChrono}`);
+    // EDGES LAST since `F-27` item 2. A reference cannot point forwards, so under the old order an edge to
+    // a chrono entry created in the same payload could never have resolved.
+    assert.ok(iMem > 0 && iEnt > iMem && iChrono > iEnt && iEdge > iChrono,
+      `order changed: memories=${iMem} entities=${iEnt} chrono=${iChrono} edges=${iEdge}. Every record array `
+      + 'must be written before any edge, or a batch reference to a record of a later kind cannot resolve.');
   });
 });

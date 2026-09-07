@@ -147,8 +147,17 @@ describe('the bulk importer reads them and passes them on', () => {
      * failed rather than letting the writer throw. Keeping the check while hardcoding UUID is what makes it
      * the weaker of two implementations of one rule.
      */
-    const edgeBlock = bulk.slice(bulk.indexOf('const edges = slice('), bulk.indexOf('const chrono = slice('));
-    assert.ok(edgeBlock.length > 200, 'the bulk edge block moved — re-anchor this gate');
+    /*
+     * Bounded by the edge block's OWN start and the end of the loop it opens, not by "wherever chrono
+     * happens to be". It read up to `const chrono = slice(` — and when edges moved to run LAST, so that a
+     * batch reference could name a chrono entry, that slice inverted and came back empty. A window bounded
+     * by a NEIGHBOUR is a window that fails on the neighbour moving.
+     */
+    const from = bulk.indexOf('const edges = slice(');
+    assert.ok(from > 0, 'the bulk edge block is gone — re-anchor this gate');
+    const next = bulk.indexOf('\n  // ──', from);
+    const edgeBlock = bulk.slice(from, next > from ? next : undefined);
+    assert.ok(edgeBlock.length > 200, `the bulk edge block is ${edgeBlock.length} chars — re-anchor this gate`);
     assert.doesNotMatch(edgeBlock, /UUID_V4_RE\.test\((from|to)\)/,
       'bulk still tests an edge endpoint against the UUID pattern regardless of its kind, so a file-ended '
       + 'edge is refused item by item while the same edge writes fine one at a time');

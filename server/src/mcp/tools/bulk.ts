@@ -14,6 +14,7 @@ import { resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { edgeEndpointKindSchema } from '../../brain/entity-refs.js';
 import { CHRONO_STATUSES } from '../../config/types.js';
+import { refDeclareSchema } from '../../brain/batch-refs.js';
 
 export const bulk_writeTool: ToolHandler = {
   name: 'bulk_write',
@@ -28,15 +29,18 @@ export const bulk_writeTool: ToolHandler = {
     + '`errors` — items 501 and beyond are discarded before validation, so `inserted` plus `errors` can be far '
     + 'short of what you sent and nothing in the reply says so. The cap is per collection, so 500 memories AND '
     + '500 entities in one call is fine. Split larger imports yourself and check the counts add up.\n\n'
-    + 'REFERENCES ARE CHECKED FOR SHAPE, NEVER FOR EXISTENCE — and that differs from the single-record tools. '
-    + 'In a space with strict linkage `remember` and `update_memory` refuse an `entityIds` value that does not '
-    + 'resolve; here a well-formed UUID that points at nothing is accepted and stored. So this door can write '
-    + 'a dangling link the single-record path would have refused: verify with `traverse` after a large import '
-    + 'if linkage matters.\n\n'
-    + 'ORDER IS memories → entities → edges → chrono, which matters for records this call UPDATES: an entity '
+    + 'REFERENCES ARE CHECKED FOR SHAPE, AND FOR EXISTENCE ONLY ON A CONVERTED SPACE — which differs from the '
+    + 'single-record tools, where existence is always checked. On a space using link records a reference that '
+    + 'resolves to nothing is refused here as it is everywhere else; on any other space it is stored. A '
+    + 'resolved `$ref` always exists, so the correlation key never pays for this. '
+    + 'On an UNCONVERTED space this door can therefore still write a dangling link the single-record path '
+    + 'would have refused — that is the deliberate trade for an import whose records arrive in an order '
+    + 'nobody controls. Verify with `traverse` after a large import if linkage matters.\n\n'
+    + 'ORDER IS memories → entities → chrono → edges, EDGES LAST so that a `$ref` can name a record of any '
+    + 'kind. It also matters for records this call UPDATES: an entity '
     + 'addressed by an id that already exists is written before an edge in the same batch reads it. Memories go '
     + 'first of all, so a memory\'s `entityIds` cannot name an entity from this same call under any ordering.\n\n'
-    + 'AND YOU CANNOT REFERENCE A RECORD THIS CALL CREATES — the order does not buy you that, and this tool said it did until 2026-09-01. An `id` you send ADDRESSES an existing record and never becomes a new one\'s identity: the id is MINTED here, so an entity you insert comes back under a different id than the one you sent. An edge naming the id you chose points at nothing, and by the rule above it is stored dangling and counted in `inserted` with an empty `errors`. Build a graph in TWO calls: entities first, take their ids from the response, edges second.\n\n'
+    + 'A RECORD THIS CALL CREATES IS REFERENCED BY A CORRELATION KEY. Put `"$ref": "post-1"` on an item and later items name it as `"$ref:post-1"` — in an edge\'s `from`/`to`, or in a link field. The key is scoped to this call, is never stored, and is NOT the id: identities are still minted here. Every record array is written before any edge, so an edge can reference any record in the payload; within one array a reference cannot point FORWARDS. A key used twice is refused rather than resolved, and a stated kind that disagrees with the array the key was declared in is refused too — the array decides. A LITERAL id you invent is still not the id the record gets, and still points at nothing.\n\n'
     + 'PARAMETERS: each collection takes the same fields as its single-record tool — `memories` as `remember`, '
     + '`entities` as `upsert_entity`, `edges` as `upsert_edge`, `chrono` as `create_chrono` — including '
     + '`ttlDays` per item. `targetSpace` is required when `space` is a proxy.\n\n'
@@ -59,6 +63,7 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                  '$ref': refDeclareSchema('memory'),
                   fact:        { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact or memory to store (1–50 000 characters).' },
                   tags:        {
                     type: 'array', items: { type: 'string' },
@@ -101,6 +106,7 @@ export const bulk_writeTool: ToolHandler = {
                 additionalProperties: false,
                 properties: {
                   id:          uuidSchema('UUID v4 of an EXISTING entity to update. It is not a way to choose an id: identity is server-generated, so an id that names nothing is ignored rather than adopted. To carry your own reference, use `name` or `description`.'),
+                  '$ref': refDeclareSchema('entity'),
                   name:        { type: 'string', description: 'Entity name. Nothing deduplicates by name — an item with no `id` always INSERTS, even when a record of the same name already exists.' },
                   type:        { type: 'string', description: 'Entity type (person, place, concept, …). Validated against the space schema when the space validates.' },
                   tags:        {
@@ -130,6 +136,7 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                  '$ref': refDeclareSchema('edge'),
                   from:        {
                     type: 'string',
                     description: 'The record the relationship starts at — a UUID v4 unless `fromKind` says '
@@ -185,6 +192,7 @@ export const bulk_writeTool: ToolHandler = {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                  '$ref': refDeclareSchema('chrono'),
                   title:       { type: 'string', description: 'Entry title. Required — an item without one is rejected by index in `errors`.' },
                   type:        { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema). Checked against the space\'s allowlist, and a type outside it rejects THIS item by index.' },
                   startsAt:    {

@@ -498,6 +498,41 @@ async function indexStatus(): Promise<{ spaces: SpaceIndexStatus[]; unavailable?
       return { id: space.id, label: space.label, stored, live, collections, drifted: isDrifted(stored, live) };
     }));
 
+  /*
+   * AN INSTANCE THAT ANSWERS NOTHING IS NOT AN INSTANCE WITH NOTHING.
+   *
+   * `listSearchIndexes` is the Atlas Search API. On a self-hosted replica set running `$vectorSearch`
+   * natively there is no `mongot` behind it, so the call SUCCEEDS and returns an empty list — no error to
+   * catch, `listingFailed` stays false, every status is null, and `deriveLiveIndexState` reads null as
+   * `missing`. Every space then drifts, the tab turns red, and each row offers a Rebuild.
+   *
+   * Reported by the canary operator 2026-09-06: fifteen spaces declared missing while recall against those
+   * exact spaces returned correctly ranked results with real cosine scores, and `find_similar` — pure
+   * vector, no lexical channel — worked too. The vectors existed and were being searched.
+   *
+   * **The severity was the button.** They measured a 79-file re-ingest on that host: embedding went from
+   * 80 ms to 2–9 seconds and stayed there for forty minutes, starving the reranker. Fifteen spaces would be
+   * hours of degradation, on a false positive, one click per row.
+   *
+   * So: if not one search index is found ANYWHERE — no space, no collection — the probe did not answer.
+   * That is indistinguishable from an instance where the API is unsupported, and `missing` claims knowledge
+   * this code does not have. It reports `unknown` instead, which `isDrifted` does not flag and the tab does
+   * not offer to rebuild.
+   *
+   * **Why "anywhere" and not per space.** One space with no indexes among many that have them is a real
+   * missing index and still reports as one. It is the total silence that means the question was not
+   * answered — a working instance that has ever embedded anything has at least one.
+   */
+  const anyIndexSeen = out.some(s => s.collections.some(c => c.status !== null));
+  if (out.length > 0 && !anyIndexSeen) {
+    return {
+      spaces: out.map(s => ({ ...s, live: 'unknown' as const, drifted: false })),
+      unavailable: 'this deployment does not report search indexes — `listSearchIndexes` returned nothing '
+        + 'for every collection, which a native `$vectorSearch` server does. Recall is unaffected and is the '
+        + 'thing to check: if it returns ranked results, the vectors are there.',
+    };
+  }
+
   return { spaces: out };
 }
 

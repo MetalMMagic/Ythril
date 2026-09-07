@@ -286,6 +286,17 @@ all** appear beside it. Every level has a copy button that copies that part alon
 The **Search** button sits at the top right of the panel and stays there while you scroll, so a parameter
 changed at the bottom of a long form does not send you back up to run it.
 
+**Each result says which score put it there.** The label is the API's own field name — `rerankScore`,
+`fusedScore` or `score` — because the same name appears in the JSON view and in what an assistant receives.
+Which one you see is which stage decided: if your administrator has configured a reranking model, that is
+the number the order came from and plain similarity is not. Any other stage that ran is shown beside it,
+dimmer. A stage that did not run is left out rather than shown as zero — no reranker configured is not the
+same as a reranker scoring nothing.
+
+**If a graph walk stops short, the panel says so** and offers the whole graph as a download where the
+instance was able to write one. What is missing from a short graph are records the walk never read; the
+results themselves are unaffected.
+
 Two options sit next to the query box:
 
 - **topK** — how many results to return. **There is no upper limit**, and asking for more than exists is

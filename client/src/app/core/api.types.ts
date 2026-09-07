@@ -5,6 +5,7 @@
  * per-domain services (auth/spaces/schema/brain/files/duplicates/networks/admin *-api.service.ts);
  * this file is types only, so any component or service can import a DTO without pulling in a service.
  */
+import type { RecallGraphReport } from './recall-graph-report';
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
@@ -534,7 +535,9 @@ export interface RecallResult {
   [key: string]: unknown;
 }
 
-export interface RecallResponse {
+// The graph half lives in `recall-graph-report.ts` — its own module because this file is frozen by the
+// god-file ratchet, whose instruction is to put new behaviour BESIDE a large file rather than inside it.
+export interface RecallResponse extends RecallGraphReport {
   results: RecallResult[];
   /** The number of MATCHES. Traversed nodes are nested inside a result, never counted here. */
   count: number;
@@ -597,7 +600,6 @@ export interface RecallResponse {
   /** Present only when `traverse > 0` was asked for. */
   traverseDepth?: number;
   /** How many traversed nodes the `_graph` trees hold in total. Present only with `traverse > 0`. */
-  graphNodes?: number;
   /** Present only when something degraded — a timeout, or a rerank that was skipped. */
   degraded?: string[];
 }

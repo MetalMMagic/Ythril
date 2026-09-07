@@ -52,6 +52,12 @@ const E1 = 'aaaaaaaa-0000-4000-8000-000000000001';
 const E2 = 'aaaaaaaa-0000-4000-8000-000000000002';
 
 let mongo, memoryMod, chronoMod, fileMetaMod, edgeIdMod;
+/*
+ * Imported in `before`, not at the top. `api/sync/_shared.js` reaches the config loader on the way in, and
+ * at module scope that happens before `CONFIG_PATH` is set a few lines up — which takes every case in the
+ * file down at once rather than failing the one that uses it.
+ */
+let IncomingLinkDoc;
 
 const coll = (n) => mongo.col(`${SPACE}_${n}`);
 const links = () => coll('links').find({}).toArray();
@@ -72,6 +78,7 @@ describe('a link record follows the array that made it', { skip }, () => {
     chronoMod = await import('../../server/dist/brain/chrono.js');
     fileMetaMod = await import('../../server/dist/files/file-meta.js');
     edgeIdMod = await import('../../server/dist/brain/edge-id.js');
+    ({ IncomingLinkDoc } = await import('../../server/dist/api/sync/_shared.js'));
   });
 
   after(async () => {
@@ -202,15 +209,27 @@ describe('a link record follows the array that made it', { skip }, () => {
 
   it('every link record carries what a REPLICATED document must', async () => {
     /*
-     * Slice 1's ingest schema declares nine fields and `brain/merkle.ts` hashes every field of a link, so a
-     * field written here and missing from that schema is kept on pull and DELETED on push — same version,
-     * same document, one direction, no error. The standing rule is that a hashed field replicates; this is
-     * the write side of it.
+     * `brain/merkle.ts` hashes every field of a link, so a field written here and missing from the ingest
+     * schema is kept on pull and DELETED on push — same version, same document, one direction, no error.
+     * The standing rule is that a hashed field replicates; this is the write side of it.
+     *
+     * **The fields are READ OUT OF `IncomingLinkDoc`, never written here.** They were written here, and the
+     * count was in the comment as well: nine names beside a schema that has ten keys, one of them optional.
+     * A field promoted from optional to required, or a new required field, would have left this case
+     * asserting the old nine and reporting that a link record carries everything a replicated document must.
      */
     const m = await memoryMod.remember(SPACE, 'Complete', [E1]);
     const [l] = await links();
-    for (const f of ['_id', 'spaceId', 'from', 'fromKind', 'to', 'toKind', 'author', 'createdAt', 'seq']) {
-      assert.notEqual(l[f], undefined, `a link record is missing \`${f}\`: ${JSON.stringify(l)}`);
+    const required = Object.entries(IncomingLinkDoc.shape)
+      .filter(([, v]) => !v.isOptional())
+      .map(([k]) => k);
+    assert.ok(required.length >= 8,
+      `only ${required.length} required field(s) on IncomingLinkDoc — the import is stale and this asserts `
+      + 'nothing about a link record at all');
+    for (const f of required) {
+      assert.notEqual(l[f], undefined,
+        `a link record is missing \`${f}\`, which its ingest schema REQUIRES — so this link is kept on pull `
+        + `and refused or stripped on push: ${JSON.stringify(l)}`);
     }
     assert.equal(l.spaceId, SPACE);
     assert.equal(l.from, m._id);

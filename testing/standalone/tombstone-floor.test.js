@@ -23,6 +23,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { memberWatermarks } from '../_shared/member-watermarks.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -312,12 +313,22 @@ describe('the pull handler is actually wired to record it', () => {
     assert.ok(read > 0 && record > read, `listTombstones at ${read}, recordServedSeq at ${record}`);
   });
 
-  it('the space rename carries the new watermark with the other two', () => {
-    // All three are keyed by space id. A rename that misses one resets the floor silently.
+  it('the space rename carries this watermark, because it carries every one of them', () => {
+    /*
+     * This named three, and there are four — the third copy of one rule across three gates, each written by
+     * somebody adding the watermark they had just built. `lastFileTombstoneAckedAt` was outside all of them.
+     *
+     * A rename that misses one resets that floor to "unknown" silently: the prune simply stops until every
+     * member has pulled again, which is SAFE and invisible, so nothing would ever report it.
+     *
+     * The source loops `PER_SPACE_WATERMARKS` now, and the derivation of what belongs on that list — every
+     * per-space map on the member interface — is shared, so this asks the same question the other two ask.
+     */
     const rename = readFileSync(join(ROOT, 'server/src/spaces/rename.ts'), 'utf8');
-    for (const key of ['lastSeqReceived', 'lastSeqPushed', 'lastSeqServed']) {
-      assert.ok(rename.includes(`member.${key}?.[oldId] !== undefined`), `rename does not carry ${key}`);
-    }
+    assert.match(rename, /for \(const key of PER_SPACE_WATERMARKS\)/,
+      'the rename carries its watermarks by name again, so the next one added is carried by nobody');
+    assert.ok(memberWatermarks().includes('lastSeqServed'),
+      'lastSeqServed is no longer a per-space map on NetworkMember — this floor has moved, re-anchor here');
   });
 });
 

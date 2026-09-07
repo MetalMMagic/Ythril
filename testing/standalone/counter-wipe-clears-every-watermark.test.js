@@ -34,6 +34,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { bodyOf, balancedFrom } from './_structural-window.mjs';
+import { memberWatermarks } from '../_shared/member-watermarks.mjs';
 
 const seqSrc = stripComments(readFileSync('server/src/util/seq.ts', 'utf8'));
 const typesSrc = stripComments(readFileSync('server/src/config/types-networks.ts', 'utf8'));
@@ -43,12 +44,12 @@ const typesSrc = stripComments(readFileSync('server/src/config/types-networks.ts
  *
  * Derived rather than listed, because a hand-written list is the thing that produced the bug: the reset's author
  * knew about one field and there was nothing to tell them about the others.
+ *
+ * The derivation itself moved to `testing/_shared/member-watermarks.mjs` when a SECOND gate needed the same
+ * question — the rename gate, which asks whether every one of these is carried across. Two copies of one
+ * regex over one interface is the defect this repo produces most, one level up from the bug below.
  */
-function memberWatermarkFields() {
-  const iface = balancedFrom(typesSrc, typesSrc.indexOf('interface NetworkMember'), 'NetworkMember');
-  // `lastX?: Record<string, number>` / `Record<string, string>` — a position per space, whatever it counts.
-  return [...iface.matchAll(/(\w+)\?:\s*Record<string,\s*(?:number|string)>/g)].map(m => m[1]);
-}
+const memberWatermarkFields = () => memberWatermarks();
 
 describe('the field list this reset is built from', () => {
   it('finds the per-space position maps on NetworkMember', () => {

@@ -535,6 +535,45 @@ Three things it deliberately never does:
 - **It never applies to a write that does not MENTION an array.** A `PATCH` of a memory's `fact` on a record
   still carrying a legacy array succeeds, or every unconverted record would become uneditable.
 
+### Running the conversion: scope, preview, prerequisites, and undoing it
+
+**Preview first. It reads and writes nothing**, and it answers the question you actually have before running
+a migration against live data — how much is there:
+
+```bash
+npm run links:convert -- --preview            # every space
+npm run links:convert -- --preview <spaceId>  # one space
+```
+
+It prints, per space, how many records carry each connection list, how many entries those lists hold, and how
+many link records the space already has. Run it again afterwards: the link count rises and nothing else
+moves. The entry count is a CEILING rather than a prediction — an entry naming a record that no longer exists
+makes no link, and two entries naming the same pair make one.
+
+**It is per SPACE, and one space is a real pilot.** `npm run links:convert -- <spaceId>` converts that space
+alone and deliberately does NOT set `completeLinkage`. So the link records appear, the graph starts answering
+from them, and **every existing writer keeps working** — nothing is refused, because the marker is what arms
+the refusal. Only a run with no argument walks every space and marks each one that finished without failures.
+
+**So the prerequisite is not "before you convert" — it is "before you MARK".** Between the two you can find
+your remaining array writers at your own pace. Note that the list includes agent sessions: `create_chrono`
+and its siblings accept `entityIds` directly, so an agent writing to a marked space gets the same `400`.
+
+**And the marker is reversible.** `completeLinkage` is an ordinary space setting:
+
+```bash
+curl -X PATCH https://<host>/api/spaces/<spaceId> \
+  -H 'authorization: Bearer <token>' -H 'content-type: application/json' \
+  -d '{"completeLinkage": false}'
+```
+
+Array writes are accepted again immediately. The link records a conversion created stay — they are not what
+the marker switches, and they are what the graph reads either way.
+
+**Running it twice is a no-op.** A link's id is derived from the pair and the class, so a second run
+recomputes the same ids, finds them stored, and writes nothing. An interrupted run is fixed by running it
+again rather than by working out where it stopped. It never removes an array.
+
 **There is no `GET`.** Links are a queryable collection like any other — `POST /api/brain/spaces/:spaceId/query`
 with `collection: "links"` and the full filter grammar. A list endpoint here would be a second, weaker copy
 of it.

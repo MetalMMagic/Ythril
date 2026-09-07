@@ -63,9 +63,13 @@ export interface RecallRequestBody {      query: string;
       includeDiagnostics?: boolean;
       /**
        * Graph expansion depth, 0–5. Each match is expanded along edges and what the walk reached comes back
-       * NESTED under it, as `_graph: [{edge, node, paths}]` — see `flattenRecallItems`, which turns that tree
-       * into the ordered rows this UI renders. The route has accepted this since recall existed; it was simply
-       * never declared here, so no UI could ask for it.
+       * NESTED under it, as `_graph: [{edge, node, paths}]`, and a nested node carries its own `_graph` again.
+       * It STAYS nested — see `relatedOf`, which reads a match's neighbourhood without moving anything into
+       * the result list. This sentence used to point at a flattener that did move them, which is the bug the
+       * owner reported: a neighbour arriving in rank order, counted in the total, looking like a match.
+       *
+       * The route has accepted this since recall existed; it was simply never declared here, so no UI could
+       * ask for it.
        */
       traverse?: number | {
         /** How far to walk, 0–5. The object form's only required field. */

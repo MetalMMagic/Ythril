@@ -113,6 +113,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The function that flattened a graph into the result list is deleted, not merely unused.** The Query panel
+  stopped calling it when the reported bug was fixed — a traversed neighbour arriving in rank order, counted
+  in the total, looking exactly like a match — but the function stayed exported, with its own tests keeping
+  it alive and a comment in the API service still pointing at it as the thing that turns the tree into rows.
+
+  Nothing in the product called it. What it cost is the next component to go looking for a way to render a
+  traversal: the flattener was the obvious answer, it was documented as the answer, and using it would have
+  reintroduced the bug in a second place. The behaviour is pinned either way — a spec asserts that two
+  neighbours under one match leave one result, not three.
+
 - **Three modules in the access layer each kept their own copy of the four permission areas**, and nothing
   compared them. Two held the names as an array — including the module that decides whether a token may
   touch a space at all — and a third held them as a hand-written type. All three now read the one list.

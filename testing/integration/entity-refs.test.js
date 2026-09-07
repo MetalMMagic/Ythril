@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, patch, get, delWithBody } from '../sync/helpers.js';
+import { LINK_ARRAY_FIELDS } from '../../server/dist/brain/array-write-refusal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -83,14 +84,24 @@ describe('entity references must resolve', () => {
     assert.ok(!facts.includes('links to a ghost'), 'a refused write must not be stored');
   });
 
-  it('file metadata refuses a bad reference on every one of its three link fields', async () => {
+  it('file metadata refuses a bad reference on every one of its link fields', async () => {
     // This surface had no validation at all — not even the strict gate the other routes carried.
     const write = await post(INSTANCES.a, token, `/api/files/${SPACE}?path=${encodeURIComponent('note.txt')}`, {
       content: 'hello',
     });
     assert.ok([200, 201, 202].includes(write.status), JSON.stringify(write.body));
 
-    for (const field of ['entityIds', 'memoryIds', 'chronoIds']) {
+    /*
+     * DERIVED from `LINK_ARRAY_FIELDS`, and the COUNT is out of the title (`Q-6`, 2026-09-07).
+     *
+     * It named the three fields a file carries today and said "three" out loud. A seventh link class would
+     * declare a fourth field, and this case would go on asserting about the old three while its title claimed
+     * all of them — which is the shape `LINK_ARRAY_FIELDS` exists to prevent one layer down: it is derived
+     * from `LINK_CLASSES` for exactly this reason.
+     */
+    assert.ok(LINK_ARRAY_FIELDS.length >= 3,
+      `only ${LINK_ARRAY_FIELDS.length} link array field(s); the three a file carries are the minimum`);
+    for (const field of LINK_ARRAY_FIELDS) {
       const r = await patch(
         INSTANCES.a, token,
         `/api/brain/spaces/${SPACE}/files?path=${encodeURIComponent('note.txt')}`,

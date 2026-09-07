@@ -87,6 +87,60 @@ property or `exists`/`ne` scores the space exhaustively and filters after. **Bot
 fast.** Write the promise into a description and the performance note beside it — a description that states the
 mechanism has to be revisited every time the mechanism gains a case, and nobody does.
 
+## Reuse a module, or build one worth reusing
+
+**Owner rule, 2026-09-07:** *"Wherever possible reuse modules or build modules to be reused and perfectly
+maintainable."* Said while reading the `Q-6` sweep, whose subject is copies — and whose own output had become
+the same block written ten times.
+
+This is the rule the section below is the consequence of. *"One rule, two implementations"* describes what
+goes wrong; this says what to do BEFORE it does.
+
+**Three questions, in order, every time you are about to write something that already exists somewhere:**
+
+1. **Is there a module for this?** Not "do I remember one" — grep for the BEHAVIOUR, because a module named
+   for its first caller is invisible to everyone after it. `mergePropertiesOrKeep`, `edgeEndpointKind`,
+   `wipeSpaceCollection` and `page-across-members.ts` were all written twice before they were written once.
+2. **If not, should there be?** The threshold is the SECOND site, not the third. By the third the two have
+   already diverged and the extraction is a merge rather than a move.
+3. **Will the module be worth reaching for?** A shared thing nobody reaches for is worse than a copy: it
+   carries the maintenance cost and delivers none of the benefit. See below.
+
+### What makes a module worth reusing, and this is the half that gets skipped
+
+**Put the FORGETTABLE part inside it.** The four lines of `git ls-files` were never the cost — the floor
+assertion after them was, because an empty listing passes every loop written over it and the floor is the
+line that looks like boilerplate. `trackedSources` throws instead of returning `[]`, so a caller cannot
+receive the failure quietly. Ask what a hand-written copy would DROP, and make that the thing the module
+does not let you drop.
+
+**One question per module.** `trackedSources` answers *"what source files does this repo have"*. It does not
+answer *"what changed against main"*, and it must not grow an option for it — a shared module that gains a
+flag per caller is a switch statement with extra steps, and it makes every caller depend on every other
+caller's needs.
+
+**A difference that small is exactly what argues for keeping copies** — and is usually wrong.
+`bulkDelete{Edges,Entities,Memories,Chrono}` were four functions differing in two real ways; the two became
+parameters and the four became `wipeSpaceCollection`. The instinct to say *"but mine is slightly different"*
+is the instinct that produced the four.
+
+**Name it for the QUESTION, not for the first caller.** A name that describes where it came from is a name
+nobody greps for.
+
+**Leave the reason in it.** Every one of these modules exists because something went wrong twice. A module
+whose docblock says what it prevents survives a reader who thinks the indirection is unnecessary.
+
+### Where it does NOT apply
+
+**Do not herd unrelated callers through one module because they share a spelling.** Sixty-odd files in
+`testing/` call `git ls-files`; six of them were asking the source-sweep question and were converted, and the
+rest ask about history, tracking or a diff base. Merging those would be this rule's own failure mode: one
+module, four questions, an option each.
+
+**A test fixture is allowed to be literal.** A fixture that derives its expectations from the code under test
+asserts that the code equals itself. The rule is about the code that RUNS, and about the derivations gates
+use to find their subjects — not about the expected values they compare against.
+
 ## The defect class this repo produces most
 
 One rule, two implementations, and the weaker one wins silently. It has shipped as: a proxy lens computed and discarded on

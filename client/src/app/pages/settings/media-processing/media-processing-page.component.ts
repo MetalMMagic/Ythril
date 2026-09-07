@@ -119,13 +119,24 @@ type Tab = 'models' | 'pipelines' | 'tools';
         }
       </div>
 
-      @if (showsSave()) {
-        <div class="actions">
-          <button class="btn btn-primary" (click)="s.save()" [disabled]="s.saving() || s.managed">
-            {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-          </button>
-          <span class="save-error">{{ s.saveError() }}</span>
-          <span class="save-ok">{{ s.saveOk() }}</span>
+      <!--
+        WHAT THE SERVER SAID, wherever the save was clicked.
+
+        This block used to be guarded by showsSave(), which is a computed returning a literal false — so the
+        page-level bar was never rendered, and with it went the only place saveError and saveOk were shown.
+        Every per-card and per-pipeline Save sets them and nothing displayed either: a refusal left the button
+        looking inert, and the reason the API had already given was discarded.
+
+        Reported by the canary operator against 4.0.0 -- selecting the repair extraction mode did nothing
+        visible, and they spent an hour not knowing which field was objecting.
+
+        Rendered on the presence of a MESSAGE rather than on which tab is open, because the saves are spread
+        across cards and pipelines and any of them can be refused.
+      -->
+      @if (s.saveError() || s.saveOk()) {
+        <div class="actions" role="status" aria-live="polite">
+          @if (s.saveError()) { <span class="save-error">{{ s.saveError() }}</span> }
+          @if (s.saveOk()) { <span class="save-ok">{{ s.saveOk() }}</span> }
         </div>
       }
     }
@@ -157,17 +168,11 @@ export class MediaProcessingPageComponent implements OnInit {
    * Pipelines keeps the bar. Its knobs are not grouped into per-provider boxes, so there is no "the box
    * that changed" to put a button in.
    */
-  /**
-   * No page-level Save anywhere any more.
-   *
-   * Models lost it first (owner, 2026-07-28) and Pipelines keeps it no longer: every pipeline card now
-   * carries its own Save, shown only when that pipeline changed. The comment above used to justify the
-   * bar by saying pipeline knobs "are not grouped into per-provider boxes, so there is no box that
-   * changed to put a button in" — that was true of the layout, not of the data. Each pipeline owns
-   * exactly one class ceiling (or, for Documents, the extraction block), and the server merges both
-   * per key, so the boxes were always there.
+  /*
+   * GONE, not left returning false. It guarded the block that displays what a save returned, so a literal
+   * false meant no refusal was ever shown — see the template. A flag that exists only to be false is a
+   * switch somebody will read as "this is configurable" while it silently disables a message.
    */
-  readonly showsSave = computed(() => false);
 
   /**
    * A pipeline step actor was clicked (see `focusCard`): jump to the Models tab and reveal the card

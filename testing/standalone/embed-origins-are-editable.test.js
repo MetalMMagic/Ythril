@@ -141,6 +141,8 @@ describe('what the operator is told, since the UI is now the surface', () => {
   });
 
   it('every key it renders exists in all three locales', () => {
+    // set-claim: the shipped UI locales, as a coverage input. The set is the i18n bundle, and a missing
+    // key in a shipped locale is what this asserts -- adding a fourth locale is a product decision.
     /*
      * The failure this catches is invisible in development: a key present in `en` and missing in `de` renders its
      * raw id to a German-speaking operator, and nothing in the build objects. Checked here rather than trusted to

@@ -80,6 +80,8 @@ describe('deleteFields shipped with the merge, not after it', () => {
   });
 
   it('every optional field is in the reflect list, and every LINK field is derived into it', async () => {
+    // set-claim: the record's OWN optional fields. The link arrays beside them are derived from
+    // LINK_CLASSES in the source and checked against it here; these four have no list to derive from.
     /*
      * The failure this whole mechanism exists to remove: a path accepted at the edge that then does nothing.
      *

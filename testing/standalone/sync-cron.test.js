@@ -51,6 +51,8 @@ describe('resolveSyncCron — the legacy shorthands are no longer translated HER
    * is the shape this repository produces most.
    */
   it('a shorthand resolves to null, so nothing reaches the scheduler untranslated', () => {
+    // set-claim: the legacy shorthands that exist in stored config files -- a closed HISTORICAL set that
+    // cannot grow, because nothing writes them any more.
     for (const shorthand of ['*/5 minutes', '*/15 minutes', 'every 30m', 'every 1min', '*/2 hours', 'every 3h']) {
       assert.equal(resolveSyncCron(shorthand), null, `${shorthand} must no longer translate here`);
     }

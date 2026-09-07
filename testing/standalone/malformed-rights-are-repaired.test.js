@@ -57,6 +57,7 @@ describe('repairRights — the normalizer', () => {
   });
 
   it('repairs every perSpace row, not only the floor', () => {
+    // set-claim: two fixture space ids, so the repair is seen to reach more than the first row.
     // The report showed the same two errors for the floor AND for every space, so a repair that fixed one of
     // them would leave the save refused and look like it had worked.
     const out = repairRights({

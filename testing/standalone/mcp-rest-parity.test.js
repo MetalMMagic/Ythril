@@ -87,6 +87,8 @@ function declaredToolNames() {
 
 describe('the declared MCP/REST gap is real in both directions', () => {
   it('every row is fully specified — and an EMPTY list is the finished state, not a vacuous one', () => {
+    // set-claim: the REQUIRED keys of a capability row -- the row's own shape, which this case exists to
+    // enforce. Deriving it from the rows would assert that whatever they carry is what they must carry.
     // This used to assert the list was NOT empty, on the reasoning that an empty one would pass everything below
     // while saying nothing, and that completing parity should mean deleting the gate.
     //
@@ -144,6 +146,8 @@ describe('the declared MCP/REST gap is real in both directions', () => {
   });
 
   it('the five reported capabilities are each either still mapped or now BUILT', () => {
+    // set-claim: the five capabilities the canary REPORTED, a historical fact rather than a live set. The
+    // case says so: these are the names an integrator was told about, and must not quietly disappear.
     // Named outright rather than counted: these are the ones an integrator was told about, and a refactor that
     // dropped one would quietly un-answer their report.
     //

@@ -159,6 +159,8 @@ describe('MIME to extension — the filenames ffmpeg and Whisper are given', () 
   });
 
   it('the OpenAI whitelist is satisfied for every audio type we produce', () => {
+      // set-claim: the audio extensions OpenAI's transcription endpoint accepts -- an EXTERNAL whitelist
+      // this codebase must satisfy, not a set it defines.
     const allowed = new Set(['flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm']);
     for (const ext of ['.mp3', '.wav', '.ogg', '.m4a', '.flac']) {
       const produced = extForMimeType(mimeTypeForPath(`/a/clip${ext}`), 'wav');

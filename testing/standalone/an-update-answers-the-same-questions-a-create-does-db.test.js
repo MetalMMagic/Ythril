@@ -88,6 +88,8 @@ describe('every update route answers both questions', () => {
   }
 
   it('and each update declares every body key it reads', () => {
+    // set-claim: the collections this case's own fixture writes to, cleaned between runs. A test's own
+    // teardown, not a claim about the collection set.
     // The same drift check the creates have, on lists that legitimately DIFFER: `deleteFields` is an update
     // field, `id` is a path parameter. Copying a create's list would warn about a parameter that works.
     const offenders = [];

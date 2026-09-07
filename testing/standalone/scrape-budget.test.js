@@ -213,6 +213,8 @@ describe('the scrape budget', () => {
   });
 
   it('8. falls back to the default when the budget is malformed, rather than to no budget', async () => {
+    // set-claim: malformed INPUTS -- the ways an operator can typo an env var. Each is a shape of wrong
+    // that must resolve to the default rather than to no budget at all.
     // Asserted as a CHOICE, not an effect. The first version of this test set a malformed budget and checked
     // that a fast collector still completed — which is true whether the fallback is 8000 or 0, so a mutation
     // turning it into 0 (silently disabling the guard on a typo'd env var) passed the test. The parsed value is

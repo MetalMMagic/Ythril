@@ -29,6 +29,8 @@ describe('Embed-origin allowlist — validator', () => {
   });
 
   it('rejects wildcards outright — there is no allow-all mode', () => {
+    // set-claim: malformed INPUTS -- the wildcard shapes an operator might try. Each is a shape of wrong
+    // that must be refused; nothing enumerates them anywhere.
     for (const bad of ['*', 'https://*', 'https://*.example.com', 'https://a.*.com']) {
       assert.equal(isValidEmbedOrigin(bad), false, `${bad} must be rejected`);
     }

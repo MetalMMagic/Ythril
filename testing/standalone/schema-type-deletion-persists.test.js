@@ -95,6 +95,8 @@ describe('a deleted schema type is gone after save', () => {
   });
 
   it('an absent typeSchemas changes nothing in either mode', () => {
+    // set-claim: the two write modes a schema PUT can take, which is a closed pair by design -- merge or
+    // replace, with no third possible without a new parameter value.
     // `replace` describes how to apply typeSchemas WHEN PRESENT. A caller renaming a space sends no
     // schemas at all, and must not thereby erase them.
     for (const mode of ['merge', 'replace']) {

@@ -95,6 +95,8 @@ describe('space activity — call classification', () => {
   });
 
   it('counts NOTHING for operator work, even when it ends in a write verb', () => {
+    // set-claim: OPERATOR operations, as inputs that must classify to null. A sample of instance-level
+    // work rather than a copy of the operation table, which is far larger and lives in the middleware.
     // `space.create` and `network.vote` carry a spaceId. Counting them would credit a brand-new empty space
     // with activity it never had.
     for (const op of ['space.create', 'space.delete', 'space.rename', 'token.create', 'network.vote',

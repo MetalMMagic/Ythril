@@ -75,6 +75,8 @@ describe('help still answers with the whole guide when asked for nothing', () =>
 
 describe('a searched read is a subset of the full read — the anti-second-surface assertion', () => {
   it('every searched fragment appears VERBATIM in the full document', async () => {
+    // set-claim: search TERMS chosen to hit different section kinds -- prose, a line-granular list, a
+    // title-only match -- as the comment below says. Inputs to the property, not a set the source holds.
     const full = textOf(await helpTool.handle(ctx()));
     // Terms chosen to hit different section kinds: prose, a line-granular list, and a title-only match.
     for (const q of ['knowledge model', 'recall', 'schemas', 'chrono', 'REST']) {

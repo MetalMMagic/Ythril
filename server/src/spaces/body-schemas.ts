@@ -38,6 +38,7 @@
  * without `.strict()` fails the build instead of quietly rejoining the lenient half.
  */
 import { z } from 'zod';
+import { MERGE_FNS } from '../config/types-knowledge.js';
 import { getSchemaLibrary } from '../config/loader.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { SPACE_PURPOSE_MAX } from './_shared.js';
@@ -73,7 +74,7 @@ export const PropertySchemaZ = z.object({
   minimum: z.number().optional(),
   maximum: z.number().optional(),
   pattern: SchemaPatternZ.optional(),
-  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
+  mergeFn: z.enum(MERGE_FNS).optional(),
   required: z.boolean().optional(),
   default: z.union([z.string(), z.number(), z.boolean()]).optional(),
 }).strict().refine(data => {

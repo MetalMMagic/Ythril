@@ -53,6 +53,8 @@ describe('the suppression decision reaches the embed path', () => {
   });
 
   it('consults all three tiers', () => {
+    // set-claim: the three TIERS of the suppression rule, which is a fixed record > schema > space design
+    // asserted in `one-switch-three-tiers-is-documented`. This checks the call site names all three.
     for (const key of ['record:', 'schema:', 'space:']) {
       assert.ok(CODE.includes(key), `the resolver call is missing ${key}`);
     }

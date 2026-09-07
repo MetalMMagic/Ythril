@@ -28,7 +28,36 @@ export interface FilterOperator {
  */
 export type FilterExpression = Record<string, FilterOperator>;
 
-const ALLOWED_FILTER_KEY_PREFIXES = ['properties.', 'tags', 'type', 'name', 'status', 'label'] as const;
+/**
+ * The only field paths a filter may reach, and the one place they are written.
+ *
+ * ## Why this is exported, and why the predicate below is too
+ *
+ * `recall-filter.ts` held a byte-identical copy of both — the same six prefixes and the same three-clause
+ * matching rule — while already importing `validateFilterExpression` from this file. Two implementations of
+ * one rule is the defect this codebase produces most, and the recall/query filter pair is the example
+ * `CLAUDE.md` was written from: a caller reaches one grammar or the other depending on which door they
+ * happened to pick, and the weaker copy is invisible from both sides.
+ *
+ * The stake is not injection alone. A key outside this set is one the index cannot serve, so widening it in
+ * one copy is a performance cliff wearing a feature's clothes.
+ */
+export const ALLOWED_FILTER_KEY_PREFIXES =
+  ['properties.', 'tags', 'type', 'name', 'status', 'label'] as const;
+
+/**
+ * Does this key reach an allowed path? The three clauses are the rule, and they are not obvious:
+ * an exact match, a dotted path under a bare prefix, and a `properties.`-style prefix that already ends in
+ * a dot. A copy that dropped the third would silently refuse every property filter.
+ */
+export const filterKeyAllowed = (key: string): boolean =>
+  ALLOWED_FILTER_KEY_PREFIXES.some(
+    p => key === p || key.startsWith(p + '.') || (p.endsWith('.') && key.startsWith(p)),
+  );
+
+/** The prefixes as an operator reads them, built from the list so the refusal cannot describe a stale set. */
+export const allowedFilterKeysSentence = (): string =>
+  ALLOWED_FILTER_KEY_PREFIXES.map((p, i, all) => (i === all.length - 1 ? `or ${p}` : p)).join(', ');
 
 /**
  * Validate that all filter keys use allowed prefixes (injection prevention).
@@ -36,11 +65,8 @@ const ALLOWED_FILTER_KEY_PREFIXES = ['properties.', 'tags', 'type', 'name', 'sta
  */
 export function validateFilterExpression(filter: FilterExpression): string | null {
   for (const key of Object.keys(filter)) {
-    const allowed = ALLOWED_FILTER_KEY_PREFIXES.some(
-      prefix => key === prefix || key.startsWith(prefix + '.') || (prefix.endsWith('.') && key.startsWith(prefix)),
-    );
-    if (!allowed) {
-      return `Filter key '${key}' is not allowed. Keys must start with: properties., tags, type, name, status, or label.`;
+    if (!filterKeyAllowed(key)) {
+      return `Filter key '${key}' is not allowed. Keys must start with: ${allowedFilterKeysSentence()}.`;
     }
   }
   return null;

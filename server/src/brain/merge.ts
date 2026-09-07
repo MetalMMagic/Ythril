@@ -11,6 +11,7 @@
 
 import { col, getMongo, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { NUMERIC_MERGE_FNS, BOOLEAN_MERGE_FNS } from '../config/types-knowledge.js';
 import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getEntityById } from './entities.js';
@@ -831,8 +832,9 @@ export async function executeMerge(
 
 // ── Validation helpers ─────────────────────────────────────────────────────
 
-const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum']);
-const VALID_BOOLEAN_FNS = new Set(['and', 'or', 'xor']);
+// From the lists the TYPES are derived from, so a function the schema offers cannot be one this refuses.
+const VALID_NUMERIC_FNS = new Set<string>(NUMERIC_MERGE_FNS);
+const VALID_BOOLEAN_FNS = new Set<string>(BOOLEAN_MERGE_FNS);
 
 /**
  * Validate a resolution string for a given property type.

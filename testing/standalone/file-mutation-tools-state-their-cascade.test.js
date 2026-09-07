@@ -60,6 +60,8 @@ describe('delete_file describes the cascade it really performs', () => {
   });
 
   it('and each of those is really in the cascade', () => {
+    // set-claim: the functions the delete cascade calls, pinned so the tool's PROSE cannot outlive them.
+    // Both halves are literal on purpose: the case exists to compare a description against an implementation.
     // Pinned to the implementation: prose about a cascade is worthless if the cascade changed underneath it.
     for (const fn of ['writeFileTombstones', 'cancelMediaJob', 'deleteConversionArtifacts',
       'invalidateUsageCache', 'emitWebhookEvent']) {

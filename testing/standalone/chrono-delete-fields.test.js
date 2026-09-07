@@ -80,6 +80,8 @@ describe('the writer handles EVERY optional field', () => {
   const SRC = stripComments(readFileSync('server/src/brain/chrono.ts', 'utf8'));
 
   it('the unset loop covers each of them, and the LINK fields are derived into the list', async () => {
+    // set-claim: the record's OWN optional fields. Its link arrays are derived from LINK_CLASSES in the
+    // source and checked as such above; these four have no list anywhere to derive them from.
     /*
      * The comment above this block used to say the fields were "derived from the update signature rather
      * than hand-listed". They were hand-listed, here and in the source — a docblock claiming a property the

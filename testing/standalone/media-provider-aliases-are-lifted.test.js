@@ -35,6 +35,8 @@ const cfg = (media) => ({ spaces: [], mediaEmbedding: media });
 
 describe('the boot migration lifts the config-file aliases', () => {
   it('moves all four onto their modern homes and deletes them', () => {
+    // set-claim: the legacy config keys found in stored config.json files -- a closed HISTORICAL set that
+    // cannot grow, because nothing writes them any more.
     const c = cfg({
       ollamaUrl: 'http://vision.internal:11434',
       visionModel: 'llava',
@@ -94,6 +96,7 @@ describe('the read fallbacks are gone, and the env aliases are untouched', () =>
   const loader = () => strip(readFileSync('server/src/config/loader.ts', 'utf8'));
 
   it('no provider resolves from a legacy config spelling any more', () => {
+    // set-claim: the same closed historical set as the migration case above, asserted from the other end.
     const s = loader();
     for (const legacy of ['ollamaUrl', 'visionModel', 'whisperUrl', 'whisperModel']) {
       assert.ok(!new RegExp(`base\\.${legacy}`).test(s),

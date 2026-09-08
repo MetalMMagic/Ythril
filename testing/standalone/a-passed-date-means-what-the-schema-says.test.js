@@ -107,6 +107,55 @@ describe('the derivation obeys the policy', () => {
   });
 });
 
+describe('both doors take the same space-meta fields', () => {
+  /*
+   * Found by sweeping F-26 before it merged, in F-26's own code. The MCP tool built its `meta` payload from a
+   * HARD-CODED array of five key names beside a schema that declared six: `whenDuePasses` was declared,
+   * accepted by the dispatcher, and then silently dropped before the write. REST stored it; MCP did not, and
+   * said nothing — which `CLAUDE.md` names as worse than either door refusing, because the behaviour then
+   * depends on which client the caller happened to pick.
+   *
+   * So the rule is asserted rather than the field: every meta key the REST body schema accepts is one the
+   * MCP tool declares. Both sets are DERIVED — a list of names here would be the third copy of the thing
+   * that already went wrong.
+   */
+  const restKeys = (() => {
+    const src2 = src('server/src/spaces/body-schemas.ts');
+    const at = src2.indexOf('export const SpaceMetaBody = z.object({');
+    assert.ok(at > -1, 'SpaceMetaBody moved — re-anchor this gate');
+    return [...src2.slice(at, src2.indexOf('}).strict();', at)).matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  })();
+
+  const mcpKeys = (() => {
+    const src2 = src('server/src/mcp/tools/spaces.ts');
+    const at = src2.indexOf('export const update_space_schemaTool');
+    assert.ok(at > -1, 'update_space_schemaTool moved — re-anchor this gate');
+    const props = src2.indexOf('properties: {', at);
+    return [...src2.slice(props, src2.indexOf("required: ['space']", props)).matchAll(/^\s{6}(\w+):/gm)]
+      .map(m => m[1]);
+  })();
+
+  it('read both sets, and they are real', () => {
+    assert.ok(restKeys.length >= 5, `only ${restKeys.length} REST meta keys parsed`);
+    assert.ok(mcpKeys.length >= 5, `only ${mcpKeys.length} MCP tool properties parsed`);
+  });
+
+  it('every meta field REST accepts is declared on the MCP tool', () => {
+    // `version` and `updatedAt` are server-owned and stripped from an incoming meta rather than settable.
+    const serverOwned = new Set(['version', 'updatedAt', 'purpose']);
+    const missing = restKeys.filter(k => !serverOwned.has(k) && !mcpKeys.includes(k));
+    assert.deepEqual(missing, [],
+      `these space-meta fields are settable through REST and not through MCP: ${missing.join(', ')}`);
+  });
+
+  it('the handler forwards what the schema declares, rather than a second list', () => {
+    // The defect was two lists disagreeing. One of them is gone; this refuses its return.
+    const handler = src('server/src/mcp/tools/spaces.ts');
+    assert.match(handler, /inputSchema\(\{\} as ToolSchemas\)\.properties/,
+      'the forwarded keys must come from the schema the tool itself declares, not from an array beside it');
+  });
+});
+
 describe('every reader resolves it the same way', () => {
   /**
    * The three that must agree, and the filter is the one that would silently disagree: it translates

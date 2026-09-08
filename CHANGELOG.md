@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-09-08
+
+**The release where you decide what a passed date means.** A chrono entry whose due moment has passed reads
+back as *overdue* — right for a deadline, wrong for a record of something that happened. A chrono type, or a
+whole space, can now say that a past date means nothing, and those entries come back with the status you
+stored.
+
+**No breaking changes, and nothing changes unless you set something.** Absent is exactly the previous
+behaviour, down to the database query, which is byte-for-byte unchanged on a space that has not set the
+field.
+
+**Documentation changed in this release**, for deployments that re-ingest the guides on deploy: a
+size-idempotent refresh skips a file whose byte size matches the stored copy, so use `--force` for these.
+
+| file | why |
+|---|---|
+| `docs/integration-guide/04c-chrono-api.md` | what `whenDuePasses` does to `status`, with the value table |
+| `docs/integration-guide/06a-schema-api.md` | the field on `TypeSchema`, and the space-wide tier |
+| `docs/integration-guide/16-mcp.md` | the meta fields `update_space_schema` writes |
+| `docs/userguide/02-brain.md` | the Chrono tab's note on how *overdue* is worked out |
+
 ### Added
 
 - **You decide what a passed date means, per chrono type.**

@@ -54,7 +54,6 @@ const WIDENED = [
   ['put', '/:id/schema', 'its schema'],
   ['put', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'one of its types'],
   ['delete', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'removing one of its types'],
-  ['post', '/:id/validate-schema', 'a dry run that writes nothing'],
   ['post', '/:id/rebuild-indexes', 'its own search indexes'],
 ];
 
@@ -64,6 +63,37 @@ const INSTANCE_ONLY = [
   ['post', '/', 'creating a space is instance-shaped — there is no space to scope it to'],
   ['post', '/reorder', 'the order of the instance\'s spaces belongs to the instance'],
 ];
+
+/**
+ * `POST /:id/validate-schema` left `WIDENED` on 2026-09-08, and it went DOWN rather than out.
+ *
+ * P-8 widened it from instance-admin to also admit a space administrator. Its `ROUTE_RIGHTS` row, though,
+ * says `schema` / `read` — and a space administrator is `admin` on all FOUR areas, so the rung the rights
+ * panel advertised could never open the door. A canary operator granted exactly what the panel asked, was
+ * refused with `Admin token required`, read that as INSTANCE admin, and lost an afternoon to it twice.
+ *
+ * It now uses `requireSpaceAuthMfaScoped`, which is that guard minus the admin demand: the same space
+ * scoping, the same second factor, and the area rung consulted instead of ignored. **The property P-8 was
+ * protecting is unchanged** — a space administrator holds `admin` on that space's schema, so they still
+ * reach it, scoped to the id in the URL — and the case below still holds it to being SCOPED, which is the
+ * escalation this file exists to prevent.
+ *
+ * It keeps a case of its own rather than vanishing, so the pair stays visible to the next reader.
+ */
+const SCOPED_BY_RUNG = [
+  ['post', '/:id/validate-schema', 'a dry run that writes nothing, so it sits at the rung it advertises'],
+];
+
+describe('a route that dropped to its rung is still scoped to the space in the URL', () => {
+  for (const [verb, path, why] of SCOPED_BY_RUNG) {
+    it(`${verb.toUpperCase()} ${path} — ${why}`, () => {
+      const guards = guardsFor(verb, path);
+      assert.match(guards, /requireSpaceAuthMfaScoped\('id'\)/,
+        'the rung must be consulted, and scoped to the space in the URL rather than to "administers something"');
+      assert.match(guards, /Mfa/, 'and the second factor stays — the defect was the rung, not the factor');
+    });
+  }
+});
 
 describe('the widened routes are this space\'s own configuration', () => {
   for (const [verb, path, why] of WIDENED) {

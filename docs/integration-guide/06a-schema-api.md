@@ -134,10 +134,15 @@ Returns `404` when the space or type name does not exist. Returns `400` for an i
 ```http
 POST /api/spaces/:id/validate-schema
 Content-Type: application/json
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token with schema:read on the space>
 ```
 
 Scans existing data against the current (or proposed) schema definition without writing anything. Pass a `meta` body to test a schema change before applying it, or omit to validate against the current schema.
+
+**It needs `schema` `read`, the same rung `GET /:id/meta` needs** — it is a dry run, so there is nothing to
+authorise beyond seeing the space's shape. Until 4.4 it demanded a space administrator (`admin` on all four
+areas) despite advertising `read`, which meant a token granted exactly what the rights panel asked for was
+refused with `Admin token required`.
 
 **Request body** (optional):
 

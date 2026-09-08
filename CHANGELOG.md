@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] — 2026-09-08
+
+**The release where a control that was documented actually applies.** Everything here is one shape found in
+three places: a setting an operator could read about, set, and get no effect from. Three of the ten per-model
+time limits had no control at all and four had no effect when set; a budget you did set read back blank on
+every reload; and a space could be converted to link records with no way to see whose writers would break.
+
+**No breaking changes.** One thing to re-check before upgrading a busy instance: if you had set
+`modelSlots.docVlm`, `docRepair`, `docVerify` or `assist` and it appeared to do nothing, **it does something
+now** — confirm the value is still the one you want.
+
+**Documentation changed in this release**, for deployments that re-ingest the guides on deploy: a
+size-idempotent refresh skips a file whose byte size matches the stored copy, so use `--force` for these.
+
+| file | why |
+|---|---|
+| `README.md` | the MCP tool count |
+| `docs/integration-guide/04b-graph-api.md` | the conversion pre-flight endpoint |
+| `docs/integration-guide/05a-conversion-pipeline.md` | `pageTimeoutMs` is a default, not an override |
+| `docs/integration-guide/05b-media-embedding.md` | the other side of that sentence, in the slot table |
+| `docs/integration-guide/16-mcp.md` | the new tool's rows |
+| `docs/userguide/04-settings.md` | the three document cards, and how the page budget and a slot budget fit together |
+| `docs/userguide/05-storage-data-and-audit.md` | check who still writes the arrays before converting |
+
 ### Added
 
 - **You can now find out who is still writing the old connection lists, before you convert a space.**

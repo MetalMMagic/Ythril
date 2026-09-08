@@ -351,6 +351,11 @@ two things it could not before:
 - **Change that space's settings** — its name, its schema and types, and a re-index of its own search
   indexes.
 
+**Most of that second bullet no longer NEEDS all four areas**, since 4.4: writing a type is `Schema` at
+**write**, replacing the whole type map in one call is `Schema` at **admin**, and rebuilding or re-embedding
+the search index is `Knowledge` at **admin**. A space administrator holds all of those, so nothing they could
+do is gone — but a token needing only one can now be given only that one, which is what the grid is for.
+
 All four areas, deliberately. Admin on **Files** alone would be enough to mint tokens if any single area
 counted, which is a bigger grant than the cell appears to make.
 

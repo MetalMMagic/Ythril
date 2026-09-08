@@ -14,7 +14,8 @@ import type { Router } from 'express';
 import { RECORD_TYPES } from '../config/types.js';
 import { z } from 'zod';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { requireAdminMfaScoped } from '../auth/middleware.js';
+import { requireSpaceAuthMfaScoped, denyReadOnly } from '../auth/middleware.js';
+
 import { getConfig } from '../config/loader.js';
 import { reembedSpace, REEMBED_MAX_LIMIT } from '../brain/reembed.js';
 import { log } from '../util/log.js';
@@ -38,7 +39,7 @@ export function registerReembedRoute(spacesRouter: Router): void {
   // The way back from `suppressEmbeddings`. Kept thin on purpose: the sweep, the suppression check and the
   // bounding all live in `brain/reembed.ts`, because `api/spaces.ts` is already a frozen god-file and a route
   // body is the wrong place for a rule the write path also has to agree with.
-  spacesRouter.post('/:id/reembed', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+  spacesRouter.post('/:id/reembed', globalRateLimit, requireSpaceAuthMfaScoped('id'), denyReadOnly, async (req, res) => {
     const spaceId = req.params['id'] as string;
     if (!getConfig().spaces.some(s => s.id === spaceId)) {
       res.status(404).json({ error: `Space '${spaceId}' not found` });

@@ -21,6 +21,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /api/spaces/:id/meta` — the same area, one call apart — always honoured the rung, and now this does
   too.
 
+- **Five more space routes are now guarded at the rung the rights panel advertises, not above it.**
+
+  `validate-schema` above was one of six. The other five said the same thing and did the same thing: they
+  named an area and a rung, and then admitted only an instance administrator or a full space administrator
+  (`admin` on all four areas at once). The rung was decoration on every one of them.
+
+  | route | needs | changed from |
+  |---|---|---|
+  | `PUT /api/spaces/:id/schema` | `schema` **admin** | `schema` write, guarded at space-admin |
+  | `PUT /api/spaces/:id/meta/typeSchemas/:kt/:name` | `schema` write | guarded at space-admin |
+  | `DELETE /api/spaces/:id/meta/typeSchemas/:kt/:name` | `schema` write | guarded at space-admin |
+  | `POST /api/spaces/:id/rebuild-indexes` | `knowledge` admin | `schema` admin, guarded at space-admin |
+  | `POST /api/spaces/:id/reembed` | `knowledge` admin | `schema` admin, guarded at instance admin |
+
+  **Nobody loses access.** A space administrator holds `admin` on all four areas, so every one of these still
+  admits exactly the people it admitted yesterday — through the rung instead of through a separate check.
+  What is new is that a token given one of those rungs and nothing else now works, which is what the grid
+  was always claiming.
+
+  Rebuilding and re-embedding moved from `schema` to `knowledge` because neither reads or writes a type
+  definition: they rewrite the vectors and indexes that recall searches, and while a rebuild runs, recall
+  returns nothing. They sat under `schema` because of the URL they are registered on.
+
+  `PATCH /api/spaces/:id` and `DELETE /api/spaces/:id` went the other way and are now declared as NOT
+  area-scoped. Settings are Space-admin — a column in the design, and not one of the four data areas — and
+  deleting a space destroys all four at once. Neither guard changed; what changed is that they no longer
+  advertise a rung that could not open them. Governing the settings body per FIELD by area is separate work.
+
+  On the MCP door, `update_space_schema` needs `schema` `admin` on the space rather than all four areas, so
+  the two doors admit the same callers. `reindex` moved to `knowledge` admin with its route.
+
 ### Internal
 
 - An MCP tool now forwards the arguments its own schema declares, rather than a list of names written beside

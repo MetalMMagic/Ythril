@@ -412,8 +412,8 @@ function forwardedArgNames(tool: ToolHandler, exclude: ReadonlySet<string>): str
 export const update_space_schemaTool: ToolHandler = {
   name: 'update_space_schema',
   description: 'Write a space\'s type schemas (and its other meta fields). Needs EITHER instance-admin rights OR '
-    + 'the `admin` rung on all four areas (knowledge, files, schema, dataQuality) of the space named in `space` — '
-    + 'administering a different space does not grant this one. '
+    + 'the `admin` rung on the `schema` area of the space named in `space` — holding it on a different space does '
+    + 'not grant this one. '
     + 'MERGES by default: types you do not mention are preserved, so editing one type does not require resending '
     + 'the others. Pass `typeSchemasMode: "replace"` to make the payload authoritative — that is the only way to '
     + 'DELETE a type. Knowledge-type keys are singular: entity, memory, edge, chrono. A `$ref` to a schema-library '
@@ -421,7 +421,16 @@ export const update_space_schemaTool: ToolHandler = {
     + 'network votes on meta changes this opens a vote round instead of writing — the reply says so, and nothing is '
     + 'stored until the round concludes.',
   mutating: true,
-  spaceAdmin: true,
+  /*
+   * NOT `spaceAdmin: true`, since 2026-09-08, and the REST door is why.
+   *
+   * `PUT /api/spaces/:id/schema` is the `schema` area's `admin` rung and admits a token holding it. Keeping
+   * the four-area demand here would leave one capability reachable through one door and refused through the
+   * other, which is the divergence this repo pays most for and always discovers from outside.
+   *
+   * A space administrator holds `admin` on all four areas, so everyone who reached this tool yesterday still
+   * does. What changed is that a token whose only admin rung is `schema` now reaches it on both doors.
+   */
   spaceRequired: true,
   inputSchema: (s: ToolSchemas) => ({
     type: 'object',

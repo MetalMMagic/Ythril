@@ -86,9 +86,10 @@ export interface RouteRight {
  *   the same act as deleting a row.
  * - `DELETE /api/brain/spaces/:spaceId/files` (the file-META record) stays `admin`. No tool mirrors it, so
  *   lowering it would weaken a door for parity with nothing.
- * - `update_space_schema` remains the one known difference in the OTHER direction: REST asks `schema: write`,
- *   the tool is `admin: true`. MCP being stricter is safe, and levelling it down is a separate decision about
- *   schema authoring rather than about deletes. `surface-matrix.mjs` still reports it.
+ * - `update_space_schema` used to be listed here as the one known difference in the OTHER direction — REST
+ *   asking `schema: write` while the tool demanded instance admin. Both halves have since moved and the two
+ *   doors now agree: the route is `schema: admin` (the whole-map replace is the area's irreversible act) and
+ *   the tool is governed by the same rung instead of by a flag. `surface-matrix.mjs` no longer reports it.
  *
  * A directory delete goes through the same `DELETE /api/files/:spaceId` row and therefore also becomes `write` —
  * it keeps its own `{confirm: true}` body requirement, which is the guard that made this acceptable.
@@ -177,16 +178,21 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/files/:spaceId/retry_embedding', method: 'POST', area: 'files', needs: 'write', scope: 'path' },
 
   // ── Schema ───────────────────────────────────────────────────────────────────────────────────────────
-  { route: '/api/spaces/:id/schema', method: 'PUT', area: 'schema', needs: 'write', scope: 'path' },
+  /*
+   * THE WHOLE-MAP REPLACE, and it is the `schema` area's `admin` rung.
+   *
+   * Owner, 2026-09-08, agreeing the mapping: one call rewrites every type definition in the space, and
+   * `typeSchemasMode: "replace"` is how a deletion is expressed — so this is the area's irreversible
+   * operation, which is what the rung's help text describes. Editing ONE type stays `write` on the
+   * granular routes below. An operator can hold that distinction without reading anything.
+   *
+   * Before this it read `write`, and nothing in the area needed `admin` at all — the rights panel rendered
+   * a fourth rung that granted nothing anywhere.
+   */
+  { route: '/api/spaces/:id/schema', method: 'PUT', area: 'schema', needs: 'admin', scope: 'path' },
   { route: '/api/spaces/:id/meta', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
-  // `schema: write` to match `update_space`, which is the same capability on the other door and is already
-  // classified that way in TOOL_RIGHTS below: label and purpose are space meta, and meta is the schema area
-  // throughout this inventory. Two doors, one rule — the parity this repo keeps having to re-establish.
-  { route: '/api/spaces/:id', method: 'PATCH', area: 'schema', needs: 'write', scope: 'path' },
-  // Deleting a space destroys all four areas at once, which is why it is `admin` and not the `write` its
-  // sibling PATCH gets. `requireAdminMfaScoped` already enforces the REACH; this row is what makes the AREA
-  // enforceable too, and its absence is what the runtime was warning about on every call.
-  { route: '/api/spaces/:id', method: 'DELETE', area: 'schema', needs: 'admin', scope: 'path' },
+  // `PATCH /api/spaces/:id` and `DELETE /api/spaces/:id` used to sit here as `schema` rows. They are not
+  // views of one area's data, so they moved to `NOT_AREA_SCOPED` below with their reasons.
   // All three verbs on the type-schema path, not just the one somebody needed at the time. Read is `read`;
   // both mutations are `write`, matching each other rather than differing by which was written first.
   { route: '/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
@@ -194,16 +200,24 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   { route: '/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName', method: 'DELETE', area: 'schema', needs: 'write', scope: 'path' },
   { route: '/api/spaces/:id/validate-schema', method: 'POST', area: 'schema', needs: 'read', scope: 'path' },
   { route: '/api/spaces/:id/completeness', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
-  // Reindex and rebuild-indexes rewrite infrastructure the whole space depends on, and a rebuild makes
-  // recall return nothing until it finishes. Structural, so admin.
-  { route: '/api/spaces/:id/rebuild-indexes', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
+  /*
+   * REBUILDING AND RE-EMBEDDING ARE `knowledge`, NOT `schema`, and the four rows below moved together.
+   *
+   * None of them reads or writes a type definition. They rewrite the indexes and the vectors that recall
+   * searches, and while a rebuild runs, recall returns nothing — so the area whose data changes is
+   * `knowledge`, and the operator who should be able to run one is the operator who owns that data.
+   *
+   * They sat under `schema` because they are registered on the spaces router, which is a fact about the URL
+   * and not about what they touch.
+   */
+  { route: '/api/spaces/:id/rebuild-indexes', method: 'POST', area: 'knowledge', needs: 'admin', scope: 'path' },
   // Registered onto `spacesRouter` from `spaces-reembed.ts` rather than declared in `spaces.ts`, which is
   // exactly why it went unclassified: a sweep of the router FILE cannot see a route another file attaches to
   // the same router. Re-embedding rewrites every vector in the space and recall degrades until it finishes,
   // so it sits with `rebuild-indexes` at `admin` rather than with the `write` mutations.
-  { route: '/api/spaces/:id/reembed', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/reindex', method: 'POST', area: 'schema', needs: 'admin', scope: 'path' },
-  { route: '/api/brain/spaces/:spaceId/reindex-status', method: 'GET', area: 'schema', needs: 'read', scope: 'path' },
+  { route: '/api/spaces/:id/reembed', method: 'POST', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/reindex', method: 'POST', area: 'knowledge', needs: 'admin', scope: 'path' },
+  { route: '/api/brain/spaces/:spaceId/reindex-status', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
 
   // ── Data quality — every one of these is `iterates` ───────────────────────────────────────────────────
   // These take no space. They walk the token's accessible spaces and resolve the space from the record, so
@@ -295,7 +309,7 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'bulk_write', area: 'knowledge', needs: 'write' },
   { tool: 'get_stats', area: 'knowledge', needs: 'read' },
   { tool: 'er_model', area: 'knowledge', needs: 'read' },
-  { tool: 'reindex', area: 'schema', needs: 'admin' },
+  { tool: 'reindex', area: 'knowledge', needs: 'admin' },
   { tool: 'list_embed_jobs', area: 'knowledge', needs: 'read' },
   { tool: 'retry_record_embedding', area: 'knowledge', needs: 'write' },
   { tool: 'retry_failed_media_embeddings', area: 'files', needs: 'write' },
@@ -308,7 +322,7 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'retry_embedding', area: 'files', needs: 'write' },
   { tool: 'update_file_meta', area: 'files', needs: 'write' },
   { tool: 'get_space_meta', area: 'schema', needs: 'read' },
-  { tool: 'update_space_schema', area: 'schema', needs: 'write' },
+  { tool: 'update_space_schema', area: 'schema', needs: 'admin' },
   // Governed by a rung from the moment it stopped being an instance-admin tool. `admin: true` exempts a tool
   // from this inventory because an instance-level capability has no space to scope to; `spaceAdmin: true` is
   // the opposite claim — the space IS the subject — so the area check applies like any other space-scoped
@@ -356,6 +370,31 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
  * matches the same way, and a gate below asserts the two agree rather than trusting that they do.
  */
 export const NOT_AREA_SCOPED: readonly { route: string; why: string }[] = [
+  /*
+   * THE SPACE'S SETTINGS AND ITS DESTRUCTION. Neither is a view of one area's data.
+   *
+   * `PATCH /api/spaces/:id` carried a `schema` / `write` row, on the reasoning that a space's meta is the
+   * schema area. Most of its body never was: the storage quota, the four media-analysis levels, the
+   * duplicate rules, the record lifetime, the face-descriptor width. It is the space's settings door, and
+   * it demands Space-admin — a column in the approved design, and not one of the four DATA areas.
+   *
+   * Owner, 2026-09-08: *"PATCH sounds like it should be space admin"*. The guard does not change, so no
+   * caller sees anything different; what was wrong was a row promising a rung that could never open it.
+   *
+   * A generalised rule was proposed for routes like this — the row names the highest rung any field in the
+   * body can demand — and was rejected as *"complicated and prone to errors"*. It is not here. Governing
+   * the individual FIELDS by area is separate work (`D-4`) and does not need this row to be a lie meanwhile.
+   *
+   * `DELETE` is on the same path and needs no argument: destroying a space destroys all four areas at once,
+   * and it is instance-admin.
+   */
+  {
+    route: '/api/spaces/:id',
+    why: 'The space SETTINGS route (PATCH) and its deletion. Settings are Space-admin, which is not one of '
+       + 'the four data areas; deleting the space destroys all four at once and is instance-admin. Neither '
+       + 'is a view of one area\'s data, so neither takes an area rung. Governing PATCH per FIELD by area '
+       + 'is D-4 and is separate.',
+  },
   {
     route: '/api/spaces/:id/rename',
     why: 'Renaming a space is Space-admin, which is a column in the approved design but not one of the four '

@@ -58,13 +58,6 @@ const ADMIN_FIRST = [
  * that settle them; this list is the visible cost of not having built them yet, and it must only shrink.
  */
 const KNOWN_MISMATCH = {
-  'PUT /api/spaces/:id/schema': 'D-2: whole-map replace — likely the schema `admin` rung rather than `write`',
-  'PATCH /api/spaces/:id': 'D-4: the space settings route, to be decomposed by field; not area-scoped as a whole',
-  'PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName': 'D-2: should honour schema `write`',
-  'DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName': 'D-2: should honour schema `write`',
-  'POST /api/spaces/:id/rebuild-indexes': 'D-2: leaves the schema area for `knowledge` admin',
-  'POST /api/spaces/:id/reembed': 'D-2: leaves the schema area for `knowledge` admin',
-  'DELETE /api/spaces/:id': 'D-2: NOT_AREA_SCOPED — destroying a space is not one of its settings',
   'POST /api/duplicates/scan': 'D-2 sibling: dataQuality write, guarded at instance admin',
   'POST /api/contradictions/scan': 'D-2 sibling: dataQuality write, guarded at instance admin',
   'POST /api/conflicts/seed': 'D-2 sibling: dataQuality admin, guarded at instance admin',
@@ -72,23 +65,57 @@ const KNOWN_MISMATCH = {
 
 const src = f => stripComments(readFileSync(f, 'utf8'));
 
+/**
+ * Where each router hangs, resolved from the `use()` calls rather than guessed.
+ *
+ * The first draft matched a row to a registration by asking whether the row's route ENDED WITH the
+ * registration's path, across every router in the tree. Four routers declare `/:id`, so `PATCH /api/spaces/:id`
+ * was answered by the first `/:id` the scan happened to reach and the gate reported a guard belonging to a
+ * different route — a wrong reason attached to a real row, which is worse than no finding at all.
+ */
+function mountPrefixes() {
+  const edges = [];
+  for (const f of trackedSources(['server/src'], { floor: 50 })) {
+    for (const m of src(f).matchAll(/\b(\w+)\.use\(\s*'([^']*)'\s*,\s*(\w+)/g)) {
+      edges.push({ parent: m[1], prefix: m[2], child: m[3] });
+    }
+  }
+  const at = { app: '' };
+  // Mounts can nest (`app` → `brainRouter` → `searchRouter`), and the file order says nothing about the
+  // depth, so walk to a fixed point instead of once.
+  for (let pass = 0; pass < 10; pass++) {
+    let grew = false;
+    for (const e of edges) {
+      if (e.parent in at && !(e.child in at)) { at[e.child] = at[e.parent] + e.prefix; grew = true; }
+    }
+    if (!grew) break;
+  }
+  return at;
+}
+
 /** Every `router.verb('path', …guards)` registration in the API tree, with the guards named on it. */
-function registrations() {
+function registrations(at) {
   const out = [];
   for (const f of trackedSources(['server/src/api'], { floor: 10 })) {
     const s = src(f);
     for (const m of s.matchAll(/(\w*[Rr]outer)\.(get|post|patch|put|delete)\(\s*'([^']*)'/g)) {
+      const prefix = at[m[1]];
+      if (prefix === undefined) continue;   // a router nobody mounts serves nothing
       // From the path to the handler: the guards are the arguments between them.
       const from = m.index + m[0].length;
       const to = s.indexOf('=>', from);
-      out.push({ method: m[2].toUpperCase(), path: m[3], guards: to > from ? s.slice(from, to) : '' });
+      out.push({
+        method: m[2].toUpperCase(),
+        route: (prefix + m[3]).replace(/\/$/, '') || '/',
+        guards: to > from ? s.slice(from, to) : '',
+      });
     }
   }
   return out;
 }
 
 describe('a rights row is reachable at the rung it names', () => {
-  const regs = registrations();
+  const regs = registrations(mountPrefixes());
 
   it('found the registrations', () => {
     // A floor: an empty scan passes the loop below while checking nothing.
@@ -107,9 +134,7 @@ describe('a rights row is reachable at the rung it names', () => {
     for (const row of ROUTE_RIGHTS) {
       const key = `${row.method} ${row.route}`;
       if (key in KNOWN_MISMATCH) continue;
-      // Match by the registration's own path being the TAIL of the row's route — routers are mounted under
-      // a prefix, so the row carries `/api/...` and the registration carries what is after the mount.
-      const hit = regs.find(r => r.method === row.method && r.path !== '' && row.route.endsWith(r.path));
+      const hit = regs.find(r => r.method === row.method && r.route === row.route);
       if (!hit) continue;   // unmatched is an instrument gap, not a finding — the floor above covers vacuity
       // Whole identifiers: `requireAdmin` is a SUBSTRING of `requireAdminOrSpaceAdminMfaScoped`, and reading
       // the wrong guard here would report the wrong reason for the right row, or invent one.

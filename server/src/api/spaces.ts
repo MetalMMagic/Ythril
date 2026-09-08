@@ -3,7 +3,7 @@ import { registerReembedRoute } from './spaces-reembed.js';
 import { registerActivityResetRoute } from './spaces-activity.js';
 import {
   requireAuth, requireSpaceAuthScoped, requireSpaceAuthMfaScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
-  requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin,
+  requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin, denyReadOnly,
 } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { editorScopeFor } from '../auth/editor-scope.js';
@@ -59,7 +59,7 @@ export const spacesRouter = Router();
 // Deliberately `force`: the caller is here because something is wrong, so the "definition already
 // matches" shortcut is not to be trusted — a stale entry that mongot has not yet collected would make
 // the repair silently do nothing.
-spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireSpaceAuthMfaScoped('id'), denyReadOnly, async (req, res) => {
   const spaceId = req.params['id'] as string;
   if (!getConfig().spaces.some(s => s.id === spaceId)) {
     res.status(404).json({ error: `Space '${spaceId}' not found` });
@@ -356,7 +356,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('i
 // Unlike PATCH (which merges types), this completely overwrites `meta.typeSchemas`
 // with the supplied value.  Before applying, the previous schema is written to a
 // timestamped JSON backup file inside the space so it can be recovered or re-imported.
-spacesRouter.put('/:id/schema', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
+spacesRouter.put('/:id/schema', globalRateLimit, requireSpaceAuthMfaScoped('id'), denyReadOnly, async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);
@@ -537,7 +537,7 @@ spacesRouter.get('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
 });
 
 // PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName — upsert a single type definition
-spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), (req, res) => {
+spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireSpaceAuthMfaScoped('id'), denyReadOnly, (req, res) => {
   const { id, knowledgeType, typeName } = req.params as { id: string; knowledgeType: string; typeName: string };
 
   if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {
@@ -616,7 +616,7 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
 });
 
 // DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName — remove a single type definition
-spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), (req, res) => {
+spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLimit, requireSpaceAuthMfaScoped('id'), denyReadOnly, (req, res) => {
   const { id, knowledgeType, typeName } = req.params as { id: string; knowledgeType: string; typeName: string };
 
   if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {

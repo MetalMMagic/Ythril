@@ -116,8 +116,13 @@ describe('the route stays thin, and out of the god-file', () => {
     assert.ok(!/\$exists: false/.test(ROUTE), 'the query belongs in brain/reembed.ts, not in the route');
   });
 
-  it('is admin-gated and scoped to the space in the path', () => {
-    assert.match(ROUTE, /post\('\/:id\/reembed', globalRateLimit, requireAdminMfaScoped\('id'\)/);
+  it('is gated at knowledge admin, scoped to the space in the path, and closed to a read-only token', () => {
+    // It was `requireAdminMfaScoped` — instance admin — until 2026-09-08, when its `ROUTE_RIGHTS` row was
+    // corrected to `knowledge` / `admin` and the guard was changed to the one that actually consults it.
+    // `denyReadOnly` is named here because the admin guard used to imply it and this one does not: a
+    // read-only token holding the rung would otherwise have been able to re-embed the space.
+    assert.match(ROUTE,
+      /post\('\/:id\/reembed', globalRateLimit, requireSpaceAuthMfaScoped\('id'\), denyReadOnly/);
   });
 
   it('rejects an unknown body key rather than silently sweeping everything', () => {

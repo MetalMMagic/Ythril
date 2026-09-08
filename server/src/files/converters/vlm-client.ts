@@ -15,7 +15,7 @@ import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { boundedJson, boundedErrorText } from '../../util/bounded-read.js';
 import { allowPrivateForSlot, type EgressSlot } from '../../config/model-egress-policy.js';
 import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
-import { slotTimeoutMs, reasoningEffortBody } from '../../config/model-slots.js';
+import { slotTimeoutMsOr, reasoningEffortBody } from '../../config/model-slots.js';
 import { getModelSlots } from '../../config/loader.js';
 
 export interface VlmTranscription {
@@ -139,7 +139,31 @@ export interface VlmTarget {
   wire?: VlmWire;
   external?: boolean;
   apiKey?: string;
-  timeoutMs?: number;
+  /**
+   * The budget to use when the OPERATOR has not set one for this slot — never an override of one.
+   *
+   * It replaced a plain `timeoutMs`, and the rename is the fix rather than a tidy-up. The document
+   * pipeline passed its per-page control here and the clients resolved `opts.timeoutMs ?? slotTimeoutMs(…)`,
+   * so the caller's number won every time and `modelSlots.docVlm|docRepair|docVerify|assist` were inert
+   * while being documented, patchable and pinnable. Both defaults are 60 s, so nothing ever disagreed.
+   *
+   * `pageTimeoutMs` keeps its meaning as exactly this: what a document page call costs when nobody chose
+   * per-slot. A caller that genuinely owns its deadline says `hardTimeoutMs` instead, out loud.
+   */
+  defaultTimeoutMs?: number;
+  /**
+   * A deadline the CALLER owns, whatever the operator set for the slot.
+   *
+   * Two callers have one and both have a reason the slot cannot express. The Verify button must answer in
+   * seconds while a slot budget may legally be half an hour. `describeTimeoutMs` is a deliberately tight
+   * budget for one short call on the ingest path, settable through config, env and the admin API in its own
+   * right — folding it into `docRepair` would hand a document description the repair pass's budget, which
+   * exists for a much longer job.
+   *
+   * A separate name so the shadowing defect cannot come back by accident: `budgetFor` is the only place a
+   * caller value may precede the resolver, and a gate refuses any other identifier in that position.
+   */
+  hardTimeoutMs?: number;
   /**
    * Which model slot this call belongs to. Defaults to `docVlm`, which is what every caller got before.
    *
@@ -153,6 +177,18 @@ export interface VlmTarget {
    */
   slot?: EgressSlot;
 }
+
+/**
+ * The budget for one call: the caller's own deadline if it claimed one, else the operator's slot setting,
+ * else the caller's default, else the built-in.
+ *
+ * The ONE place in this module where a caller value may sit in front of the resolver, and it exists so that
+ * there is one. Written at each entry point instead, `opts.timeoutMs ?? slotTimeoutMs(...)` is what four
+ * slots shipped as — documented, patchable, pinnable and inert, because `??` takes the left side whenever it
+ * is present and the document pipeline always supplied one.
+ */
+const budgetFor = (slot: EgressSlot, opts: { hardTimeoutMs?: number; defaultTimeoutMs?: number }): number =>
+  opts.hardTimeoutMs ?? slotTimeoutMsOr(slot, getModelSlots(), opts.defaultTimeoutMs);
 
 const asEndpoint = (t: VlmTarget, slot: EgressSlot) => ({
   baseUrl: t.baseUrl,
@@ -175,7 +211,7 @@ export async function transcribePageImage(
   return postChat(
     asEndpoint(opts, slot),
     [{ role: 'user', content: opts.prompt, images: [b64] }],
-    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
+    budgetFor(slot, opts),
   );
 }
 
@@ -197,7 +233,7 @@ export async function repairMarkdown(
   return postChat(
     asEndpoint(opts, slot),
     [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
-    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
+    budgetFor(slot, opts),
   );
 }
 
@@ -223,7 +259,7 @@ export async function reconcileConsensus(
   return postChat(
     asEndpoint(opts, slot),
     [{ role: 'user', content }], // text-only — no page image
-    opts.timeoutMs ?? slotTimeoutMs(slot, getModelSlots()),
+    budgetFor(slot, opts),
   );
 }
 
@@ -250,7 +286,7 @@ export async function describeDocumentText(
   return postChat(
     asEndpoint(opts, opts.slot ?? 'docRepair'),
     [{ role: 'user', content: `${DESCRIBE_PROMPT}\n\n--- DOCUMENT ---\n${opts.text}` }],
-    opts.timeoutMs ?? slotTimeoutMs('docRepair', getModelSlots()),
+    budgetFor(opts.slot ?? 'docRepair', opts),
   );
 }
 
@@ -267,7 +303,11 @@ function repairContent(draft: string, evidence: string, issues?: string[]): stri
  * Throws on unreachable/HTTP error so the caller falls back to the local repair, then OCR.
  */
 export async function repairMarkdownExternal(
-  opts: { baseUrl: string; model: string; apiKey?: string; draft: string; evidence: string; issues?: string[]; timeoutMs?: number },
+  opts: { baseUrl: string; model: string; apiKey?: string; draft: string; evidence: string; issues?: string[];
+    /** See `VlmTarget.defaultTimeoutMs` — used only when the operator set no `assist` budget. */
+    defaultTimeoutMs?: number;
+    /** See `VlmTarget.hardTimeoutMs` — a deadline this caller owns whatever the operator set. */
+    hardTimeoutMs?: number },
 ): Promise<VlmTranscription> {
   // The same builder the local path uses. This function is the one `normalizeOpenAiBase` was written for —
   // its comment names it — and it went on appending `/v1/chat/completions` itself, so the assist slot
@@ -288,7 +328,7 @@ export async function repairMarkdownExternal(
         ...reasoningEffortBody('assist', getModelSlots()),
         messages: [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }],
       }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? slotTimeoutMs('assist', getModelSlots())),
+      signal: AbortSignal.timeout(budgetFor('assist', opts)),
     }, {
       // Lets a self-hosted OpenAI-compatible assist model live on a private cluster address. The guard
       // itself stays on: DNS-resolve, IP-pin and redirect re-validation all still apply — only the

@@ -168,7 +168,11 @@ export async function describeDocument(
     const r = await describeDocumentText({
       ...target,
       text: body.slice(0, MAX_INPUT_CHARS),
-      timeoutMs: describeTimeoutMs(getDocumentProcessingConfig()),
+      // HARD, not a default: this budget is deliberately tight because a description is a nicety on the
+      // ingest path with an extractive fallback always available, and it is settable in its own right
+      // through config, env and the admin API. Falling back to the repair slot's budget would hand a
+      // one-paragraph summary the deadline of a job that reconciles a whole document.
+      hardTimeoutMs: describeTimeoutMs(getDocumentProcessingConfig()),
     });
     const text = sanitiseDescription(r.text);
     if (text) return { text, source: 'generated', excerpt };

@@ -156,9 +156,15 @@ export interface SlotTuningCfg {
  * Which slots a card may tune, and whether the effort is one of them.
  *
  * **Effort is offered only where the request actually carries it.** The server sends `reasoning_effort` on the
- * OpenAI-shaped bodies — external vision, the assist model, and the two document slots that have no card —
- * and nowhere else. Embedding, rerank, NLI, speech and the face detector are not chat calls, so a control
- * there would be a switch wired to nothing, which is the failure this product keeps writing rules about.
+ * OpenAI-shaped bodies — external vision, the assist model and the three document slots — and nowhere else.
+ * Embedding, rerank, NLI, speech and the face detector are not chat calls, so a control there would be a
+ * switch wired to nothing, which is the failure this product keeps writing rules about.
+ *
+ * **Every slot the server declares has a row here, and a gate holds it to that.** The three document slots
+ * had none: reported by the canary operator 2026-09-06 §6(c), and `05b-media-embedding.md` states there is
+ * deliberately no environment variable for these, so this screen is the only door there is. Their model and
+ * endpoint stay read-only — those genuinely are env-only — but a budget and an effort are not, and the two
+ * questions were being answered by one `[infra]` flag.
  */
 export const CARD_SLOT: Record<string, { slot: string; effort: boolean }> = {
   embedding: { slot: 'embedding', effort: false },
@@ -168,6 +174,9 @@ export const CARD_SLOT: Record<string, { slot: string; effort: boolean }> = {
   stt: { slot: 'stt', effort: false },
   assist: { slot: 'assist', effort: true },
   face: { slot: 'faceExternal', effort: false },
+  'doc-vlm': { slot: 'docVlm', effort: true },
+  'doc-repair': { slot: 'docRepair', effort: true },
+  'doc-verify': { slot: 'docVerify', effort: true },
 };
 
 /**

@@ -317,7 +317,12 @@ const FROZEN = {
   // had just blinded `infra-managed-locks-every-field` to two enclosing guards. The reasoning moved to a JS
   // doc comment above the class (`FACE_CARD_NOTES`), which is where it was always safer, and what is left is
   // the two blocks a reader has to see to know the notices exist.
-  'client/src/app/pages/settings/media-processing/models-tab.component.ts': 687,
+  // LOWERED 687 -> 666. Three document cards needed a Save each, which is 27 lines past the freeze — and
+  // that is this gate doing its job rather than an inconvenience: the Save block was the SAME FIVE LINES in
+  // ten places, differing only in the card id. It is `card-save.component.ts` now, so the tab shrank by more
+  // than the three cards added. `display: contents` on that component keeps the button a flex item of the
+  // footer row, so every ordering rule that was already there still matches.
+  'client/src/app/pages/settings/media-processing/models-tab.component.ts': 666,
   // 675 -> 677: `rights` on TokenRecord, plus its import. FOURTH raise of this file in one session, and the
   // first attempt wanted SIX lines because the shape was written inline. That was the signal, so the shape
   // moved to `config/rights-shape.ts` — a leaf both this file and `auth/` can import without a cycle — and

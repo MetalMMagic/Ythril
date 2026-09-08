@@ -35,6 +35,9 @@ const { DUAL_DOOR_BOUNDS } = await import('../../server/dist/config/setting-boun
 
 const ROOT = process.cwd();
 
+/** The slot vocabulary the server declares — read, never listed. */
+const { MODEL_SLOTS } = await import('../../server/dist/config/model-slots.js');
+
 /** Media-path source files, from git rather than a directory walk (gitignored/untracked files are not source). */
 // Two directories, so the floor is 5 rather than the default 100 — a floor above what a scan can ever
 // return fails on correct code, which is how a guard gets deleted instead of corrected.
@@ -43,8 +46,14 @@ const files = trackedSources(['server/src/files/converters', 'server/src/files/m
 /**
  * A timeout being handed to a call. Both spellings: the option object the converter clients take, and the raw
  * `AbortSignal.timeout` the sidecar fetches use.
+ *
+ * **Any QUALIFIED spelling counts, and matching only the bare one made this gate go blind.** The converter
+ * clients grew `defaultTimeoutMs` and `hardTimeoutMs` — one budget the operator's slot setting can beat, one
+ * it cannot — and `timeoutMs:` matches neither, because the qualifier capitalises the T. Every document call
+ * site vanished from the scan in the same commit that changed what they mean, and the scan reported clean.
+ * Matched on the SHAPE (`<anything>timeoutMs:`) so the next qualifier is covered when it is written.
  */
-const TIMEOUT_SITE = /(?:timeoutMs:\s*|AbortSignal\.timeout\(\s*)([^,)\n]+)/g;
+const TIMEOUT_SITE = /(?:\b\w*[Tt]imeoutMs:\s*|AbortSignal\.timeout\(\s*)([^,)\n]+)/g;
 
 /**
  * Budgets the stall floor is fed, by the expression that produces them. A site whose budget is not one of these
@@ -74,6 +83,10 @@ const COVERED = [
   /^visionTimeout\(/,                       // providers.ts, both legs — one configured value covers them
   /^sttTimeout\(/,
   /^slotTimeoutMs\(/,                       // face-external.ts, and any slot resolved directly
+  // `budgetFor(slot, opts)` in vlm-client.ts is the same resolution with a caller default in front of it —
+  // it ends in `slotTimeoutMs` for that slot, and `hopBudgets()` feeds all four document slots through the
+  // same function. Anchored on the head like every other call entry here.
+  /^budgetFor\(/,
 ];
 
 /**
@@ -117,7 +130,7 @@ function literalMs(expr) {
 function budgetToken(expr) {
   // The slot resolvers, which is what a settable budget looks like. `hopBudgets()` proves it reaches the floor
   // by calling `slotTimeoutMs` for the same slot — so the token to look for there is the resolver itself.
-  if (/^visionTimeout\(|^sttTimeout\(|^slotTimeoutMs\(/.test(expr)) return 'slotTimeoutMs';
+  if (/^visionTimeout\(|^sttTimeout\(|^slotTimeoutMs\(|^budgetFor\(/.test(expr)) return 'slotTimeoutMs';
   if (/^renderWindowTimeoutMs\(|^worstRenderWindowMs\(/.test(expr)) return 'worstRenderWindowMs';
   if (/^describeTimeoutMs\(/.test(expr)) return 'describeTimeoutMs';
   if (/^[\w.]*\bpageTimeoutMs$/.test(expr)) return 'pageTimeoutMs';
@@ -125,11 +138,27 @@ function budgetToken(expr) {
   return null;
 }
 
+/**
+ * One source file as the scan should see it: everything except the hop LIST.
+ *
+ * `hopBudgets()` is where the budgets are declared FOR the floor — `describeTimeoutMs: doc.describeTimeoutMs`
+ * is the answer, not a call to bound. Reading it as a call site makes the gate demand that the list cover
+ * itself, and it started doing exactly that the moment the site pattern widened to qualified spellings.
+ * Removed structurally, by the function's own body, rather than by skipping the file: worker.ts has real
+ * call sites too, and skipping it would hide them.
+ */
+function scannable(rel) {
+  const src = readFileSync(join(ROOT, rel), 'utf8');
+  if (!rel.endsWith('files/media/worker.ts')) return src;
+  const body = hopBudgetsBody();
+  return body ? src.replace(body, '') : src;
+}
+
 /** Every distinct budget token actually used to bound a call on the media path. */
 function budgetTokens() {
   const toks = new Set();
   for (const rel of files) {
-    for (const m of readFileSync(join(ROOT, rel), 'utf8').matchAll(TIMEOUT_SITE)) {
+    for (const m of scannable(rel).matchAll(TIMEOUT_SITE)) {
       const tok = budgetToken(m[1].trim());
       if (tok) toks.add(tok);
     }
@@ -150,7 +179,7 @@ function hopBudgetsBody() {
 function uncoveredSites() {
   const bad = [];
   for (const rel of files) {
-    const src = readFileSync(join(ROOT, rel), 'utf8');
+    const src = scannable(rel);
     for (const m of src.matchAll(TIMEOUT_SITE)) {
       const expr = m[1].trim();
       if (NOT_A_STEP.some(re => re.test(expr))) continue;
@@ -173,7 +202,7 @@ describe('the stall floor knows every hop on the media path', () => {
   it('found timeout call sites to check', () => {
     let sites = 0;
     for (const rel of files) {
-      sites += [...readFileSync(join(ROOT, rel), 'utf8').matchAll(TIMEOUT_SITE)].length;
+      sites += [...scannable(rel).matchAll(TIMEOUT_SITE)].length;
     }
     assert.ok(sites >= 8, `only ${sites} timeout sites found — the pattern probably stopped matching`);
   });
@@ -196,6 +225,31 @@ describe('the stall floor knows every hop on the media path', () => {
     const missing = [...budgetTokens()].filter(tok => !body.includes(tok));
     assert.deepEqual(missing, [], 'these budgets are used to bound a call but are not fed to the stall floor, '
       + `so the detector can fire inside them:\n  ${missing.join('\n  ')}`);
+  });
+
+  it('every model slot the media path can call is fed to the floor BY NAME', () => {
+    /*
+     * The check above proves the resolver is REACHED. It cannot prove which slots reach it: every entry in
+     * `hopBudgets()` calls `slotTimeoutMs`, so deleting one leaves the token behind and the assertion green.
+     * Mutation-tested — removing `docVlmMs` passed, which is the vacuity this repository keeps paying for.
+     *
+     * The set is derived from the slot names the media path actually NAMES, intersected with the vocabulary
+     * the server declares. A list would go stale the way the four-of-six ingest-schema lists did; the
+     * intersection also keeps a string like 'local' or 'ollama' out of it without an exclusion list.
+     */
+    const named = new Set();
+    for (const rel of files) {
+      for (const m of scannable(rel).matchAll(/'([A-Za-z]+)'/g)) {
+        if (MODEL_SLOTS.includes(m[1])) named.add(m[1]);
+      }
+    }
+    assert.ok(named.size >= 6,
+      `only ${named.size} model slots named across the media path — the derivation is wrong, not the code`);
+    const body = hopBudgetsBody();
+    const missing = [...named].filter(slot => !body.includes(`slotTimeoutMs('${slot}'`));
+    assert.deepEqual(missing, [],
+      'these slots bound a call somewhere on the media path and are not resolved in hopBudgets(), so the '
+      + `stall detector can re-queue a job in the middle of one: ${missing.join(', ')}`);
   });
 
   it('found the budgets to check, and hopBudgets() itself', () => {

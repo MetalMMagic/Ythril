@@ -622,25 +622,20 @@ tab and the picker simply does not offer anything above this line, with a note s
 
 ### How long a model may take
 
-Each model slot has its own call budget — how long **one** request to that model may run before Ythril gives
-up on it. The defaults suit the bundled models: 2 minutes for image captioning, 5 minutes for transcription,
-20–30 seconds for the smaller text models, 1 minute for the document models.
+Each model slot has its own call budget — how long **one** request to that model may run before Ythril gives up on it. The defaults suit the bundled models: 2 minutes for image captioning, 5 minutes for transcription, 20–30 seconds for the smaller text models, 1 minute for the document models.
 
-Raise one when a model is slower than the default allows — a large vision model on a busy GPU, or a host that
-loads a model from disk before it can answer the first request. The symptom is a job that reports a timeout
-while the model itself was working fine.
+Raise one when a model is slower than the default allows — a large vision model on a busy GPU, or a host that loads a model from disk before it can answer the first request. The symptom is a job that reports a timeout while the model itself was working fine.
 
 Two things happen automatically when you raise a budget, and both matter:
 
-- **The stall detector follows it.** Ythril re-queues a job that has reported no progress for a while, and a
-  single long call reports nothing while it runs. So the stall timeout is raised above the longest budget you
-  set — otherwise a job would be re-queued in the middle of a call it was allowed to make, throw the work
-  away, and reach the same call again. You do not have to adjust it yourself.
-- **Nothing else changes.** The budget bounds one call. It is not a retry count, not a queue setting, and it
-  does not affect how many jobs run at once.
+- **The stall detector follows it.** Ythril re-queues a job that has reported no progress for a while, and a single long call reports nothing while it runs. So the stall timeout is raised above the longest budget you set — otherwise a job would be re-queued in the middle of a call it was allowed to make, throw the work away, and reach the same call again. You do not have to adjust it yourself.
+- **Nothing else changes.** The budget bounds one call. It is not a retry count, not a queue setting, and it does not affect how many jobs run at once.
 
-Your infrastructure administrator can fix a slot's budget so it cannot be changed here — it will show the
-**env** badge described below.
+**The three document cards — Document VLM, Document repair and Document verify — show a budget too, and it is the one setting on those cards that is yours.** Their model and endpoint really are fixed by your infrastructure administrator; the budget and the reasoning effort are not, and there is no environment variable for them at all, so this screen is the only place they can be set.
+
+**How the document page budget and a document slot budget fit together.** The DOCUMENTS pipeline has a **per-page time limit** that applies to every model call made while reading a page. A budget you set on one of the three document cards **replaces it for that model** — leave the card blank and the page limit is what that model gets. So the page limit is still the one number to change when the whole document path is too slow, and a card budget is for the one model that needs longer than the rest.
+
+Your infrastructure administrator can fix a slot's budget so it cannot be changed here — it will show the **env** badge described below.
 
 ### Asking a model to think less
 

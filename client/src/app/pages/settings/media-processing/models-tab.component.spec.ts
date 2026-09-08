@@ -292,7 +292,19 @@ describe('ModelsTabComponent — the footer row does not reflow under the cursor
 
   it('keeps Save at the far end, after the results', () => {
     // Save is the card's own action and belongs at the end of the row, not beside Test as a peer.
-    expect(source).toMatch(/\.testrow \.card-save\s*\{[^}]*order:\s*2[^}]*margin-left:\s*auto/);
+    //
+    // The rule is read from `card-save.component.ts`, which is where the BUTTON is, and that pairing is the
+    // point rather than bookkeeping. The rule lived in the tab; the button moved into its own component when
+    // three more cards needed one; emulated view encapsulation scopes a component's styles to elements
+    // written in that component's own template, so the tab's rule stopped matching a button it no longer
+    // contains. Save rendered between Verify and the hint, with the class still on the element, the CSS
+    // still in the file, and nothing erroring — caught by looking at it, not by a test. Asserting the rule
+    // where the element is means the two cannot drift apart again.
+    const save = readFileSync('src/app/pages/settings/media-processing/card-save.component.ts', 'utf8');
+    expect(save).toMatch(/\.card-save\s*\{[^}]*order:\s*2[^}]*margin-left:\s*auto/);
+    expect(save).toMatch(/:host\s*\{[^}]*display:\s*contents/);
+    // And the tab must not keep a copy: a rule that matches nothing reads as covered.
+    expect(source).not.toMatch(/\.testrow \.card-save\s*\{/);
   });
 
   it('still wraps rather than overflowing the card', () => {

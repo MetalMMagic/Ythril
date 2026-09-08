@@ -297,6 +297,21 @@ because each one computed them from its own copy of the bytes.
 > - **See the size of it first.** `npm run links:convert -- --preview` reads and writes nothing, and prints
 >   per space how many records carry connection lists and how many entries those lists hold. Run it again
 >   afterwards to see the link count rise and everything else stay put.
+> - **Find out who is still writing the old way, BEFORE you convert.** `--preview` tells you how much there
+>   is to convert; this tells you who would be affected by the switch that comes with it. Ask a space for its
+>   **conversion pre-flight** and it answers with the access tokens that have sent a connection list to that
+>   space, what they sent, when each last did, and how many times — enough to find whoever owns them and move
+>   them across first. An empty answer is what you are hoping for.
+>
+>   It matters because of *when* the refusal arrives. Converting does not break anything at the moment you run
+>   it; a writer still using the old way finds out on its **next write**, which could be a minute later or a
+>   week later, and by then the connection between the two events is not obvious. One operator converted with
+>   five such writers and knew about none of them.
+>
+>   Read the **since** date in the answer before reading the count. It says how far back the answer looks —
+>   a small number over a short window means something different from a small number over a long one — and
+>   nothing older than 90 days is remembered at all.
+>
 > - **Do one space first if you like.** Give the command a space id and only that space converts. Nothing
 >   starts being refused: the switch that makes a space reject the old way of writing connections is set only
 >   by a full run, so a single space is a genuine trial with no effect on anything already writing to it.

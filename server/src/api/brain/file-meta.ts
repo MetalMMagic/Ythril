@@ -10,6 +10,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { requestActor } from '../../auth/request-actor.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
 import { arrayWriteError } from '../../brain/array-write-refusal.js';
 import { toDocId } from '../../util/paths.js';
@@ -381,7 +382,8 @@ fileMetaRouter.delete('/spaces/:spaceId/files', globalRateLimit, requireSpaceAut
   // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
   // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
   // proxy itself holds nothing and its own marker would answer for a space it never writes to.
-  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  const linkArrErr = arrayWriteError({ converted: usesLinkRecords(wt.target), spaceId: wt.target, body: req.body,
+    actor: requestActor(req) });
   if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   const norm = toDocId(path);
@@ -420,7 +422,8 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
   // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
   // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
   // proxy itself holds nothing and its own marker would answer for a space it never writes to.
-  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  const linkArrErr = arrayWriteError({ converted: usesLinkRecords(wt.target), spaceId: wt.target, body: req.body,
+    actor: requestActor(req) });
   if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   // The four brain record types honour `If-Match` against their `seq`. File-metadata records have no `seq`
   // — `updateFileMeta` never calls `nextSeq` — so there is nothing here to condition a write on. Refused

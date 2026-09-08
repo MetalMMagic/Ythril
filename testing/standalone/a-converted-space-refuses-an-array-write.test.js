@@ -68,15 +68,15 @@ describe('the refusal itself', () => {
   });
 
   it('says nothing about a body that mentions no array', () => {
-    assert.equal(arrayWriteError(true, { fact: 'a revised fact' }), null,
+    assert.equal(arrayWriteError({ converted: true, spaceId: 'sp', body: { fact: 'a revised fact' }, actor: undefined }), null,
       'a PATCH that does not mention an array must succeed on a converted space, or every record still '
       + 'carrying a legacy array becomes uneditable');
-    assert.equal(arrayWriteError(true, {}), null);
-    assert.equal(arrayWriteError(true, undefined), null);
+    assert.equal(arrayWriteError({ converted: true, spaceId: 'sp', body: {}, actor: undefined }), null);
+    assert.equal(arrayWriteError({ converted: true, spaceId: 'sp', body: undefined, actor: undefined }), null);
   });
 
   it('refuses a body that mentions one, and names the door to use instead', () => {
-    const err = arrayWriteError(true, { fact: 'x', entityIds: ['a'] });
+    const err = arrayWriteError({ converted: true, spaceId: 'sp', body: { fact: 'x', entityIds: ['a'] }, actor: undefined });
     assert.ok(err, 'a converted space accepted an array write');
     assert.match(err, /entityIds/, 'the refusal must say WHICH field');
     assert.match(err, /links/i, 'and point at the door that replaces it — a refusal with no alternative is a wall');
@@ -88,18 +88,18 @@ describe('the refusal itself', () => {
      * like any other. Treating an empty array as "no array mentioned" is the tempting shortcut and it leaves
      * exactly one way to clear links behind the old surface.
      */
-    assert.ok(arrayWriteError(true, { entityIds: [] }), 'an empty array is a removal, not an absence');
+    assert.ok(arrayWriteError({ converted: true, spaceId: 'sp', body: { entityIds: [] }, actor: undefined }), 'an empty array is a removal, not an absence');
   });
 
   it('refuses a NULL as well — it is the other spelling of the same removal', () => {
-    assert.ok(arrayWriteError(true, { memoryIds: null }));
+    assert.ok(arrayWriteError({ converted: true, spaceId: 'sp', body: { memoryIds: null }, actor: undefined }));
   });
 
   it('says nothing at all when the space has not converted', () => {
     // The whole point. An unconverted space has no door to redirect to for records written before the
     // upgrade, and its arrays are still the complete answer.
     for (const body of [{ entityIds: ['a'] }, { memoryIds: [] }, { chronoIds: null }]) {
-      assert.equal(arrayWriteError(false, body), null, `refused ${JSON.stringify(body)} on an unconverted space`);
+      assert.equal(arrayWriteError({ converted: false, spaceId: 'sp', body: body, actor: undefined }), null, `refused ${JSON.stringify(body)} on an unconverted space`);
     }
   });
 });

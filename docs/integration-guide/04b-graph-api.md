@@ -631,6 +631,52 @@ instead of being restored by one that still holds it.
 
 ---
 
+### Conversion Pre-flight — who still writes the arrays
+
+```http
+GET /api/brain/spaces/:spaceId/links/convert-preflight?windowDays=30
+```
+
+MCP: `links_convert_preflight`, same parameter and same default.
+
+**Read this before running `links:convert`.** Conversion sets `completeLinkage`, after which the six array
+fields are refused on write. That refusal reaches a caller on its **next write**, not at conversion time — so
+without this you convert, and learn which of your writers still use the old surface when one of them breaks,
+possibly a week later.
+
+**Response**:
+
+```json
+{
+  "spaceId": "tasks",
+  "since": "2026-08-09T07:00:00.000Z",
+  "retentionDays": 90,
+  "converted": false,
+  "writers": [
+    { "tokenId": "…", "tokenLabel": "ingest-worker", "fields": ["entityIds"], "lastAt": "2026-09-07T22:14:03.001Z", "count": 412 }
+  ]
+}
+```
+
+| field | meaning |
+|---|---|
+| `since` | the instant the answer starts from. **Read it before the count** — a count with no window on it cannot be told apart from a count over a shorter one |
+| `retentionDays` | how far back a note can exist at all. A larger `windowDays` cannot see past it, and is capped to it |
+| `writers` | one row per token, with the array fields it sent, when it last did, and how many times. Empty is what you are hoping for |
+| `converted` | already converted? Then the arrays are refused and this answers about the window before that |
+
+A writer whose token no longer exists still appears, under the label it had. A write that arrived with no
+token is reported with `tokenId: null` rather than dropped — dropping it would make the count lower than the
+truth, and a lower count reads exactly like a cleaner space.
+
+**`windowDays`** defaults to `30` and is CAPPED at `retentionDays` rather than refused -- ask for 365 and you are served 90, with `since` saying so. A non-positive value is refused on both doors, because there is no honest answer to serve for one. **Both doors behave identically here**, deliberately: the cap lives in the resolver they share, and an `inputSchema` bound would have made MCP refuse what REST served.
+
+**What is counted**: any write naming `entityIds`, `memoryIds` or `chronoIds`, on any of the seven write
+doors, including creates and including a value of `[]` or `null` — a present key is a write. Notes are taken
+only while a space is unconverted, which is the window this question is about.
+
+---
+
 ### Traverse Graph
 
 BFS traversal from a starting entity, following edges up to `maxDepth` hops.

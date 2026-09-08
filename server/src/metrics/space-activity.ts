@@ -186,7 +186,12 @@ export function classifyOperation(operation: string): CallClass | null {
   // what deleting a record would take with it, which is a real question about the space's contents. It is
   // also the step before a write, so excluding it would make the cautious path look like less demand than
   // the reckless one.
-  if (/\.(list|get|stats|er_model|traverse|export|search|validate|cascade_preview)$/.test(operation)) return 'read';
+  //
+  // `convert_preflight` joins them on the same reasoning one step further out: it asks who has been
+  // WRITING to the space, which is a question about the space's contents and is the step before a
+  // migration. Excluded, the careful operator who checks first would register less demand than the one
+  // who converts blind.
+  if (/\.(list|get|stats|er_model|traverse|export|search|validate|cascade_preview|convert_preflight)$/.test(operation)) return 'read';
 
   // Anything unrecognised counts as nothing rather than guessing. `space-activity-classes.test.js` enumerates
   // every operation the audit middleware defines and fails on one that lands here undeclared, so a new route

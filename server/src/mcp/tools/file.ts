@@ -530,7 +530,7 @@ export const update_file_metaTool: ToolHandler = {
     // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
     // Against the WRITE TARGET, because a proxy holds no records of its own and its marker would answer
     // for a space it never writes to.
-    const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), a);
+    const linkArrErr = arrayWriteError({ converted: usesLinkRecords(wt.target), spaceId: wt.target, body: a, actor: ctx.actor });
     if (linkArrErr) throw new Error(linkArrErr);
 
     const { isStrictLinkage } = await import('../../spaces/proxy.js');

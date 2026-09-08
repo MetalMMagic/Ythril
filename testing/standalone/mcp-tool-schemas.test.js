@@ -36,7 +36,7 @@ function traverseBounds(prop) {
 }
 
 describe('MCP tool schemas — universal invariants', () => {
-  it('exposes exactly 39 tools', () => {
+  it('exposes exactly 48 tools', () => {
     // A deliberate tripwire, not a fact worth asserting for its own sake: the number changing means a tool
     // was added or removed, and every tool needs an audit mapping, a read-only classification and a docs
     // row. Bump it when you have done those three, never to make the suite quiet.
@@ -70,7 +70,11 @@ describe('MCP tool schemas — universal invariants', () => {
     // `entity.cascade_preview`, it is READ-ONLY and deliberately visible to a readOnly token (it deletes
     // nothing and answers the same question the 409 already answers), and `16-mcp.md` carries its row in
     // the tool table, the read-only list and the REST mapping.
-    assert.equal(ALL_TOOLS.length, 47);
+    // 47 -> 48: `links_convert_preflight` (`F-25`). Prerequisites done -- `audit-map.ts` maps it to
+    // `link.convert_preflight`, it is READ-ONLY and visible to a readOnly token (it writes nothing and
+    // answers a question about writes that already happened), and `16-mcp.md` carries its row. It ships
+    // WITH its REST route rather than after it.
+    assert.equal(ALL_TOOLS.length, 48);
   });
 
   it('every tool advertises a closed object schema (type:object, additionalProperties:false)', () => {

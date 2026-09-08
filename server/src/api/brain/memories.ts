@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { requestActor } from '../../auth/request-actor.js';
 import { shapeError } from '../../brain/write-shape.js';
 import { entityDeleteBlockers } from '../../brain/entity-delete-guard.js';
 import { usesLinkRecords } from '../../brain/link-adjacency.js';
@@ -66,7 +67,8 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
   // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
   // proxy itself holds nothing and its own marker would answer for a space it never writes to.
-  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  const linkArrErr = arrayWriteError({ converted: usesLinkRecords(wt.target), spaceId: wt.target, body: req.body,
+    actor: requestActor(req) });
   if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const targetSpace = wt.target;
   const { fact, tags = [], entityIds = [], description, properties, type: memoryType } = req.body ?? {};
@@ -318,7 +320,8 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   // `M-2`: on a converted space the six arrays are no longer a write surface — see `arrayWriteError`.
   // Checked against the WRITE TARGET, which on a proxy is the member space that will hold the record: the
   // proxy itself holds nothing and its own marker would answer for a space it never writes to.
-  const linkArrErr = arrayWriteError(usesLinkRecords(wt.target), req.body);
+  const linkArrErr = arrayWriteError({ converted: usesLinkRecords(wt.target), spaceId: wt.target, body: req.body,
+    actor: requestActor(req) });
   if (linkArrErr) { res.status(400).json({ error: linkArrErr }); return; }
   const ifMatch = ifMatchFromRequest(req);
   if (!ifMatch.ok) { res.status(400).json({ error: ifMatch.error }); return; }

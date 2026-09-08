@@ -88,7 +88,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `upsert_link`, `delete_link`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `retry_record_embedding`, `retry_failed_media_embeddings`, `update_file_meta`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`, `list_embed_jobs`, `entity_cascade_preview`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `delete_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `delete_edge`, `upsert_link`, `delete_link`, `create_chrono`, `update_chrono`, `delete_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `retry_embedding`, `retry_record_embedding`, `retry_failed_media_embeddings`, `update_file_meta`, `sync_now`, `update_space`, `update_space_schema`, `create_space`, `reindex`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`, `list_embed_jobs`, `entity_cascade_preview`, `links_convert_preflight`) work normally. `list_tokens` is read-only but **admin-gated**, like `list_peers`. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -254,6 +254,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `delete_edge` | Delete an edge by ID |
 | `upsert_link` | Record that one record CONCERNS another — a memory about an entity, a file about a chrono entry. Six classes, no label and no weight: an edge says how two things relate, a link says only that one is about the other. The id is derived from the connection, so re-running it is a no-op |
 | `delete_link` | Remove one link by ID. Clears the array entry too, so nothing is left claiming the connection |
+| `links_convert_preflight` | Which tokens still write the legacy `entityIds` / `memoryIds` / `chronoIds` to this space, and when each last did. Read before converting it |
 | `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops. Chrono entries referencing a reached node come back too, marked `kind: "chrono"` (`includeChrono: false` for entity-only); `includeMemories: true` reaches memories the same way (opt-in — they are numerous and count against `limit`); `includeFiles: true` reaches files, returning **file meta only** — path, description, tags, never passage text, and one node per file rather than per chunk; `includeEdges: false` drops the edge list from the answer without changing the walk |
 | `create_chrono` | Create a chrono entry (the five built-in types, or the space's own declared chrono types, which replace them) |
 | `update_chrono` | Update an existing chrono entry, including `suppressEmbeddings`. Requires at least one field beyond `id` |
@@ -557,6 +558,7 @@ composes what REST exposes as one DELETE per collection.
 | **Brain — links** | | | |
 | | `upsert_link` | `POST /api/brain/spaces/:spaceId/links` | write `knowledge` |
 | | `delete_link` | `DELETE /api/brain/spaces/:spaceId/links/:id` | write `knowledge` |
+| | `links_convert_preflight` | `GET /api/brain/spaces/:spaceId/links/convert-preflight` | read `knowledge` |
 | **Brain — chrono** | | | |
 | | `create_chrono` | `POST /api/brain/spaces/:spaceId/chrono` | write `knowledge` |
 | | `update_chrono` | `PATCH /api/brain/spaces/:spaceId/chrono/:id` | write `knowledge` |

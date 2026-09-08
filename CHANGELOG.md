@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **You can now find out who is still writing the old connection lists, before you convert a space.**
+
+  Converting a space (`links:convert`) turns its `entityIds` / `memoryIds` / `chronoIds` entries into link
+  records and makes those fields refuse further writes. The refusal is correct and it is opt-in — but it
+  reaches a caller on its **next write**, not at conversion time, so an operator converts and then learns
+  which of their writers still use the old surface when one of them breaks, possibly days later. One
+  operator had five and knew about none of them.
+
+  `GET /api/brain/spaces/:spaceId/links/convert-preflight` and the `links_convert_preflight` tool answer with
+  the access tokens that have sent a connection list to that space: which fields, when each last did, and how
+  many times. `windowDays` defaults to 30.
+
+  **Read the `since` in the answer before the count.** It says how far back the answer looks, and a count
+  with no window on it cannot be told apart from a count over a shorter one. Nothing older than 90 days is
+  kept, and asking for a longer window is capped to it rather than refused — on both doors.
+
+  Deleting a space forgets its answer with it, so a space recreated under the same id is never told about
+  writers that wrote to its predecessor.
+
 ### Fixed
 
 - **Three of the ten per-model time limits could not be set anywhere, and four of them had no effect when

@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { boundedJson } from '../util/bounded-read.js';
 import { z } from 'zod';
-import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey, getRerankApiKey } from '../config/loader.js';
+import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey, getRerankApiKey, getModelSlots } from '../config/loader.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import type { MediaLevelCeilings } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
@@ -83,6 +83,21 @@ mediaConfigRouter.get('/', requireAdmin, (req, res) => {
   // Text embedding lives at top-level config.embedding but is surfaced here so it's on the Models page.
   const emb = getEmbeddingConfig();
   masked['embedding'] = { ...emb, apiKey: emb.apiKey ? '••••••••' : undefined };
+  /*
+   * The per-slot budgets and reasoning efforts, for the SAME reason as the line above — and this omission is
+   * why that line is now a rule with a gate rather than a comment.
+   *
+   * `modelSlots` is top-level config too, so it was never in the object being masked. The PATCH accepted it
+   * and stored it correctly the whole time; this door never sent it back. The Models tab reads
+   * `cfg.modelSlots ?? {}`, so every per-slot control rendered EMPTY on page load whatever was stored — an
+   * operator sets a budget, saves, reloads, sees a blank box showing the built-in default as a placeholder,
+   * and reasonably concludes it did not save. Nothing errored and the value was applied throughout.
+   *
+   * No secret to mask: a slot holds a number and an effort string.
+   * `the-read-door-returns-what-the-write-door-accepts.test.js` derives the settable blocks from the PATCH
+   * schema, so the next top-level block cannot be added to one door alone.
+   */
+  masked['modelSlots'] = getModelSlots();
   res.json(masked);
 });
 

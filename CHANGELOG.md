@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A per-model time limit you had set showed as blank whenever you reloaded the Models page.**
+
+  The value was stored and applied correctly the whole time — the page just could not read it back. The
+  settings screen asks the server for its media configuration, and the per-slot budgets and reasoning
+  efforts were the one block that answer never contained, so every one of those boxes rendered empty on load
+  with the built-in default showing as a placeholder. Set a budget, save, reload, and it looked as though
+  nothing had been saved.
+
+  Nothing was lost, and nothing needs re-entering: reload the page and the values you set are there.
+
 - **Three of the ten per-model time limits could not be set anywhere, and four of them had no effect when
   they were.**
 

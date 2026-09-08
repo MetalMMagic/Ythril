@@ -75,9 +75,42 @@ const src = f => stripComments(readFileSync(f, 'utf8'));
  */
 function mountPrefixes() {
   const edges = [];
-  for (const f of trackedSources(['server/src'], { floor: 50 })) {
-    for (const m of src(f).matchAll(/\b(\w+)\.use\(\s*'([^']*)'\s*,\s*(\w+)/g)) {
+  const allSources = trackedSources(['server/src'], { floor: 50 });
+  for (const f of allSources) {
+    const s = src(f);
+    for (const m of s.matchAll(/\b(\w+)\.use\(\s*'([^']*)'\s*,\s*(\w+)/g)) {
       edges.push({ parent: m[1], prefix: m[2], child: m[3] });
+    }
+    /*
+     * `brainRouter.use(memoriesRouter)` — mounted at the parent's own path with NO prefix argument.
+     *
+     * Reading only the two-argument form resolved 117 of 217 registrations, and the hundred it missed were
+     * the whole brain tree — fifty of the eighty-five `ROUTE_RIGHTS` rows. They were not reported as
+     * unmatched; they were absent, and the floor below passed comfortably on what remained. A gate
+     * concluding about every row while reading two fifths of them is this file's own subject.
+     */
+    for (const m of s.matchAll(/\b(\w+)\.use\(\s*(\w+Router)\s*\)/g)) {
+      edges.push({ parent: m[1], prefix: '', child: m[2] });
+    }
+    /*
+     * A route registered by a FUNCTION, onto the router it is handed:
+     *
+     *     export function registerUploadRoute(router: Router) { router.post('/:spaceId', ...) }
+     *     registerUploadRoute(fileStoreRouter);            // in another file
+     *
+     * The registration names its parameter, so the scan sees a router called `router` that nothing mounts.
+     * `registerReembedRoute` gets away with it only because its parameter happens to be spelled
+     * `spacesRouter` — luck, not design, and `POST /api/files/:spaceId` had no such luck: a real row on a
+     * real route, invisible. Bind the parameter to whatever the single call site passes.
+     */
+    for (const m of s.matchAll(/export function (\w+)\(\s*(\w+)\s*:\s*Router/g)) {
+      const callers = allSources
+        .flatMap(g => [...src(g).matchAll(new RegExp(`\\b${m[1]}\\(\\s*(\\w+)\\s*\\)`, 'g'))].map(c => c[1]));
+      // Only when every call site passes the SAME router. Two callers would make one parameter mean two
+      // prefixes, and a guess there is worse than the gap it fills.
+      if (callers.length && callers.every(c => c === callers[0])) {
+        edges.push({ parent: callers[0], prefix: '', child: m[2], alias: true });
+      }
     }
   }
   const at = { app: '' };
@@ -127,6 +160,27 @@ describe('a rights row is reachable at the rung it names', () => {
     const rows = new Set(ROUTE_RIGHTS.map(r => `${r.method} ${r.route}`));
     const stale = Object.keys(KNOWN_MISMATCH).filter(k => !rows.has(k));
     assert.deepEqual(stale, [], `these exemptions name rows that are gone: ${stale.join(', ')}`);
+  });
+
+  it('every path-scoped row reaches a real registration', () => {
+    /*
+     * THE HOLE THIS CLOSES, and it was open in the first version of this file.
+     *
+     * The case below reads `if (!hit) continue;` — a row that matches no registration checks nothing and
+     * says nothing. That is fine only while the matcher can see the whole surface, and it could not: the
+     * brain routers mount without a prefix argument, so fifty of the eighty-five rows silently found no
+     * registration and the gate reported clean about every one of them.
+     *
+     * Deriving the subject set is not enough on its own — the set has to be shown to have ARRIVED. An
+     * `iterates` row is exempt because it names no path: its enforcement point is the loop, not the call.
+     */
+    const missing = ROUTE_RIGHTS
+      .filter(row => row.scope === 'path')
+      .filter(row => !regs.some(r => r.method === row.method && r.route === row.route))
+      .map(row => `${row.method} ${row.route}`);
+    assert.deepEqual(missing, [],
+      'these rights rows match no route registration, so nothing below checks them — either the route is '
+      + `gone and the row is stale, or the scan cannot see it:\n  ${missing.join('\n  ')}`);
   });
 
   it('no row is guarded above the rung it advertises', () => {

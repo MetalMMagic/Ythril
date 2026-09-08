@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- `whenDuePasses` is now exercised end to end against a real store, not only asserted from source. The
+  standalone gate reads the status filter's query SHAPE, and a query whose shape is plausible can still match
+  the wrong rows — so the four-row truth table an operator actually cares about (both read paths, and the
+  filter in both directions) is driven against a live instance on every run.
+
 ## [4.3.0] — 2026-09-08
 
 **The release where you decide what a passed date means.** A chrono entry whose due moment has passed reads

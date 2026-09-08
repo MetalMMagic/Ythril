@@ -995,11 +995,7 @@ function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKn
       return { ...base, type: 'edge', from: doc['from'] as string, to: doc['to'] as string, label: doc['label'] as string, weight: doc['weight'] as number | undefined, edgeType: doc['type'] as string | undefined };
     case 'chrono':
       return { ...base, type: 'chrono', title: doc['title'] as string, chronoType: doc['type'] as string, startsAt: doc['startsAt'] as string, status: deriveChronoStatus({ status: doc['status'] as ChronoStatus, startsAt: doc['startsAt'] as string, endsAt: doc['endsAt'] as string | undefined },
-        new Date(),
-        // `F-26`: the same resolver the chrono read path uses. A `?? 'overdue'` here would be the second
-        // implementation, and a recall hit disagreeing with a direct read of the same record is exactly
-        // the two-answers-one-record defect the ruling was made to end.
-        datePassedPolicy(getSpaceMeta(doc['spaceId'] as string), doc['type'] as string | undefined)), entityIds: doc['entityIds'] as string[] | undefined };
+        new Date(), datePassedPolicy(getSpaceMeta(doc['spaceId'] as string), doc['type'] as string | undefined)), entityIds: doc['entityIds'] as string[] | undefined };
     case 'file':
       return { ...base, type: 'file', path: doc['path'] as string, sizeBytes: doc['sizeBytes'] as number | undefined, headingText: doc['headingText'] as string | null | undefined, content: doc['content'] as string | undefined, parentFileId: doc['parentFileId'] as string | undefined, chunkIndex: doc['chunkIndex'] as number | undefined, mediaType: doc['mediaType'] as 'image' | 'audio' | 'video' | undefined, embeddingStatus: doc['embeddingStatus'] as RecallFile['embeddingStatus'], chunkOffsetMs: doc['chunkOffsetMs'] as number | undefined, chunkDurationMs: doc['chunkDurationMs'] as number | undefined };
   }

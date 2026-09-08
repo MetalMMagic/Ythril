@@ -44,6 +44,13 @@
  * reason it is a string rather than a boolean: `suppressEmbeddings: true|false` cannot grow a third state
  * without a migration, and this can.
  *
+ * ## Its two readers, and why neither may resolve this itself
+ *
+ * `chrono.ts` (the read path and the list filter) and `recall.ts` (a chrono hit's projection). A
+ * `?? 'overdue'` in either is a second implementation, and the symptom would be a recall hit disagreeing
+ * with a direct read of the SAME record — the two-answers-one-record defect this whole feature was ruled on
+ * to end. `a-passed-date-means-what-the-schema-says.test.js` asserts both reach this module.
+ *
  * ## Why this module imports nothing but its own types
  *
  * `chrono-status.ts` is a leaf on purpose — `recall.ts` and `chrono.ts` both need it and would otherwise

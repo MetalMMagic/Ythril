@@ -144,6 +144,10 @@ export interface TypeSchema {
   /** Skip embedding this type — the schema tier of **record > schema > space**. Absent means NOT STATED and
    *  falls through to the space setting; it does not mean `false`. Turning it off does not backfill. */
   suppressEmbeddings?: boolean;
+  /** CHRONO only — what a passed due moment MEANS for this type. Absent is today's behaviour (`overdue`);
+   *  `nothing` returns the STORED status, for records of events that happened rather than deadlines. The
+   *  schema tier of **schema > space**. Refused on the other three collections. */
+  whenDuePasses?: 'overdue' | 'nothing';
   /** EDGE only — what kind of entity may sit at each end. Carried through a save; no control yet. */
   endpoints?: { from?: string[]; to?: string[] };
   /** EDGE only — at most one edge with this label per subject. Carried through a save; no control yet. */
@@ -197,6 +201,9 @@ export interface SpaceMeta {
    *  suppression is opt-in. Any type schema that states a value overrides this. Turning it off does not
    *  backfill on its own — that is `POST /api/spaces/:id/reembed`. */
   suppressEmbeddings?: boolean;
+  /** Space-wide default for what a passed chrono due moment means — the outer tier of schema > space.
+   *  Absent is today's behaviour (`overdue`). Any chrono type schema that states a value overrides it. */
+  whenDuePasses?: 'overdue' | 'nothing';
   updatedAt?: string;
 }
 

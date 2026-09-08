@@ -35,19 +35,39 @@ memory. See [Retry Safety](04-brain-api.md#retry-safety).
   type outside the space's list returns `400` naming the ones it will accept
   (`` `type` must be one of: … ``). Read the current list from `typeSchemas.chrono` in
   `GET /api/spaces/:id/meta` before offering a choice.
-- `status` — `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`. You never need to set
-  `overdue` yourself: it is **derived on read** — an entry whose due moment (`endsAt`, or `startsAt` if
-  it has none) has passed and that is not `completed`/`cancelled` is returned as `overdue`.
+- `status` — `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`.
+
+  **What a passed due moment MEANS is the type's to decide, and by default it means late.** With no setting,
+  an entry whose due moment (`endsAt`, or `startsAt` if it has none) has passed and that is not
+  `completed`/`cancelled` is returned as `overdue` — **derived on read**, so you never need to set it
+  yourself.
+
+  **Turn it off for a type whose records are events rather than deadlines.** Set `whenDuePasses: "nothing"`
+  on a chrono type in `typeSchemas.chrono`, or on the space's `meta` to cover every type that says nothing,
+  and those records return the status you STORED. For entries recording something that happened — a deploy,
+  a backup run, an alert episode — a past date is the normal condition and does not mean late. *New in 4.3.*
+
+  | `whenDuePasses` | what a past due moment does |
+  |---|---|
+  | absent | the default: reads as `overdue` |
+  | `"overdue"` | the same, stated explicitly |
+  | `"nothing"` | nothing — the stored status is returned |
+
+  Resolution is **schema > space**, matching `retention` and `suppressEmbeddings`. There is no per-record
+  override: the meaning of a past date belongs to the kind of thing, not to one instance of it.
+
   **Storing `overdue` is accepted and `status=overdue` finds it** — that filter returns both kinds, the
   derivable ones and the ones somebody marked. It is still not worth setting: a stored `overdue` never
   reverts, so an entry marked by hand stays overdue after you move its dates forward, where a derived one
-  corrects itself.
-  The derivation applies to the chrono read paths only: `POST /query` reads documents as stored, so the
-  same entry is `upcoming` there and `overdue` in `GET /chrono`.
+  corrects itself. On a `"nothing"` type the filter returns only the stored ones, which is the same rule
+  read consistently rather than a second behaviour.
+
+  The derivation applies to the chrono read paths only: `POST /query` reads documents as stored, so a
+  deriving entry is `upcoming` there and `overdue` in `GET /chrono`. Sync sees the stored value too.
 - `endsAt` — optional ISO 8601. When present it **replaces `startsAt` as the due moment**, so an entry that
   began last month and ends next year is not overdue. **Nothing validates the order**: an `endsAt` earlier
-  than `startsAt` is stored as sent, and the entry then reads as `overdue` immediately. Check it yourself if
-  that matters.
+  than `startsAt` is stored as sent, and on a type that derives the entry then reads as `overdue`
+  immediately. Check it yourself if that matters.
 - `confidence` — `0`–`1` (optional, useful for predictions)
 - `entityIds` — array of UUID v4 entity IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled
 - `memoryIds` — array of UUID v4 memory IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled

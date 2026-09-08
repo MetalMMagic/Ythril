@@ -222,6 +222,12 @@ const COLLECTION_SCOPED_FIELDS: ReadonlyArray<{
     why: 'the fields it drops are a chrono entry\'s — its description, its embedding and its matched text — so on '
       + 'another collection it names nothing. Use retention.days to delete records of any type',
   },
+  {
+    path: 'whenDuePasses',
+    only: 'chrono',
+    why: 'it says what a passed DUE MOMENT means, and only a chrono entry has one — nothing else in the brain '
+      + 'carries a date the clock is compared against',
+  },
 ];
 
 /** The value at a dotted path, or `undefined`. Only two levels are needed and only two are supported. */

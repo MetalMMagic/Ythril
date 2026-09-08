@@ -126,6 +126,27 @@ describe('every reader resolves it the same way', () => {
       `these read a chrono status and never resolve the per-type policy: ${offenders.join(', ')}`);
   });
 
+  it('no chrono schema states the derivation as unconditional', () => {
+    /*
+     * A tool's `inputSchema` description is what a caller reads WHILE CONSTRUCTING ARGUMENTS, so a stale
+     * sentence there is invisible: nobody reports a capability they were told they did not have. It was
+     * stated five times across three schemas, each spelling out the mechanism, and `F-26` made the mechanism
+     * conditional — five chances for one to keep describing the old behaviour.
+     *
+     * One shared sentence states the PROMISE instead. This refuses a sixth copy: any OTHER place claiming
+     * the derivation happens, outside that constant and the comment explaining it.
+     */
+    const s = src('server/src/mcp/tools/chrono.ts');
+    const body = s.slice(s.indexOf('export const'));
+    const claims = body.split('\n')
+      .filter(l => /DERIVED on read|derived on read|never need to set/.test(l))
+      .map(l => l.trim())
+      .filter(l => !l.includes('WHAT_A_PASSED_DATE_MEANS'));
+    assert.deepEqual(claims, [],
+      'these state the derivation directly instead of quoting the one sentence that says what decides it, '
+      + `so they will not be updated together: ${claims.join(' | ')}`);
+  });
+
   it('the status FILTER is type-aware, not just the read path', () => {
     const s = src('server/src/brain/chrono.ts');
     const at = s.indexOf('export function buildChronoQuery');

@@ -139,6 +139,37 @@ describe('retention.contentDays is CHRONO only, which was promised and not done'
   });
 });
 
+describe('whenDuePasses is CHRONO only, because only a chrono entry has a due moment', () => {
+  /*
+   * A case per ROW, which is the lesson this file already carries: the mechanism was covered by contentDays
+   * and the rows were not, and a mutation run found that only after the fields had shipped. `F-26` adds a
+   * row, so it adds cases.
+   */
+  for (const c of ['entity', 'memory', 'edge']) {
+    it(`whenDuePasses is refused on ${c}`, () => {
+      const msg = reject(under(c, { whenDuePasses: 'nothing' }));
+      assert.ok(msg,
+        `${c} accepted a setting about what a passed due moment means, and ${c} records have no due moment — `
+        + 'so it would be stored, returned, and do nothing for ever');
+      assert.match(msg, /chrono/, 'the refusal must name the collection the field belongs to');
+      assert.match(msg, new RegExp(c), 'and the collection it was wrongly set on');
+    });
+  }
+
+  it('and both values are accepted on chrono', () => {
+    assert.equal(reject(under('chrono', { whenDuePasses: 'nothing' })), null);
+    assert.equal(reject(under('chrono', { whenDuePasses: 'overdue' })), null);
+  });
+
+  it('a value outside the vocabulary is refused rather than stored', () => {
+    // The enum is the write door's half of "an unrecognised value reads as unset": the resolver falls back so
+    // a hand-edited config cannot invent a third behaviour, and this stops the API being the way one arrives.
+    assert.ok(reject(under('chrono', { whenDuePasses: 'none' })),
+      '`none` is a plausible guess for `nothing` and must be refused, not stored');
+  });
+});
+
+
 describe('the refusal says what to do instead', () => {
   it('the message names the field, the collection it belongs to, and a way forward', () => {
     /*

@@ -309,7 +309,16 @@ const FROZEN = {
   // house a number is the make-work this list's own rule warns against, and the real decomposition of this
   // module already happened — the seed traversal is its own module and the create-shape vocabulary moved
   // out, which is what took it from 718 down.
-  'server/src/brain/recall.ts': 686,
+  // RAISED 686 -> 689 for `F-26`: TWO IMPORTS AND A CONTINUATION, and there is no smaller form.
+  // A chrono hit's status is now resolved per TYPE, and the one thing this file must not do is resolve it
+  // itself — a `?? 'overdue'` here would be the second implementation, and the symptom is a recall hit
+  // disagreeing with a direct read of the SAME record, which is the defect the owner's ruling was made to
+  // end. So it imports the resolver and the existing `getSpaceMeta`, and the reasoning that would otherwise
+  // sit here as a comment lives in `brain/chrono-date-policy.ts` beside the function.
+  // NO DECOMPOSITION: the alternative to these three lines is not a smaller file, it is a duplicate policy.
+  // The real decomposition of this module already happened — the seed traversal and the create-shape
+  // vocabulary are their own modules, which is what took it down from 718.
+  'server/src/brain/recall.ts': 689,
   // 678 -> 687: two conditional notices on the face card — the enable pin stating what it does NOT reach, and
   // "configured but not in use" for a stored endpoint awaiting acknowledgement. Nine lines of markup, and the
   // first attempt wanted THIRTY because the reasoning was written as HTML comments inside the template. That

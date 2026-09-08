@@ -256,6 +256,11 @@ interface TypeSchema {
   suppressEmbeddings?: boolean;                   // skip embedding this type. Absent = NOT STATED, falls
                                                   //   through to the space setting — it does not mean false.
                                                   //   Does NOT backfill when switched off (see below).
+  whenDuePasses?: 'overdue' | 'nothing';          // CHRONO only, rejected elsewhere. What a passed due
+                                                  //   moment MEANS for this type. Absent = today's
+                                                  //   behaviour (`overdue`). `nothing` returns the STORED
+                                                  //   status, for records of events that happened rather
+                                                  //   than deadlines. schema > space. See 04c-chrono-api.md.
   endpoints?: { from?: string[]; to?: string[] };  // EDGE only — what kind of entity may sit at each end.
                                                   //   Each side independently optional; absent = any. Members
                                                   //   are entity type names, plus `UNTYPED`. Two arrays mean

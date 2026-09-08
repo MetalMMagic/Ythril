@@ -57,6 +57,9 @@ export const WRITER_NOTE_RETENTION_DAYS = 90;
 
 const COLLECTION = '_legacy_array_writers';
 
+/** One warning per process when the note write is failing — see the catch in `noteLegacyArrayWrite`. */
+let warnedOnce = false;
+
 interface WriterNote {
   _id: string;
   spaceId: string;
@@ -109,8 +112,19 @@ export function noteLegacyArrayWrite(input: {
       await col<WriterNote>(COLLECTION).updateOne(
         asFilter<WriterNote>({ _id: noteId(spaceId, tokenId, field) }),
         {
-          // `$setOnInsert` for `firstAt`, so "since when" survives every later write by the same token.
-          $setOnInsert: { spaceId, tokenId, tokenLabel: tokenLabel, field, firstAt: now },
+          /*
+           * NO FIELD APPEARS IN BOTH OPERATORS, and that is a hard Mongo rule rather than a preference.
+           *
+           * `tokenLabel` was in `$setOnInsert` AND `$set`, and Mongo refuses the whole update with
+           * "Updating the path 'tokenLabel' would create a conflict at 'tokenLabel'". Every note failed,
+           * the failure was swallowed here, and the pre-flight answered "no writers" for a space being
+           * written to — the inert control this whole feature exists to prevent, in the feature itself.
+           * It compiled, it type-checked, and no source gate could see it; the integration test
+           * `links-convert-preflight.test.js` drives a real write against a real Mongo and does.
+           *
+           * `firstAt` is insert-only, so "since when" survives every later write by the same token.
+           */
+          $setOnInsert: { spaceId, tokenId, field, firstAt: now },
           // The label is refreshed rather than pinned: a token that was renamed should be reported under the
           // name an operator will recognise today, and the id is what identifies it either way.
           $set: { lastAt: now, tokenLabel },
@@ -120,8 +134,19 @@ export function noteLegacyArrayWrite(input: {
       );
     }
   })().catch(err => {
-    // Debug, not warn. This is advisory and a noisy failure on the hot write path would train an operator to
-    // ignore the log — the pre-flight itself reports how far back it can see, which is the honest signal.
+    /*
+     * Swallowed, because an advisory observation must never fail the write it observes — but LOUD ONCE.
+     *
+     * This was `log.debug`, and that is how a total failure stayed invisible: every note was being refused
+     * and the only symptom was a pre-flight that answered "nobody" — which is exactly what a healthy space
+     * answers. A warning per write would train an operator to ignore the log; a warning ONCE per process
+     * says "this is broken" without becoming noise, and a transient blip stays quiet after it.
+     */
+    if (!warnedOnce) {
+      warnedOnce = true;
+      log.warn(`Legacy array-write notes are not being recorded (${err instanceof Error ? err.message : String(err)}). `
+        + 'The links conversion pre-flight will under-report until this is fixed; this is logged once per process.');
+    }
     log.debug(`legacy array-write note failed for '${spaceId}': ${err instanceof Error ? err.message : String(err)}`);
   });
 }

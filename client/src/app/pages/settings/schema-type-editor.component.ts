@@ -159,6 +159,20 @@ import { mergeFnsFor, mergeFnAfterTypeChange } from '../../shared/merge-fns';
   @if (contentWindowNeverFires(); as total) {
     <div class="sch-msg err">{{ 'spaces.schema.retention.contentTooLate' | transloco: { total } }}</div>
   }
+  <!-- chrono only, and three states for the same reason the suppression control below has three: "inherit"
+       is the space setting, and the other two are deliberate overrides in each direction. A type that says
+       nothing must reach the space tier, which a two-state control could not express. -->
+  @if (knowledgeType() === 'chrono') {
+    <div class="field">
+      <label>{{ 'spaces.schema.whenDuePasses.label' | transloco }}</label>
+      <select [ngModel]="whenDueValue()" (ngModelChange)="setWhenDue($event)" style="max-width:320px;">
+        <option value="inherit">{{ 'spaces.schema.whenDuePasses.inherit' | transloco }}</option>
+        <option value="overdue">{{ 'spaces.schema.whenDuePasses.overdue' | transloco }}</option>
+        <option value="nothing">{{ 'spaces.schema.whenDuePasses.nothing' | transloco }}</option>
+      </select>
+      <div class="sch-hint" style="margin-top:3px;">{{ 'spaces.schema.whenDuePasses.hint' | transloco }}</div>
+    </div>
+  }
   <!-- Three states, not a checkbox. "Inherit" is the space setting and is the DEFAULT; the other two are
        deliberate overrides in each direction. A two-state control could not express "embed this type even
        though the space suppresses", and it would write a value on every save for types nobody touched. -->
@@ -537,6 +551,11 @@ export class SchemaTypeEditorComponent {
 
   setSuppress(v: 'inherit' | 'on' | 'off'): void {
     this.draft().suppressEmbeddings = v === 'inherit' ? null : v === 'on';
+  }
+  /** `null` is NOT STATED and shows as inherit — the tier below answers. See `TypeSchema.whenDuePasses`. */
+  whenDueValue(): 'inherit' | 'overdue' | 'nothing' { return this.draft().whenDuePasses ?? 'inherit'; }
+  setWhenDue(v: 'inherit' | 'overdue' | 'nothing'): void {
+    this.draft().whenDuePasses = v === 'inherit' ? null : v;
   }
   /**
    * One line summarising a property's constraints, for the collapsed row.

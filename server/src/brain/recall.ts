@@ -18,6 +18,8 @@ import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 import { isRawFilter, type RecallFilter } from './recall-filter.js';
 import { deriveChronoStatus } from './chrono-status.js';
+import { datePassedPolicy } from './chrono-date-policy.js';
+import { getSpaceMeta } from '../spaces/schema-validation.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER, type LexicalHit } from './lexical-search.js';
 import { atlasVectorScore, scoresAgree } from './vector-score.js';
@@ -992,7 +994,8 @@ function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKn
     case 'edge':
       return { ...base, type: 'edge', from: doc['from'] as string, to: doc['to'] as string, label: doc['label'] as string, weight: doc['weight'] as number | undefined, edgeType: doc['type'] as string | undefined };
     case 'chrono':
-      return { ...base, type: 'chrono', title: doc['title'] as string, chronoType: doc['type'] as string, startsAt: doc['startsAt'] as string, status: deriveChronoStatus({ status: doc['status'] as ChronoStatus, startsAt: doc['startsAt'] as string, endsAt: doc['endsAt'] as string | undefined }), entityIds: doc['entityIds'] as string[] | undefined };
+      return { ...base, type: 'chrono', title: doc['title'] as string, chronoType: doc['type'] as string, startsAt: doc['startsAt'] as string, status: deriveChronoStatus({ status: doc['status'] as ChronoStatus, startsAt: doc['startsAt'] as string, endsAt: doc['endsAt'] as string | undefined },
+        new Date(), datePassedPolicy(getSpaceMeta(doc['spaceId'] as string), doc['type'] as string | undefined)), entityIds: doc['entityIds'] as string[] | undefined };
     case 'file':
       return { ...base, type: 'file', path: doc['path'] as string, sizeBytes: doc['sizeBytes'] as number | undefined, headingText: doc['headingText'] as string | null | undefined, content: doc['content'] as string | undefined, parentFileId: doc['parentFileId'] as string | undefined, chunkIndex: doc['chunkIndex'] as number | undefined, mediaType: doc['mediaType'] as 'image' | 'audio' | 'video' | undefined, embeddingStatus: doc['embeddingStatus'] as RecallFile['embeddingStatus'], chunkOffsetMs: doc['chunkOffsetMs'] as number | undefined, chunkDurationMs: doc['chunkDurationMs'] as number | undefined };
   }

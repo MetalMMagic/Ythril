@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **You decide what a passed date means, per chrono type.**
+
+  A chrono entry whose due moment has passed reads back as **overdue**. That is right for a deadline and
+  wrong for a record of something that HAPPENED — a deploy, a backup run, an alert episode — where a date in
+  the past is the normal condition and means the opposite of late. One operator had two readers comparing
+  the returned status against `active`; because those records are past-dated by construction, neither
+  comparison could ever succeed, and **1 687 of 1 806 entries in one space never closed**.
+
+  Set `whenDuePasses` to `"nothing"` on a chrono type in the space schema — or on the space itself, to cover
+  every type that does not say otherwise — and those entries come back with the status you stored. Set
+  `"overdue"`, or leave it out, and nothing changes.
+
+  **Absent everywhere is exactly today's behaviour**, so an instance that sets nothing sees no difference.
+  Resolution is schema over space, the same order `retention` and `suppressEmbeddings` use. It applies to the
+  status FILTER too, so listing by `overdue` cannot return an entry that reads as `active` everywhere else.
+
+  Refused on the other collections rather than stored and ignored: only a chrono entry has a due moment.
+
 ## [4.2.0] — 2026-09-08
 
 **The release where a control that was documented actually applies.** Everything here is one shape found in

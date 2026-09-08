@@ -114,6 +114,20 @@ export interface TypeSchema {
    * alternative (a local-only setting) lets two members of one network disagree about what the space keeps.
    */
   retention?: { days?: number; contentDays?: number };
+  /**
+   * **Chrono only.** What a PASSED due moment means for records of this type. Absent is today's behaviour.
+   *
+   * `overdue` (the default) derives `overdue` on read once the due moment is behind us. `nothing` returns
+   * the STORED status instead — for a type whose records are events that OCCURRED rather than deadlines,
+   * where a past date is the normal condition and means the opposite of late.
+   *
+   * The middle tier of **schema > space**, matching `retention` and `suppressEmbeddings`. There is no record
+   * tier on purpose: the meaning of a past date belongs to the KIND of thing, not to one instance of it.
+   *
+   * `brain/chrono-date-policy.ts` owns the resolution and says why the value is a string rather than a
+   * boolean, and why a multi-rung ladder was considered and not built.
+   */
+  whenDuePasses?: DatePassedPolicy;
   /** Property key → JSON Schema subset for value validation and merge hints. */
   propertySchemas?: Record<string, PropertySchema>;
   /**
@@ -438,6 +452,13 @@ export interface StampSkewable {
   stampSkew?: StampSkew;
 }
 
+/**
+ * What a passed due moment may mean. Declared here because both `SpaceMeta` and `TypeSchema` carry it and
+ * this module imports nothing; `brain/chrono-date-policy.ts` re-exports the tuple it is derived from, so the
+ * vocabulary has one home and the policy has one resolver.
+ */
+export type DatePassedPolicy = 'overdue' | 'nothing';
+
 export interface SpaceMeta {
   /** Version counter — auto-incremented on every meta change. */
   version?: number;
@@ -447,6 +468,16 @@ export interface SpaceMeta {
   usageNotes?: string;
   /** Validation enforcement level. Default: 'off'. */
   validationMode?: ValidationMode;
+  /**
+   * **Chrono only.** What a PASSED due moment means across this space, for types whose own schema is silent.
+   *
+   * The outer tier of **schema > space**. Absent is today's behaviour (`overdue`), so an instance that
+   * upgrades and changes nothing sees nothing change. Set `nothing` on a space whose chrono entries are
+   * mostly records of events that happened, and override per type where a real deadline lives.
+   *
+   * See `brain/chrono-date-policy.ts` for the resolution and for why there is no per-record tier.
+   */
+  whenDuePasses?: DatePassedPolicy;
   /**
    * Per-type schemas for each knowledge collection.
    * Keys of typeSchemas.entity are the allowed entity type values (allowlist).

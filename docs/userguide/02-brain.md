@@ -222,10 +222,16 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
 
-> **"Overdue" is worked out from the clock.** An entry you left as *upcoming* whose date has passed shows as
-> **overdue** on its own — nobody has to mark it. That also means filtering by *upcoming* or *active* leaves
-> those entries out, because they are counted as overdue now. Set an entry to *completed* or *cancelled* to
-> stop it being counted that way.
+> **"Overdue" is worked out from the clock, and you can decide what a past date means.** By default an entry
+> you left as *upcoming* whose date has passed shows as **overdue** on its own — nobody has to mark it. That
+> also means filtering by *upcoming* or *active* leaves those entries out, because they are counted as
+> overdue now. Set an entry to *completed* or *cancelled* to stop it being counted that way.
+>
+> **Not every entry is a deadline.** If a chrono type records something that HAPPENED — a deploy, a backup
+> run, an alert episode — then a date in the past is the normal condition and does not mean late. For those,
+> set **`whenDuePasses` to `nothing`** on that type in the space's schema, or on the space itself to cover
+> every type that does not say otherwise, and those entries keep the status you gave them. Leave it alone and
+> nothing changes. *New in 4.3.*
 >
 > The status dropdown does offer **overdue**, and filtering by it finds those entries too. You rarely want
 > it: an entry marked overdue by hand stays overdue after you move its dates forward, where one left as

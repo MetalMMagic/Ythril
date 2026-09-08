@@ -33,6 +33,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 import { statementAround, bodyOf } from './_structural-window.mjs';
+import { blockAfter } from './_structural-window.mjs';
 
 let deriveChronoStatus, ALL_TOOLS;
 before(async () => {
@@ -106,7 +107,13 @@ describe('every chrono read path applies it, which is what makes the sentences t
 
     const upAt = s.indexOf("filter.status === 'upcoming' || filter.status === 'active'");
     assert.ok(upAt > 0, 'the upcoming/active branch was not found');
-    assert.match(s.slice(upAt, s.indexOf('} else', upAt)), /\$gte/,
+    /*
+     * `blockAfter`, not "up to the next `} else`". That literal was the bound, and `F-26` nested an `if`
+     * inside this branch — so the window closed on the INNER `} else` and stopped containing the `$gte` it
+     * exists to find, failing on code that does exactly what it asks. A window bounded by a token that can
+     * appear inside its own subject is a character count wearing structure's clothes.
+     */
+    assert.match(blockAfter(s, upAt, 'the upcoming/active branch'), /\$gte/,
       '`upcoming`/`active` must EXCLUDE the now-overdue ones — the tools promise both directions');
   });
 

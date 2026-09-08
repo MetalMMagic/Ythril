@@ -379,6 +379,16 @@ async function runSpaceMetaUpdate(
  * `space-meta-update-contract.test.js`) and this tool calls it. **Merge semantics are the REST default**: types not
  * mentioned are preserved, and `typeSchemasMode: 'replace'` is how a deletion is expressed.
  */
+/**
+ * The keys `update_space_schema` forwards into `meta` — read from the tool's OWN schema, once.
+ *
+ * `space` and `typeSchemasMode` are the two arguments that are NOT meta: one names the space, the other says
+ * how `typeSchemas` combines. Everything else the tool declares is a meta field by construction, so this is a
+ * derivation rather than a list, and the omission it replaces cannot recur: a field added to the schema is
+ * forwarded by the same commit.
+ */
+const NOT_META = new Set(['space', 'typeSchemasMode']);
+
 export const update_space_schemaTool: ToolHandler = {
   name: 'update_space_schema',
   description: 'Write a space\'s type schemas (and its other meta fields). Needs EITHER instance-admin rights OR '
@@ -400,8 +410,12 @@ export const update_space_schemaTool: ToolHandler = {
       typeSchemas: {
         type: 'object',
         description: 'Per knowledge type, a map of type name to its schema. Keys are singular: `entity`, `memory`, '
-          + '`edge`, `chrono`. A schema is either `{"$ref": "library:<name>"}` or an inline definition with '
-          + '`namingPattern`, `propertySchemas`, `retention` and/or `suppressEmbeddings`.',
+          + '`edge`, `chrono`. A schema is either `{"$ref": "library:<name>"}` or an inline definition. Its '
+          + 'fields are collection-scoped and the complete, current list is the `TypeSchema` block in '
+          + '`docs/integration-guide/06a-schema-api.md` — `namingPattern` (entity), `propertySchemas`, '
+          + '`retention` (`contentDays` chrono-only), `suppressEmbeddings`, `whenDuePasses` (chrono-only), '
+          + 'and `endpoints`/`functional` (edge-only). A field sent on the wrong collection is REFUSED and '
+          + 'the message names the one it belongs to.',
       },
       typeSchemasMode: {
         type: 'string', enum: ['merge', 'replace'],
@@ -417,6 +431,13 @@ export const update_space_schemaTool: ToolHandler = {
       strictLinkage: { type: 'boolean', description: 'Refuse a write whose entity references do not resolve.' },
       usageNotes: { type: 'string', maxLength: 50_000, description: 'Free-text guidance about the space, returned to MCP clients with its meta.' },
       suppressEmbeddings: { type: 'boolean', description: 'Space-level default for suppressing embeddings; a type schema can override it.' },
+      whenDuePasses: {
+        type: 'string', enum: ['overdue', 'nothing'],
+        description: 'Space-level default for what a PASSED chrono due moment means: `overdue` (the built-in '
+          + 'behaviour) or `nothing`, which returns the STORED status for entries recording something that '
+          + 'happened rather than a deadline. A chrono type schema can override it. Absent leaves it unset, '
+          + 'which is the built-in behaviour.',
+      },
     },
     required: ['space'],
     additionalProperties: false,
@@ -426,15 +447,26 @@ export const update_space_schemaTool: ToolHandler = {
     // `isAdmin` check that stood here would have refused a space administrator the guard had just admitted.
     const { args: a, callSpace } = ctx;
 
-    // Everything except `space`/`typeSchemasMode` belongs inside `meta`, which is where the planner's `.strict()`
-    // schema expects it. Built by picking the declared names rather than by spreading `args`: a spread would carry
-    // `space` into `meta` and earn a 400 for a field the caller never sent.
+    /*
+     * Everything except `space`/`typeSchemasMode` belongs inside `meta`, which is where the planner's
+     * `.strict()` schema expects it. Still built by PICKING rather than spreading `args`: a spread would
+     * carry `space` into `meta` and earn a 400 for a field the caller never sent.
+     *
+     * **The names come from this tool's own `inputSchema`, not from a second list beside it.** They were a
+     * hard-coded array of five, and adding `whenDuePasses` to the schema without also adding it there meant
+     * the field was declared, accepted by the dispatcher, and then SILENTLY DROPPED before the write — the
+     * REST door storing it and this one not, which `CLAUDE.md` names as worse than either door refusing.
+     * The schema is the contract, so the schema is the list.
+     */
+    const declared = Object.keys(
+      (update_space_schemaTool.inputSchema({} as ToolSchemas).properties ?? {}) as Record<string, unknown>,
+    ).filter(k => !NOT_META.has(k));
     const meta: Record<string, unknown> = {};
-    for (const k of ['typeSchemas', 'validationMode', 'strictLinkage', 'usageNotes', 'suppressEmbeddings']) {
+    for (const k of declared) {
       if (a[k] !== undefined) meta[k] = a[k];
     }
     if (Object.keys(meta).length === 0) {
-      throw new Error('At least one of typeSchemas, validationMode, strictLinkage, usageNotes or suppressEmbeddings must be provided');
+      throw new Error(`At least one of ${declared.join(', ')} must be provided`);
     }
 
     const body: Record<string, unknown> = { meta };

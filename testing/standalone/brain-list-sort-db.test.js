@@ -19,10 +19,21 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { openTestMongo, closeTestMongo, mongoSkipReason } from './_mongo-harness.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const skip = await mongoSkipReason();
 
 const SPACE = 'general';
+
+/*
+ * At file scope, and before any import of the loader: it reads `CONFIG_PATH` from the environment when it
+ * is first asked for a config, so setting this inside `before()` is too late and it looks for one at the
+ * drive root instead.
+ */
+const CONFIG_PATH = path.join(os.tmpdir(), `ythril-brainsort-${process.pid}.json`);
+process.env['CONFIG_PATH'] = CONFIG_PATH;
 
 let mongo;
 let listEntities;
@@ -50,6 +61,19 @@ async function walkEntityPages(sort, pageSize) {
 describe('brain list sort — against a real MongoDB', { skip }, () => {
   before(async () => {
     mongo = await openTestMongo('brainsort');
+    /*
+     * Config, because `listChrono` reads the SPACE for what a passed due moment means (`F-26`) and
+     * `getConfig` throws when nothing has been loaded.
+     *
+     * Loaded rather than defended against in the product: every production caller of `listChrono` has a
+     * config, and making a read path tolerate its absence would swallow a real misconfiguration to suit a
+     * test. The same idiom as `a-delete-refusal-names-the-end-it-checked-db.test.js`.
+     */
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({
+      instanceId: 'brain-list-sort-test', instanceLabel: 'test', tokens: [], networks: [],
+      spaces: [{ id: SPACE, label: 'General', builtIn: true, folders: [] }],
+    }, null, 2), { mode: 0o600 });
+    (await import('../../server/dist/config/loader.js')).loadConfig();
     ({ listEntities } = await import('../../server/dist/brain/entities.js'));
     ({ listChrono } = await import('../../server/dist/brain/chrono.js'));
     entities = mongo.col(`${SPACE}_entities`);

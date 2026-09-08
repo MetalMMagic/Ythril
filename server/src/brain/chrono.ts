@@ -16,6 +16,7 @@ import { SimilarMatch, checkDuplicates } from './recall.js';
 import type { DupeCheckOpts } from './write-options.js';
 import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { deriveChronoStatus } from './chrono-status.js';
+import { datePassedPolicy, typesWhereDatePassedMeansNothing } from './chrono-date-policy.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { stampSkewOnCreate } from './stamp-skew.js';
@@ -435,9 +436,15 @@ export async function updateChrono(
   return withoutVector(updatedChrono);
 }
 
-/** Return the entry with its derived status applied (a shallow copy only when the status changes). */
+/**
+ * Return the entry with its derived status applied (a shallow copy only when the status changes).
+ *
+ * `F-26`: what a passed due moment MEANS is the type's decision now, so the policy is resolved per entry —
+ * from the one resolver, never re-derived here. `getSpaceMeta` is the existing answer to "what is this
+ * space's meta", refs resolved, so a `$ref`-ed library schema states this like any other field.
+ */
 function withDerivedStatus(entry: ChronoEntry, now: Date = new Date()): ChronoEntry {
-  const status = deriveChronoStatus(entry, now);
+  const status = deriveChronoStatus(entry, now, datePassedPolicy(getSpaceMeta(entry.spaceId), entry.type));
   return status === entry.status ? entry : { ...entry, status };
 }
 
@@ -485,6 +492,20 @@ export function buildChronoQuery(
   spaceId: string,
   filter: ChronoFilter,
   now: Date,
+  /**
+   * The chrono types whose passed dates mean NOTHING (`F-26`), or `null` when the SPACE tier says nothing
+   * and the set is therefore not enumerable.
+   *
+   * PASSED IN, and that is the whole reason this parameter exists rather than a `getSpaceMeta` call in the
+   * body. This function is exported and PURE so it can be asserted without a database — the docblock above
+   * says so, and `chrono-list-filter-composes.test.js` is built on it. Reading config here made every case
+   * in that suite throw `Config not loaded`, which is the gate doing exactly what its own note promises:
+   * what this builder gets wrong is never an exception at runtime, it is a clause that silently stops
+   * applying, so a suite that needs Docker to see it is a suite nobody runs before pushing.
+   *
+   * Defaulted to "no type is exempt", which is the behaviour every caller had before this existed.
+   */
+  datePassedExempt: readonly string[] | null = [],
 ): { query: Record<string, unknown>; comparesAgainstTheClock: boolean } {
   const query: Record<string, unknown> = { spaceId };
   // Whether the status filter compares a stored date against the clock, which is a per-document evaluation
@@ -507,6 +528,20 @@ export function buildChronoQuery(
     // The due moment: endsAt, or startsAt when there is no end. `$toDate` so mixed-offset ISO strings
     // compare chronologically, not lexically.
     const refDate = { $toDate: { $ifNull: ['$endsAt', '$startsAt'] } };
+    /*
+     * `F-26`: the types whose passed dates mean NOTHING must be excluded from every clock comparison here,
+     * or this door disagrees with every other one about the same record.
+     *
+     * `null` means the SPACE tier says nothing, so no type derives at all and the set is not enumerable —
+     * an empty array would say the opposite while looking identical, which is the absent-versus-empty
+     * conflation this codebase has paid for more than once. `derivesForSomeType` is the branch that reads.
+     */
+    const exempt = datePassedExempt;
+    const derivesForSomeType = exempt !== null;
+    // A clause restricting the comparison to types that DO derive. Empty when none are exempt, so the
+    // shipped query shape is unchanged on every space that has not set this.
+    const derivingOnly: Record<string, unknown> = exempt && exempt.length > 0
+      ? { type: { $nin: exempt } } : {};
     if (filter.status === 'overdue') {
       // BOTH kinds, and the second half is the fix. `overdue` is a legal value on every write door — the
       // enum accepts it on `create_chrono`, `update_chrono`, `bulk_write`, both REST routes and the Brain
@@ -516,15 +551,30 @@ export function buildChronoQuery(
       and.push({
         $or: [
           { status: 'overdue' },
-          { status: { $in: ['upcoming', 'active'] }, $expr: { $lt: [refDate, now] } },
+          // Only for types that still derive: a `nothing` type reads as its stored status everywhere else,
+          // so matching it here would make `overdue` mean one thing in a filter and another in the answer.
+          ...(derivesForSomeType
+            ? [{ status: { $in: ['upcoming', 'active'] }, $expr: { $lt: [refDate, now] }, ...derivingOnly }]
+            : []),
         ],
       });
-      comparesAgainstTheClock = true;
+      comparesAgainstTheClock = derivesForSomeType;
     } else if (filter.status === 'upcoming' || filter.status === 'active') {
-      // Exclude entries that are now derived-overdue so they don't surface under their stored status.
+      // Exclude entries that are now derived-overdue so they don't surface under their stored status --
+      // but ONLY where the type derives. On a `nothing` type the stored status is the answer, so excluding
+      // it here would hide exactly the records the filter names.
       query['status'] = filter.status;
-      query['$expr'] = { $gte: [refDate, now] };
-      comparesAgainstTheClock = true;
+      if (exempt === null) {
+        // Nothing derives anywhere in this space, so there is no clock comparison to make at all.
+      } else if (exempt.length === 0) {
+        // The shipped shape, BYTE FOR BYTE, on every space that has not set `whenDuePasses` -- which is the
+        // ruling's "an instance that changes nothing sees nothing change", carried down to the query. The
+        // accumulator below is only reached when a type is actually exempt.
+        query['$expr'] = { $gte: [refDate, now] };
+      } else {
+        and.push({ $or: [{ type: { $in: exempt } }, { $expr: { $gte: [refDate, now] } }] });
+      }
+      comparesAgainstTheClock = derivesForSomeType;
     } else {
       query['status'] = filter.status; // completed / cancelled — no derivation
     }
@@ -579,7 +629,9 @@ export async function listChrono(
   sort?: SortSpec,
 ): Promise<ChronoEntry[]> {
   const now = new Date();
-  const { query, comparesAgainstTheClock } = buildChronoQuery(spaceId, filter, now);
+  // `F-26`: resolved HERE, where reading config is already the norm, and handed to the pure builder.
+  const { query, comparesAgainstTheClock } = buildChronoQuery(
+    spaceId, filter, now, typesWhereDatePassedMeansNothing(getSpaceMeta(spaceId)));
 
   const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
     .find(asFilter<ChronoEntry>(query), { projection: NEVER_RETURNED_PROJECTION })

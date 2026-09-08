@@ -11,6 +11,7 @@
  * `chrono.ts` re-exports it, so existing importers are unaffected.
  */
 import type { ChronoEntry, ChronoStatus } from '../config/types.js';
+import type { DatePassedPolicy } from '../config/types-knowledge.js';
 
 /**
  * An entry is overdue when its due moment (its `endsAt`, or `startsAt` when it has no end) has passed
@@ -27,8 +28,24 @@ import type { ChronoEntry, ChronoStatus } from '../config/types.js';
 export function deriveChronoStatus(
   entry: Pick<ChronoEntry, 'status' | 'startsAt' | 'endsAt'>,
   now: Date = new Date(),
+  /**
+   * What a passed due moment MEANS for this entry's type — `datePassedPolicy(meta, entry.type)`.
+   *
+   * Passed in rather than resolved here, for the reason in the module note: this file imports nothing so it
+   * cannot join an import cycle, and every caller must reach the one resolver
+   * (`brain/chrono-date-policy.ts`) instead of writing its own `?? 'overdue'`.
+   *
+   * Optional, and it defaults to today's behaviour: a caller with no space context — a unit test, a future
+   * internal reader — behaves exactly as it did before this parameter existed. That is also the ruling's own
+   * requirement, that an instance which changes nothing sees nothing change.
+   */
+  datePassed: DatePassedPolicy = 'overdue',
 ): ChronoStatus {
   if (entry.status !== 'upcoming' && entry.status !== 'active') return entry.status;
+  // The whole of the owner's ruling, in one branch: the date passing is still a fact, and what it MEANS is
+  // now the schema's to say. `nothing` returns the STORED status, which is what the reporter needed — there
+  // is no second field to read, because the field means what it says again.
+  if (datePassed === 'nothing') return entry.status;
   const due = entry.endsAt ?? entry.startsAt;
   return due && new Date(due).getTime() < now.getTime() ? 'overdue' : entry.status;
 }

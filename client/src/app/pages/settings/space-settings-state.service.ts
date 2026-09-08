@@ -56,6 +56,15 @@ export interface TypeSchemaState {
    * space-wide setting unreachable for any type that has a schema at all.
    */
   suppressEmbeddings: boolean | null;
+  /**
+   * **Chrono only.** What a passed due moment MEANS for this type — the schema tier of schema > space.
+   *
+   * `null` is NOT STATED and falls through to the space, for the same reason `suppressEmbeddings` above is a
+   * tri-state: `'overdue'` is a real value meaning "derive for this type even though the space says not to",
+   * and collapsing it into the absent case would make the space-wide setting unreachable for any type that
+   * has a schema at all.
+   */
+  whenDuePasses: 'overdue' | 'nothing' | null;
   propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
   _newPropInput:   string;
   _newTagInput:    string;
@@ -79,6 +88,7 @@ export interface TypeSchemaState {
 export function emptyTypeSchemaState(over: Partial<TypeSchemaState> = {}): TypeSchemaState {
   return {
     namingPattern: '', retentionDays: null, retentionContentDays: null, suppressEmbeddings: null,
+    whenDuePasses: null,
     propertySchemas: [], _newPropInput: '', _newTagInput: '',
     ...over,
   };
@@ -117,6 +127,10 @@ export function typeSchemaFromState(
   // Sent only when STATED. Writing `false` for "not stated" would pin every type to embedding and make the
   // space-wide switch do nothing — the tier the API resolves last would never be reached.
   if (state.suppressEmbeddings !== null) ts.suppressEmbeddings = state.suppressEmbeddings;
+  // Chrono only, and only when STATED — the API refuses it on the other three collections, so writing a
+  // value a type kind cannot hold would turn every save on that type into a 400. Dropping it here also keeps
+  // a stale value from a type whose kind changed out of the payload, exactly as `contentDays` does above.
+  if (kt === 'chrono' && state.whenDuePasses !== null) ts.whenDuePasses = state.whenDuePasses;
   /*
    * Only for edges — the API refuses both on the other three collections, so writing a value a type kind
    * cannot hold would turn every save on that type into a 400.
@@ -319,6 +333,7 @@ export class SpaceSettingsState {
             // `?? null` again, and for the same reason: absent must round-trip as absent, or opening and saving
             // a type would write a value nobody chose.
             suppressEmbeddings:   ts.suppressEmbeddings      ?? null,
+            whenDuePasses:        ts.whenDuePasses           ?? null,
             /*
              * An edge label's ends and cardinality, and this line is the one that was MISSING.
              *

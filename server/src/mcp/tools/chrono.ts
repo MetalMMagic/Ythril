@@ -7,6 +7,26 @@ import { UUID_V4_RE, TTL_DAYS_SCHEMA, SUPPRESS_EMBEDDINGS_SCHEMA, ttlDaysFromArg
 import { ChronoFilter, createChrono, deleteChrono, getChronoById, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 // The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
 import { SchemaViolationError, type UpdateValidation } from '../../brain/write-validation.js';
+
+/**
+ * What a passed due moment means — ONE sentence, quoted everywhere that used to state it.
+ *
+ * It was stated five times across three schemas, each spelling out the MECHANISM ("it is derived on read
+ * from the due moment"). `F-26` made that mechanism conditional on the type, and five independent sentences
+ * are five chances for one of them to go on describing the old behaviour — the exact failure `CLAUDE.md`
+ * records about `recall`'s `filter`, where a caller read a stale schema description, believed it, and built
+ * around a capability they had been told they did not have.
+ *
+ * So this states the PROMISE rather than the machinery: what the value means, and what decides it.
+ */
+const WHAT_A_PASSED_DATE_MEANS =
+  'WHAT A PASSED DUE MOMENT MEANS IS THE TYPE\'S TO DECIDE, and by default it means late. With no setting, '
+  + 'an entry stored `upcoming` or `active` whose due moment has passed reads back as `overdue` from '
+  + '`list_chrono`, `recall` and a single-entry get — so you never need to set `overdue` yourself. A space '
+  + 'or a chrono type that sets `whenDuePasses: "nothing"` turns that off for its records, and the STORED '
+  + 'status is then what you get back: for entries recording something that HAPPENED — a deploy, a backup '
+  + 'run, an alert episode — a past date is the normal condition and does not mean late. `query` and sync '
+  + 'always see the stored value, whatever the setting.';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
@@ -46,8 +66,8 @@ export const create_chronoTool: ToolHandler = {
               type: 'string', minLength: 1,
               description: 'ISO 8601 date/time the entry is ABOUT — not when you recorded it, which is '
                 + '`createdAt` and is what `list_chrono`\'s `after`/`before` filter on. Required. With no '
-                + '`endsAt` this is also the DUE MOMENT, so a past `startsAt` on an `upcoming` entry makes it '
-                + 'read back as `overdue` straight away.',
+                + '`endsAt` this is also the DUE MOMENT, so on a type that derives, a past `startsAt` on an '
+                + '`upcoming` entry makes it read back as `overdue` straight away.',
             },
             endsAt: {
               type: 'string',
@@ -58,11 +78,10 @@ export const create_chronoTool: ToolHandler = {
             },
             status: {
               type: 'string', enum: [...CHRONO_STATUSES], default: 'upcoming',
-              description: 'Stored status (default `upcoming`). You do not need `overdue` — it is derived on '
-                + 'read from the due moment, so an entry left `upcoming` becomes overdue on its own and is '
-                + 'returned as such. Storing it is accepted and findable, but it is a value that never '
-                + 'reverts: an entry marked `overdue` by hand stays overdue after you move its dates '
-                + 'forward, where a derived one would correct itself.',
+              description: 'Stored status (default `upcoming`). ' + WHAT_A_PASSED_DATE_MEANS
+                + ' Storing `overdue` by hand is accepted and findable, but it is a value that never '
+                + 'reverts: it stays overdue after you move the dates forward, where a derived one would '
+                + 'correct itself.',
             },
             confidence: unitScoreSchema('How sure you are, 0 to 1, for entries that are predictions rather '
               + 'than records. Nothing derives it, nothing ranks on it and nothing requires it — it is stored '
@@ -267,10 +286,8 @@ export const update_chronoTool: ToolHandler = {
     + '- `startsAt` / `endsAt` — ISO 8601. NOTHING VALIDATES THE ORDER: an `endsAt` before `startsAt` is '
     + 'stored as sent, and because `endsAt` becomes the due moment the entry then reads as `overdue` at '
     + 'once. Check it yourself if it matters.\n'
-    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. You never need to set '
-    + '`overdue`: it is DERIVED on read, so an entry stored `upcoming` whose due moment has passed already '
-    + 'reads back as `overdue` from `list_chrono`, `recall` and a single-entry get. What you set here is the '
-    + 'STORED value, which is what `query` and sync see.\n'
+    + '- `status` — `upcoming`, `active`, `completed`, `overdue`, `cancelled`. What you set here is the '
+    + 'STORED value. ' + WHAT_A_PASSED_DATE_MEANS + '\n'
     + '- `confidence` — 0 to 1, for entries that are predictions rather than records.\n'
     + '- `tags` / `entityIds` / `memoryIds` — each REPLACES the stored list.\n'
     + '- `description` — replaced when sent.\n'
@@ -321,10 +338,9 @@ export const update_chronoTool: ToolHandler = {
             },
             status: {
               type: 'string', enum: [...CHRONO_STATUSES],
-              description: 'The new STORED status. You never need to set `overdue`: it is DERIVED on read '
-                + 'from the due moment, so an entry left `upcoming` past its date already reads back as '
-                + '`overdue` everywhere except `query` and sync, which see the stored value. Setting '
-                + '`completed` or `cancelled` is what stops an entry being derived-overdue.',
+              description: 'The new STORED status. ' + WHAT_A_PASSED_DATE_MEANS
+                + ' Setting `completed` or `cancelled` stops an entry being derived-overdue at all, whatever '
+                + 'the type says.',
             },
             confidence: unitScoreSchema('Confidence level 0 to 1, for entries that are predictions rather '
               + 'than records. Replaced when sent; nothing derives it, and nothing refuses a prediction that '

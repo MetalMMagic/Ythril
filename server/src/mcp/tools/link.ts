@@ -181,10 +181,22 @@ export const links_convert_preflightTool: ToolHandler = {
     properties: {
       space: s.requiredSpace,
       windowDays: {
-        type: 'number', minimum: 1, maximum: WRITER_NOTE_RETENTION_DAYS,
+        // `minimum` and NO `maximum`, and the asymmetry is the fix rather than an oversight.
+        //
+        // The MCP dispatcher enforces this schema before the handler runs, so a `maximum` here would REFUSE
+        // a larger window while the REST door capped the same value and answered — a 400 on one door and a
+        // silent adjustment on the other, which is the parity defect `CLAUDE.md` names in those words.
+        //
+        // Capping is the right half to keep, because this feature's whole argument is that a count must
+        // carry the window it was computed over: an answer says `since` and `retentionDays`, so asking for
+        // 365 and being served 90 is DISCLOSED rather than silent. Refusing would make an operator guess the
+        // bound before they could ask a question we can answer. Zero and negatives are refused on both
+        // doors, because there is no honest answer to serve for those.
+        type: 'number', minimum: 1,
         default: DEFAULT_WRITER_WINDOW_DAYS,
-        description: 'How many days back to look. Nothing older than `retentionDays` is kept, so a larger '
-          + 'number cannot see further — the answer says which window it actually used.',
+        description: `How many days back to look. Default ${DEFAULT_WRITER_WINDOW_DAYS}. Nothing older than `
+          + `\`retentionDays\` (${WRITER_NOTE_RETENTION_DAYS}) is kept, so a larger number is CAPPED to it `
+          + 'rather than refused — read `since` in the answer for the window actually used.',
       },
     },
     required: ['space'],

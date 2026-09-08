@@ -107,6 +107,30 @@ describe('a door that can refuse also records', () => {
     assert.match(mod, /\.catch\(/, 'the recorder must swallow its own failure');
   });
 
+  it('the two doors treat an over-large window the same way', () => {
+    /*
+     * Found by sweeping the guidelines over this change before tagging it, in this change's own code.
+     *
+     * The MCP dispatcher enforces a tool's `inputSchema` BEFORE the handler runs. So a `maximum` on
+     * `windowDays` refused a larger window outright, while the REST door passed the same value to the
+     * resolver and had it capped -- a 400 on one door and a silent adjustment on the other, which
+     * `CLAUDE.md` names in those words as worse than either alone, because it makes the behaviour depend on
+     * which client the caller happened to pick.
+     *
+     * The cap lives in the resolver, which both doors call, so it is one implementation. What this asserts
+     * is that the schema does not add a SECOND bound in front of it.
+     */
+    const tool = src('server/src/mcp/tools/link.ts');
+    const at = tool.indexOf('windowDays: {');
+    assert.ok(at > -1, 'windowDays is no longer declared in the link tool schema -- re-anchor this gate');
+    const decl = tool.slice(at, tool.indexOf('},', at));
+    assert.doesNotMatch(decl, /maximum/,
+      'a `maximum` here makes MCP REFUSE a window the REST door serves capped -- the cap belongs in the '
+      + 'resolver both doors call, and it already is there');
+    assert.match(decl, /minimum:\s*1/,
+      'zero and negatives have no honest answer, so both doors refuse them');
+  });
+
   it('the pre-flight reports the window it covers, rather than assuming one', () => {
     // The failure the audit log would have had. A count with no window on it cannot be told apart from a
     // count over a shorter window, and the operator is about to make an irreversible-feeling decision on it.

@@ -669,7 +669,7 @@ A writer whose token no longer exists still appears, under the label it had. A w
 token is reported with `tokenId: null` rather than dropped — dropping it would make the count lower than the
 truth, and a lower count reads exactly like a cleaner space.
 
-**`windowDays`** defaults to `30` and is capped at `retentionDays`. A non-positive value is a `400`.
+**`windowDays`** defaults to `30` and is CAPPED at `retentionDays` rather than refused -- ask for 365 and you are served 90, with `since` saying so. A non-positive value is refused on both doors, because there is no honest answer to serve for one. **Both doors behave identically here**, deliberately: the cap lives in the resolver they share, and an `inputSchema` bound would have made MCP refuse what REST served.
 
 **What is counted**: any write naming `entityIds`, `memoryIds` or `chronoIds`, on any of the seven write
 doors, including creates and including a value of `[]` or `null` — a present key is a write. Notes are taken

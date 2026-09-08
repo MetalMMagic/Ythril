@@ -10,6 +10,8 @@ import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { REF_KINDS } from '../../config/types-knowledge.js';
 import type { RefKind } from '../../config/types-knowledge.js';
 import { resolveWriteTarget, isStrictLinkage, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { legacyArrayWriters, DEFAULT_WRITER_WINDOW_DAYS, WRITER_NOTE_RETENTION_DAYS } from '../../brain/legacy-array-writers.js';
+import { usesLinkRecords } from '../../brain/link-adjacency.js';
 
 /** Every legal class, as the arrays spell them — used in the schema text and in the refusal. */
 const PAIR_LABELS = LINK_PAIRS.map(([f, t]) => linkLabel(f, t)).join(', ');
@@ -150,5 +152,58 @@ export const delete_linkTool: ToolHandler = {
     const removed = await findFirstAcrossMembers(wt.target, mid => removeLink(mid, id, ctx.actor));
     if (!removed) throw new Error(`Link '${id}' not found`);
     return { content: [{ type: 'text' as const, text: `Link removed (ID ${id}).` }] };
+  },
+};
+
+export const links_convert_preflightTool: ToolHandler = {
+  name: 'links_convert_preflight',
+  description: 'Who is still writing the LEGACY ARRAYS to this space? Read this before converting it.\n\n'
+    + 'WHAT CONVERSION DOES. `links:convert` walks a space, turns its `entityIds` / `memoryIds` / '
+    + '`chronoIds` entries into link records, and marks the space `completeLinkage`. From then on those six '
+    + 'fields are REFUSED on write — they are still read, and they still replicate, so nothing stored is '
+    + 'lost. The refusal is the point: one fact, one write surface.\n\n'
+    + 'WHY YOU WANT THIS FIRST. The refusal reaches a caller on its NEXT WRITE, not at conversion time. So '
+    + 'without this you convert, and then learn which of your writers still use the old surface when one of '
+    + 'them breaks. This answers that question up front, from what those writers actually did.\n\n'
+    + 'WHAT AN ANSWER MEANS. An empty `writers` list is what you are hoping for. A writer in it is a TOKEN '
+    + 'that sent one of the six fields, with the fields it sent, when it last did, and how many times — '
+    + 'enough to find whoever owns it. A token that no longer exists still appears, by the label it had.\n\n'
+    + 'READ `since` BEFORE READING THE COUNT. It is the instant the answer starts from, and a count with no '
+    + 'window on it cannot be told apart from a count over a shorter one. Nothing before `retentionDays` ago '
+    + 'is remembered at all, whatever `windowDays` you ask for.\n\n'
+    + 'PARAMETERS:\n'
+    + `- \`windowDays\` — how far back to look. Default ${DEFAULT_WRITER_WINDOW_DAYS}, capped at `
+    + `${WRITER_NOTE_RETENTION_DAYS} because nothing older is kept.\n\n`
+    + 'RESPONSE: `spaceId`, `since`, `retentionDays`, `converted`, and `writers`.',
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+    type: 'object',
+    properties: {
+      space: s.requiredSpace,
+      windowDays: {
+        type: 'number', minimum: 1, maximum: WRITER_NOTE_RETENTION_DAYS,
+        default: DEFAULT_WRITER_WINDOW_DAYS,
+        description: 'How many days back to look. Nothing older than `retentionDays` is kept, so a larger '
+          + 'number cannot see further — the answer says which window it actually used.',
+      },
+    },
+    required: ['space'],
+    additionalProperties: false,
+  }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const windowDays = a['windowDays'] === undefined ? DEFAULT_WRITER_WINDOW_DAYS : Number(a['windowDays']);
+    if (!Number.isFinite(windowDays) || windowDays <= 0) throw new Error('`windowDays` must be a positive number');
+    const answer = await legacyArrayWriters({
+      spaceId: callSpace, windowDays, converted: usesLinkRecords(callSpace),
+    });
+    const head = answer.writers.length === 0
+      ? `No token has written a link array to '${answer.spaceId}' since ${answer.since}.`
+      : `${answer.writers.length} token(s) have written link arrays to '${answer.spaceId}' since ${answer.since}.`;
+    return {
+      // Not pretty-printed: indentation is billed to the caller's context window and read by nothing.
+      content: [{ type: 'text' as const, text: `${head}\n${JSON.stringify(answer)}` }],
+      structuredContent: answer as unknown as Record<string, unknown>,
+    };
   },
 };

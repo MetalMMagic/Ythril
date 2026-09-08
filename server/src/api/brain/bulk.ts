@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { requestActor } from '../../auth/request-actor.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { bulkWrite, bulkWriteTotal, type BulkInput } from '../../brain/bulk.js';
@@ -45,7 +46,12 @@ bulkRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, deny
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const targetSpace = wt.target;
 
-  const result = await bulkWrite(targetSpace, (req.body ?? {}) as BulkInput);
+  const result = await bulkWrite(targetSpace, {
+    ...((req.body ?? {}) as BulkInput),
+    // `F-25`: who wrote it, for the conversion pre-flight. Spread AFTER the body so a caller cannot
+    // supply its own actor and be recorded as somebody else.
+    actor: requestActor(req),
+  });
   if (bulkWriteTotal(result) > 0) {
     // Bulk suppresses per-item webhooks; emit ONE summary a workflow can inspect.
     emitWebhookEvent({ event: 'bulk.write', spaceId: targetSpace, entry: { inserted: result.inserted, updated: result.updated, errorCount: result.errors.length }, ...webhookToken(req) });

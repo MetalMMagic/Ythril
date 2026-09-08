@@ -130,6 +130,9 @@ export const ROUTE_RIGHTS: readonly RouteRight[] = [
   // so a token with file rights alone must not create one. Owner's ruling `P-28`, 2026-09-02.
   { route: '/api/brain/spaces/:spaceId/links', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/links/:id', method: 'DELETE', area: 'knowledge', needs: 'write', scope: 'path' },
+  // A VIEW of one space's data — who wrote its legacy link arrays — so it is area-scoped like the two above
+  // and takes the lowest rung. Read before converting; `F-25`.
+  { route: '/api/brain/spaces/:spaceId/links/convert-preflight', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono', method: 'POST', area: 'knowledge', needs: 'write', scope: 'path' },
   { route: '/api/brain/spaces/:spaceId/chrono/:id', method: 'GET', area: 'knowledge', needs: 'read', scope: 'path' },
@@ -278,6 +281,9 @@ export const TOOL_RIGHTS: readonly ToolRight[] = [
   { tool: 'delete_edge', area: 'knowledge', needs: 'write' },
   { tool: 'upsert_link', area: 'knowledge', needs: 'write' },
   { tool: 'delete_link', area: 'knowledge', needs: 'write' },
+  // Reads who wrote a space's legacy link arrays — a view of that space's data, so the same area as the two
+  // above at the lowest rung, matching its REST twin's `ROUTE_RIGHTS` row.
+  { tool: 'links_convert_preflight', area: 'knowledge', needs: 'read' },
   { tool: 'create_chrono', area: 'knowledge', needs: 'write' },
   { tool: 'update_chrono', area: 'knowledge', needs: 'write' },
   { tool: 'delete_chrono', area: 'knowledge', needs: 'write' },

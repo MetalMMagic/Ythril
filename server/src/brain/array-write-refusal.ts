@@ -36,6 +36,7 @@
  * `introduced` / `preExisting` split exists for.
  */
 import { LINK_CLASSES } from './link-adjacency.js';
+import { noteLegacyArrayWrite, type WriteActor } from './legacy-array-writers.js';
 
 /**
  * The field names a caller must stop sending — DERIVED, so a seventh link class is refused by the commit
@@ -59,15 +60,42 @@ const THE_DOOR = 'POST /api/brain/spaces/:spaceId/links (or the `upsert_link` to
  * tempting shortcut and it leaves exactly one operation — clearing links — reachable through the surface
  * being retired.
  *
+ * **The unconverted case is not "nothing to do".** It records who wrote the array, because that is the one
+ * moment the fact exists and it is what the conversion pre-flight answers with (`F-25`). Refusing and
+ * recording are the same inspection of the same body, which is why they are one function rather than two
+ * calls a door could make one of — a door that inspected and did not record would leave the pre-flight
+ * reporting a smaller number, and a smaller number reads exactly like a cleaner space.
+ *
  * A returned string rather than a throw, the same shape as `primitivePropertyError` and
  * `validateDeleteFields`: a door needs to answer `400` with a message, and the doors' existing catch blocks
  * carry `SchemaViolationError`, which means something different — a violation of the SPACE's schema, which a
  * space in `warn` mode records and stores. This is refused in every mode.
  */
-export function arrayWriteError(converted: boolean, body: unknown): string | null {
-  if (!converted || !body || typeof body !== 'object') return null;
-  const named = LINK_ARRAY_FIELDS.filter(f => f in (body as Record<string, unknown>));
+export function linkArrayFieldsNamed(body: unknown): string[] {
+  if (!body || typeof body !== 'object') return [];
+  return LINK_ARRAY_FIELDS.filter(f => f in (body as Record<string, unknown>));
+}
+
+export function arrayWriteError(input: {
+  converted: boolean;
+  spaceId: string;
+  body: unknown;
+  actor: WriteActor | undefined;
+}): string | null {
+  const { converted, spaceId, body, actor } = input;
+  const named = linkArrayFieldsNamed(body);
   if (named.length === 0) return null;
+  if (!converted) {
+    // The OTHER outcome of the same inspection, and the reason `spaceId` and `actor` are parameters.
+    //
+    // Before conversion an array write is legal, and it is also the only moment the fact "this token still
+    // uses the old surface" exists anywhere. `F-25`: the refusal below lands on the caller's next write
+    // rather than at conversion time, so an operator learns which of their writers to move when one breaks.
+    //
+    // Fired, never awaited, and it cannot throw — see `legacy-array-writers.ts`.
+    noteLegacyArrayWrite({ spaceId, fields: named, actor });
+    return null;
+  }
   return `this space's links are all link records (\`completeLinkage\`), so ${named.join(', ')} `
     + `${named.length === 1 ? 'is' : 'are'} no longer written directly — use ${THE_DOOR}. `
     + 'The field is still READ and still replicates, so nothing you have stored is lost.';

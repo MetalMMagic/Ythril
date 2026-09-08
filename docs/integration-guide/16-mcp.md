@@ -276,7 +276,7 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 | `update_space` | Update space label and/or purpose (admin only). In a networked space a purpose change opens a meta vote rather than applying at once |
 | `reindex` | Re-embed every record in a space with the currently configured embedding model (admin only) — the recovery path after changing embedder or model. Returns as soon as the job STARTS; it runs in the background and may take minutes, so poll rather than waiting on the call. One job per instance at a time; a second call while one runs is refused. A PROXY space is refused by name, with its members listed so you can reindex those instead. Idempotent |
 | `create_space` | Create a space (admin only). The id is derived from the label when omitted. A new space is seeded `validationMode: strict` + `strictLinkage: true` unless `meta` says otherwise; a `proxyFor` space is left un-seeded because it stores nothing of its own. **`faceDescriptorDims` is create-only and permanent** — 128 for MobileFaceNet-class models, 512 for ArcFace / AdaFace / FaceNet / EdgeFace. Same refusals as `POST /api/spaces`, including `422` for a missing schema-library `$ref` and `409` when the id is taken |
-| `update_space_schema` | Write the space's type schemas and its other meta fields — `validationMode`, `strictLinkage`, `usageNotes`, `suppressEmbeddings`, `whenDuePasses` (admin only). **Merges** by default: types you do not name are preserved. `typeSchemasMode: "replace"` makes the payload authoritative, which is the only way to DELETE a type. Same refusals as `PATCH /api/spaces/:id`, including `422` for a `$ref` to a schema-library entry that does not exist. In a networked space it opens a meta vote rather than applying at once |
+| `update_space_schema` | Write the space's type schemas and its other meta fields — `validationMode`, `strictLinkage`, `usageNotes`, `suppressEmbeddings`, `whenDuePasses` (needs `schema` `admin` on the space). **Merges** by default: types you do not name are preserved. `typeSchemasMode: "replace"` makes the payload authoritative, which is the only way to DELETE a type. Same refusals as `PATCH /api/spaces/:id`, including `422` for a `$ref` to a schema-library entry that does not exist. In a networked space it opens a meta vote rather than applying at once |
 | `wipe_space` | Wipe all or specific collection types from the space (admin only) |
 | `list_peers` | List all configured peer instances (admin only) |
 | `sync_now` | Trigger immediate sync (all networks or specific peer) (admin only) |
@@ -301,11 +301,15 @@ row survives its own tool being built, so the list cannot keep advertising a gap
 
 <!-- markdownlint-disable-next-line MD028 -->
 
-> **`update_space` and `update_space_schema` are SPACE-admin tools**, which is a different requirement.
-> Either instance-admin rights, **or** the `admin` rung on all four areas (`knowledge`, `files`, `schema`,
-> `dataQuality`) of the space named in `space`. These are the MCP counterparts of `PATCH /api/spaces/:id` and
-> `PUT /api/spaces/:id/schema`, and they admit exactly whom those routes admit — see
-> [Update a Space](06-spaces-api.md#update-a-space).
+> **`update_space` is a SPACE-admin tool**, which is a different requirement: either instance-admin rights,
+> **or** the `admin` rung on all four areas (`knowledge`, `files`, `schema`, `dataQuality`) of the space named
+> in `space`. It is the MCP counterpart of `PATCH /api/spaces/:id` and admits exactly whom that route admits —
+> see [Update a Space](06-spaces-api.md#update-a-space).
+>
+> **`update_space_schema` needs only `schema` `admin` on that space**, since 4.4. Its REST counterpart
+> `PUT /api/spaces/:id/schema` is the `schema` area's admin rung, so demanding all four areas here would have
+> left one capability reachable through one door and refused through the other. A space administrator holds
+> `admin` on `schema`, so everyone who could call it before still can.
 >
 > **Administering one space does not grant another.** The check happens twice at two widths, and the second
 > is the one that matters:
@@ -532,7 +536,8 @@ rather than a summary someone maintained by hand.
 **How to read the token column.** REST enforces a per-space **rung** (`read` / `write` / `admin`) for an area —
 `knowledge`, `files`, `schema`, `dataQuality`. MCP gates on the token's flags: a read-only token cannot see
 mutating tools, and a non-admin token cannot see admin tools. Where the two differ the cell names both doors;
-one row does today (`update_space_schema`, where the tool is stricter than the route). `instance-level` means the
+no row does today — `update_space_schema` was the last one, and 4.4 brought both doors to `schema` `admin`.
+`instance-level` means the
 route sits outside the per-space matrix by design — `/api/spaces`, `/api/tokens`, `/api/networks`.
 
 **MCP only** means the capability has no single REST route: `help` is the tool-caller's guide, and `wipe_space`
@@ -574,7 +579,7 @@ composes what REST exposes as one DELETE per collection.
 | **Brain — ops** | | | |
 | | `get_stats` | `GET /api/brain/spaces/:spaceId/stats` | read `knowledge` |
 | | `er_model` | `GET /api/brain/spaces/:spaceId/er-model` | read `knowledge` |
-| | `reindex` | `POST /api/brain/spaces/:spaceId/reindex` | admin `schema` |
+| | `reindex` | `POST /api/brain/spaces/:spaceId/reindex` | admin `knowledge` |
 | | `list_embed_jobs` | `GET /api/brain/spaces/:spaceId/embedding-queue/records` | read `knowledge` |
 | | `retry_record_embedding` | `POST /api/brain/spaces/:spaceId/embedding-queue/records/retry` | write `knowledge` |
 | | `retry_failed_media_embeddings` | `POST /api/brain/spaces/:spaceId/embedding-queue/media/retry-failed` | write `files` |
@@ -592,7 +597,7 @@ composes what REST exposes as one DELETE per collection.
 | | `create_space` | `POST /api/spaces` | admin (MCP) · instance-level |
 | | `update_space` | `PATCH /api/spaces/:id` | admin (MCP) · instance-level |
 | | `get_space_meta` | `GET /api/spaces/:id/meta` | read `schema` |
-| | `update_space_schema` | `PUT /api/spaces/:id/schema` | **REST write `schema` · MCP admin** |
+| | `update_space_schema` | `PUT /api/spaces/:id/schema` | admin `schema` |
 | | `wipe_space` | **MCP only** | admin (MCP) |
 | **Tokens** | | | |
 | | `list_tokens` | `GET /api/tokens` | admin (MCP) · instance-level |

@@ -34,6 +34,8 @@ import { statementFrom } from './_structural-window.mjs';
 import { readFileSync } from 'node:fs';
 import { stripComments } from './_strip-comments.mjs';
 
+const { TOOL_RIGHTS } = await import('../../server/dist/auth/space-rights.js');
+
 const SPACES = readFileSync('server/src/api/spaces.ts', 'utf8');
 const MIDDLEWARE = readFileSync('server/src/auth/middleware.ts', 'utf8');
 
@@ -51,10 +53,6 @@ const guardsFor = (verb, path) => {
 const WIDENED = [
   ['patch', '/:id', 'its settings'],
   ['patch', '/:id/rename', 'its display name'],
-  ['put', '/:id/schema', 'its schema'],
-  ['put', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'one of its types'],
-  ['delete', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'removing one of its types'],
-  ['post', '/:id/rebuild-indexes', 'its own search indexes'],
 ];
 
 /** Instance-shaped, and each for a reason that is not "we ran out of time". */
@@ -65,23 +63,31 @@ const INSTANCE_ONLY = [
 ];
 
 /**
- * `POST /:id/validate-schema` left `WIDENED` on 2026-09-08, and it went DOWN rather than out.
+ * Five routes left `WIDENED` on 2026-09-08, and every one of them went DOWN rather than
+ * out.
  *
- * P-8 widened it from instance-admin to also admit a space administrator. Its `ROUTE_RIGHTS` row, though,
- * says `schema` / `read` — and a space administrator is `admin` on all FOUR areas, so the rung the rights
- * panel advertised could never open the door. A canary operator granted exactly what the panel asked, was
- * refused with `Admin token required`, read that as INSTANCE admin, and lost an afternoon to it twice.
+ * P-8 widened them from instance-admin to also admit a space administrator, and their `ROUTE_RIGHTS` rows
+ * name an area and a rung. Those two facts contradicted each other: a space administrator is `admin` on all
+ * FOUR areas, so the rung the rights panel advertised could never be what opened the door. A canary operator
+ * granted SCHEMA exactly as the panel asked, was refused with `Admin token required`, read that as INSTANCE
+ * admin, and lost an afternoon to it twice.
  *
- * It now uses `requireSpaceAuthMfaScoped`, which is that guard minus the admin demand: the same space
- * scoping, the same second factor, and the area rung consulted instead of ignored. **The property P-8 was
- * protecting is unchanged** — a space administrator holds `admin` on that space's schema, so they still
- * reach it, scoped to the id in the URL — and the case below still holds it to being SCOPED, which is the
- * escalation this file exists to prevent.
+ * They now use `requireSpaceAuthMfaScoped`, which is the P-8 guard minus the admin demand: the same space
+ * scoping, the same second factor, and the area rung consulted instead of ignored.
  *
- * It keeps a case of its own rather than vanishing, so the pair stays visible to the next reader.
+ * **The property P-8 was protecting is unchanged, and that is the whole reason this is safe.** A space
+ * administrator holds `admin` on all four areas, so every one of these still admits them — through the rung
+ * rather than through a separate check. Nobody who could call these yesterday cannot call them today.
+ *
+ * The cases stay here rather than vanishing, because the thing worth asserting is unchanged: admission is
+ * SCOPED TO THE ID IN THE URL, which is the escalation this file exists to prevent.
  */
 const SCOPED_BY_RUNG = [
   ['post', '/:id/validate-schema', 'a dry run that writes nothing, so it sits at the rung it advertises'],
+  ['put', '/:id/schema', 'replacing the whole type map — the schema area\'s own admin rung'],
+  ['put', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'one of its types, at schema write'],
+  ['delete', '/:id/meta/typeSchemas/:knowledgeType/:typeName', 'removing one of its types, at schema write'],
+  ['post', '/:id/rebuild-indexes', 'its own search indexes, at knowledge admin'],
 ];
 
 describe('a route that dropped to its rung is still scoped to the space in the URL', () => {
@@ -179,11 +185,19 @@ describe('the MCP door widens with the REST one', () => {
   };
 
   for (const name of ['update_space', 'update_space_schema']) {
-    it(`${name} is spaceAdmin, not instance admin`, () => {
-      const t = mcpTool(name);
-      assert.match(t, /spaceAdmin: true/, 'the MCP counterpart of a widened REST route must widen with it');
-      assert.doesNotMatch(t, /\n {2}admin: true/,
-        'both flags for one decision is how the stricter one silently wins');
+    it(`${name} is not instance-admin only`, () => {
+      // The RULE, not the flag. `update_space` still carries `spaceAdmin: true` because its REST twin
+      // `PATCH /:id` is Space-admin; `update_space_schema` dropped it because its twin `PUT /:id/schema` is
+      // now the `schema` area's admin rung and the tool is governed by `TOOL_RIGHTS` instead. Pinning the
+      // FLAG would have made the second change look like the regression this case exists to catch, when it
+      // is a further step in the same direction — the door opening wider, not narrower.
+      assert.doesNotMatch(mcpTool(name), /\n {2}admin: true/,
+        'the MCP counterpart of a widened REST route must not demand instance admin');
+      // And it must still be governed by SOMETHING. Dropping the flag with no rung behind it turns a
+      // space-admin tool into one any token can call, which is the same edit seen from the other side.
+      const governed = / {2}spaceAdmin: true/.test(mcpTool(name))
+        || TOOL_RIGHTS.some(r => r.tool === name);
+      assert.ok(governed, `${name} carries neither spaceAdmin nor a TOOL_RIGHTS row — it is ungoverned`);
     });
 
     it(`${name} keeps no second copy of the rule in its handler`, () => {

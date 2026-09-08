@@ -222,7 +222,7 @@ The rename atomically:
 
 ```http
 POST /api/spaces/:id/reembed
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token with knowledge:admin on the space>
 ```
 
 Queues an embedding job for every record in the space that **has no vector**. This is the way back from
@@ -302,10 +302,15 @@ Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At 
 > instance's to give. Every other field in the body is accepted. The refusal names who can change it, so the
 > right escalation is obvious rather than guessed.
 >
-> The same admission applies to `PATCH :id/rename`, `PUT :id/schema`, the single-type `PUT`/`DELETE` on
-> `:id/meta/typeSchemas/...`, `POST :id/validate-schema` and `POST :id/rebuild-indexes` — a space's own
-> configuration. It does **not** apply to `POST /api/spaces` (create), `POST /api/spaces/reorder`, or
-> `DELETE /api/spaces/:id`: those are instance-shaped, and destroying a space is not one of its settings.
+> The same admission applies to `PATCH :id/rename` — a space's own configuration. It does **not** apply to
+> `POST /api/spaces` (create), `POST /api/spaces/reorder`, or `DELETE /api/spaces/:id`: those are
+> instance-shaped, and destroying a space is not one of its settings.
+>
+> **The other five routes this note used to list have moved DOWN rather than out**, in 4.4: `PUT :id/schema`,
+> the single-type `PUT`/`DELETE` on `:id/meta/typeSchemas/...`, `POST :id/validate-schema` and
+> `POST :id/rebuild-indexes` are now guarded at the area rung they advertise. A space administrator holds
+> `admin` on all four areas, so every one of them still admits the same people — through the rung instead of
+> through a separate check, which is what makes the rights panel's rows true.
 >
 > MFA is unchanged. A space administrator is still a human with an authenticator, and exempting one would make
 > the role a way around an instance-wide second factor.

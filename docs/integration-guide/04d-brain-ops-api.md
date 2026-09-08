@@ -426,8 +426,10 @@ Returns `404` if no space has that id.
 POST /api/spaces/:spaceId/rebuild-indexes
 ```
 
-Recreates the space's `$vectorSearch` indexes. Requires **admin + MFA** and is recorded in the audit
-log as `space.indexes.rebuild`. Also available in the UI at **Settings → Spaces → Danger Zone →
+Recreates the space's `$vectorSearch` indexes. Needs the `admin` rung on the space's **`knowledge`** area,
+plus MFA, and is recorded in the audit log as `space.indexes.rebuild`. It rewrites what recall searches rather
+than any type definition, which is why the area is `knowledge` and not `schema` — the same move applied to
+`POST /reindex` and `POST /:id/reembed` in 4.4. Also available in the UI at **Settings → Spaces → Danger Zone →
 Rebuild search indexes**.
 
 **Runs asynchronously** — the call returns as soon as the build is submitted. **Recall returns empty

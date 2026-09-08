@@ -37,8 +37,13 @@ Returns `404` when the space or the requested type name does not exist. Returns 
 ```http
 PUT /api/spaces/:id/schema
 Content-Type: application/json
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token with schema:admin on the space>
 ```
+
+**This is the `schema` area's `admin` rung, and it is the only route that carries it.** One call rewrites the
+whole type map, and `typeSchemasMode: "replace"` is how a type is DELETED — so it is the area's irreversible
+operation. Editing a single type is `schema` `write`, on the two granular routes below. An instance
+administrator and a space administrator both still pass, because both hold `admin` on `schema`.
 
 Full-replace semantics for the entire `meta.typeSchemas` map. Use this when you want to overwrite all type definitions across all knowledge types in a single call (for example, restoring an exported schema). For incremental updates, prefer `PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` (single type) or `PATCH /api/spaces/:id` (deep-merge).
 
@@ -77,7 +82,7 @@ Before the new schema is written, the previous `typeSchemas` is automatically ba
 ```http
 PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
 Content-Type: application/json
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token with schema:write on the space>
 ```
 
 Adds or updates a single type definition in the space's `typeSchemas`. All other type definitions (including those of other knowledge types) are left unchanged. The request body is a `TypeSchema` object.
@@ -118,7 +123,7 @@ An empty object `{}` is valid and registers the type name as allowed (no extra c
 
 ```http
 DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
-Authorization: Bearer <admin-token>
+Authorization: Bearer <token with schema:write on the space>
 ```
 
 Removes a single type definition from the space's `typeSchemas`. All other types are left unchanged.
@@ -142,7 +147,8 @@ Scans existing data against the current (or proposed) schema definition without 
 **It needs `schema` `read`, the same rung `GET /:id/meta` needs** — it is a dry run, so there is nothing to
 authorise beyond seeing the space's shape. Until 4.4 it demanded a space administrator (`admin` on all four
 areas) despite advertising `read`, which meant a token granted exactly what the rights panel asked for was
-refused with `Admin token required`.
+refused with `Admin token required`. The same correction reached the four routes above it in 4.4: each is now
+guarded at the rung it advertises rather than at "administers the whole space".
 
 **Request body** (optional):
 

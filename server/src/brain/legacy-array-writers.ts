@@ -194,6 +194,37 @@ export async function legacyArrayWriters(input: {
   return { spaceId, since: since.toISOString(), retentionDays: WRITER_NOTE_RETENTION_DAYS, writers, converted };
 }
 
+/**
+ * The three obligations of an INSTANCE-WIDE collection keyed by space, and this is the whole list.
+ *
+ * `space_activity` is the same shape and had to remember all three; this module was written with one of
+ * them and the other two were found by sweeping the guidelines over it before it shipped. They are together
+ * here so a fourth collection of this shape has something to copy that is complete:
+ *
+ *  1. **Indexes**, because every read filters on `spaceId` and every sweep on `lastAt`.
+ *  2. **A per-space purge**, because `dropSpaceData` clears collections by NAME PREFIX and an instance-wide
+ *     collection has no prefix to match. Left behind, notes outlive the space for the whole retention
+ *     window -- and a space recreated with the same id would inherit writers it never had.
+ *  3. **Retention**, so an unconverted space cannot grow the collection for ever.
+ */
+export async function ensureLegacyArrayWriterIndexes(): Promise<void> {
+  const c = col<WriterNote>(COLLECTION);
+  await c.createIndex({ spaceId: 1, lastAt: -1 });
+  await c.createIndex({ lastAt: 1 });
+}
+
+/**
+ * Forget one space's notes. Called by `dropSpaceData`, which cannot reach this collection by prefix.
+ *
+ * See obligation 2 above: a space recreated with the same id would otherwise be told about writers that
+ * wrote to its predecessor, which is worse than no answer -- it is a wrong answer that looks like a right
+ * one, and the operator is about to decide something on it.
+ */
+export async function purgeLegacyArrayWriters(spaceId: string): Promise<number> {
+  const r = await col<WriterNote>(COLLECTION).deleteMany(asFilter<WriterNote>({ spaceId }));
+  return r.deletedCount ?? 0;
+}
+
 /** Drop notes past retention. Called from the same sweep that ages the audit log's changes. */
 export async function sweepLegacyArrayWriterNotes(now: number = Date.now()): Promise<number> {
   const cutoff = new Date(now - WRITER_NOTE_RETENTION_DAYS * 86_400_000);

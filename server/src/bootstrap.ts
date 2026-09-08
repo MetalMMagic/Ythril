@@ -89,6 +89,12 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   // with no peers never syncs, and that is precisely the space whose whole tombstone collection is droppable.
   const { startTombstonePrune } = await import('./brain/tombstone-prune.js');
   startTombstonePrune();
+  // Indexes for the conversion pre-flight's notes. Here rather than in `initSpace`, for the reason the
+  // read-path indexes above are: the collection is instance-wide, so it has no per-space creation moment,
+  // and an index added at space creation would never reach a database an operator already has.
+  const { ensureLegacyArrayWriterIndexes } = await import('./brain/legacy-array-writers.js');
+  void ensureLegacyArrayWriterIndexes()
+    .catch(err => log.warn(`Could not ensure legacy array-writer indexes: ${err}`));
   // Redacts the `changes` payload on brain record-edit audit entries past their shorter retention.
   // The entry itself keeps `audit.retentionDays` — only the user content inside it expires early.
   const { startAuditChangeRetention } = await import('./audit/change-retention.js');

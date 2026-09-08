@@ -23,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Read the `since` in the answer before the count.** It says how far back the answer looks, and a count
   with no window on it cannot be told apart from a count over a shorter one. Nothing older than 90 days is
-  kept.
+  kept, and asking for a longer window is capped to it rather than refused — on both doors.
+
+  Deleting a space forgets its answer with it, so a space recreated under the same id is never told about
+  writers that wrote to its predecessor.
 
 ### Fixed
 

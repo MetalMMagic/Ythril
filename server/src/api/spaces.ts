@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { registerReembedRoute } from './spaces-reembed.js';
 import { registerActivityResetRoute } from './spaces-activity.js';
 import {
-  requireAuth, requireSpaceAuthScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
+  requireAuth, requireSpaceAuthScoped, requireSpaceAuthMfaScoped, requireAdmin, requireAdminMfa, requireAdminMfaScoped,
   requireAdminOrSpaceAdminMfaScoped, isInstanceAdmin,
 } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
@@ -676,8 +676,27 @@ spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRate
   res.status(204).end();
 });
 
-// POST /api/spaces/:id/validate-schema — dry-run validation of existing data
-spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminOrSpaceAdminMfaScoped('id'), async (req, res) => {
+/*
+ * POST /api/spaces/:id/validate-schema — dry-run validation of existing data.
+ *
+ * `requireSpaceAuthMfaScoped` — the area rung on this space plus the second factor — because this route's
+ * `ROUTE_RIGHTS` row says `schema` / `read` and until now it demanded far more: `requireAdminOrSpaceAdminMfaScoped` admits
+ * only an instance administrator or a SPACE administrator — `admin` on all four areas — so the rung the
+ * panel advertised was never enough.
+ *
+ * Reported by the canary operator 2026-09-08T1400Z, and it cost them an afternoon twice: they granted
+ * SCHEMA exactly as the panel asked, got `Admin token required`, read that as INSTANCE admin, and concluded
+ * the route was instance-only. Their own words: the mapping "is enforced for at least one row and not for
+ * another" — `/meta`, same area and one call apart, honoured the rung and answered 200.
+ *
+ * A DRY RUN is the right thing to sit at `read`: it writes nothing, stores nothing and reports what would
+ * be refused.
+ *
+ * **The second factor STAYS.** `space-admin-reaches-its-own-space-settings.test.js` pins MFA on the widened
+ * routes as deliberate, the reported defect is the rung rather than the factor, and loosening more than was
+ * broken on an auth path is not a bargain worth taking.
+ */
+spacesRouter.post('/:id/validate-schema', globalRateLimit, requireSpaceAuthMfaScoped('id'), async (req, res) => {
   const id = req.params['id'] as string;
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === id);

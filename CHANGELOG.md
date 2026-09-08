@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A token with `schema` read on a space can validate that space's schema again.**
+
+  `POST /api/spaces/:id/validate-schema` is a dry run — it scans stored data against the schema and writes
+  nothing — and the rights panel lists it at the `schema` area's **read** rung. It was in fact refusing
+  anyone who was not an instance administrator or a full space administrator, with `Admin token required`.
+
+  So an operator who granted exactly what the panel asked for was refused, and the message reads as INSTANCE
+  admin, which is a different thing again. One reported operator lost an afternoon to this twice.
+
+  `GET /api/spaces/:id/meta` — the same area, one call apart — always honoured the rung, and now this does
+  too.
+
 ### Internal
 
 - `whenDuePasses` is now exercised end to end against a real store, not only asserted from source. The

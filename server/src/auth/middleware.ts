@@ -636,6 +636,45 @@ export const requireSpaceAuth = requireSpaceAuthScoped('spaceId');
  * mutation, wipe, export, import) so that space-restricted admin tokens
  * cannot operate on spaces outside their allowlist.
  */
+/**
+ * The area rung on THIS space, plus the second factor. No admin requirement of any kind.
+ *
+ * ## Why it exists
+ *
+ * `POST /:id/validate-schema` is a dry run — it scans stored data against a schema and writes nothing — and
+ * its `ROUTE_RIGHTS` row says `schema` / `read`. It was guarded by `requireAdminOrSpaceAdminMfaScoped`, so
+ * the rung the rights panel advertised could never open the door: only an instance administrator or a SPACE
+ * administrator (`admin` on all FOUR areas) got in. A canary operator granted exactly what the panel asked,
+ * was refused with `Admin token required`, read that as INSTANCE admin, and lost an afternoon to it twice.
+ *
+ * ## Why not simply `requireSpaceAuthScoped`
+ *
+ * Because that would drop the SECOND FACTOR, and
+ * `space-admin-reaches-its-own-space-settings.test.js` pins MFA on this route as deliberate — *"every one of
+ * them is MFA-gated, exactly as it was"*. The reported defect is the RUNG, not the factor, and the operator
+ * who reported it already satisfies MFA on the neighbouring routes. Fixing more than was broken, in the
+ * loosening direction, on an auth path, is not a bargain worth taking.
+ *
+ * So this is `requireSpaceAuthScoped` with `enforceMfa` in it: strictly the old guard minus the admin
+ * demand, which is exactly the reported defect and nothing else.
+ */
+export function requireSpaceAuthMfaScoped(paramName: string) {
+  return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
+    const auth = await resolveAuthOrFail(req, res, { recordInvalidMetric: true });
+    if (!auth) return;
+    const { record, bearer } = auth;
+
+    const spaceId = req.params[paramName] as string | undefined;
+    if (!enforceSpaceScope(res, record, spaceId)) return;
+    if (!enforceMfa(req, res, bearer, record)) return;
+    if (!enforceAreaRung(res, record, req, spaceTargets(spaceId, record))) return;
+
+    authAttemptsTotal.inc({ result: 'success' });
+    req.resolvedSpaceId = spaceId;
+    attachToken(req, res, next, record, bearer);
+  };
+}
+
 export function requireAdminMfaScoped(paramName: string) {
   return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
     const auth = await resolveAuthOrFail(req, res, {});

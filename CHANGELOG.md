@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- An MCP tool now forwards the arguments its own schema declares, rather than a list of names written beside
+  it. Two tools had that shape and one was already wrong — a field declared on the tool, accepted, and
+  dropped before the write while the REST door stored it. A gate refuses a third.
+
+
 - `whenDuePasses` is now exercised end to end against a real store, not only asserted from source. The
   standalone gate reads the status filter's query SHAPE, and a query whose shape is plausible can still match
   the wrong rows — so the four-row truth table an operator actually cares about (both read paths, and the

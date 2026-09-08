@@ -389,6 +389,26 @@ async function runSpaceMetaUpdate(
  */
 const NOT_META = new Set(['space', 'typeSchemasMode']);
 
+/**
+ * `create_space` declares `purpose`, which the create body still calls `description` — so it is translated
+ * at the call site rather than forwarded, and must not be forwarded under its own name as well.
+ */
+const NOT_BODY = new Set(['purpose']);
+
+/**
+ * The argument names a tool forwards: everything its own `inputSchema` declares, minus the ones that are not
+ * part of the payload.
+ *
+ * Written once because two tools had hand-written copies of their own schemas beside them, and one of those
+ * copies was already wrong — a field declared, accepted by the dispatcher, and dropped before the write,
+ * with the other door storing it. The schema is the contract, so the schema is the list, and a field added
+ * to it is forwarded by the same commit.
+ */
+function forwardedArgNames(tool: ToolHandler, exclude: ReadonlySet<string>): string[] {
+  const props = (tool.inputSchema({} as ToolSchemas).properties ?? {}) as Record<string, unknown>;
+  return Object.keys(props).filter(k => !exclude.has(k));
+}
+
 export const update_space_schemaTool: ToolHandler = {
   name: 'update_space_schema',
   description: 'Write a space\'s type schemas (and its other meta fields). Needs EITHER instance-admin rights OR '
@@ -458,9 +478,7 @@ export const update_space_schemaTool: ToolHandler = {
      * REST door storing it and this one not, which `CLAUDE.md` names as worse than either door refusing.
      * The schema is the contract, so the schema is the list.
      */
-    const declared = Object.keys(
-      (update_space_schemaTool.inputSchema({} as ToolSchemas).properties ?? {}) as Record<string, unknown>,
-    ).filter(k => !NOT_META.has(k));
+    const declared = forwardedArgNames(update_space_schemaTool, NOT_META);
     const meta: Record<string, unknown> = {};
     for (const k of declared) {
       if (a[k] !== undefined) meta[k] = a[k];
@@ -561,10 +579,22 @@ export const create_spaceTool: ToolHandler = {
     // `purpose` is the current name for what the create body still calls `description`. Translated here rather than
     // widening the body schema: the REST field is the deprecated spelling, and a tool that took the deprecated name
     // would be a new surface adopting an old one on the day it is written.
+    /*
+     * The forwarded names come from this tool's OWN schema, not from an array written beside it.
+     *
+     * `update_space_schema` had the same shape and it FAILED: an array of five key names sitting next to a
+     * schema that declared six, so `whenDuePasses` was declared, accepted by the dispatcher, and silently
+     * dropped before the write. This one is correct today and is the same accident waiting — the two lists
+     * have to agree and nothing makes them. `RENAMED` is the only exception, and it is an exception because
+     * it is a TRANSLATION rather than an omission.
+     */
     const body: Record<string, unknown> = {};
-    for (const k of ['label', 'id', 'maxGiB', 'proxyFor', 'faceDescriptorDims', 'meta']) {
+    for (const k of forwardedArgNames(create_spaceTool, NOT_BODY)) {
       if (a[k] !== undefined) body[k] = a[k];
     }
+    // `purpose` is the current name for what the create body still calls `description`. Translated here
+    // rather than widening the body schema: the REST field is the deprecated spelling, and a tool that took
+    // the deprecated name would be a new surface adopting an old one on the day it is written.
     if (a['purpose'] !== undefined) body['description'] = a['purpose'];
 
     const { planSpaceCreate, applySpaceCreate } = await import('../../spaces/space-create.js');

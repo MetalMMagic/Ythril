@@ -111,6 +111,24 @@ function hopBudgets(): Record<string, number | undefined> {
     visionMs: slotTimeoutMs('vision', cfg),
     sttMs: slotTimeoutMs('stt', cfg),
     faceExternalTimeoutMs: slotTimeoutMs('faceExternal', cfg),
+    /*
+     * The four document slots, and they became hops the day their budgets started applying.
+     *
+     * Until then every document model call was bounded by `pageTimeoutMs`, which is fed below, so the floor
+     * covered them by covering it. A slot budget now WINS over the page limit — that is the whole point of
+     * the fix — so an operator raising `modelSlots.docVlm.timeoutMs` to ten minutes against a one-minute
+     * page limit would have a hop the detector never saw, and the job would be re-queued in the middle of a
+     * call it was allowed to make. That is exactly the loop this list exists to prevent, arriving through a
+     * new door.
+     *
+     * `slotTimeoutMs` and not `slotTimeoutMsOr`: the floor must protect the LARGER of the two, and the page
+     * limit is fed separately below. Resolving with the page limit as a default here would report the page
+     * limit twice and the slot budget never, whenever the operator had set neither.
+     */
+    docVlmMs: slotTimeoutMs('docVlm', cfg),
+    docRepairMs: slotTimeoutMs('docRepair', cfg),
+    docVerifyMs: slotTimeoutMs('docVerify', cfg),
+    assistMs: slotTimeoutMs('assist', cfg),
   };
   return {
     pageTimeoutMs: doc.pageTimeoutMs,

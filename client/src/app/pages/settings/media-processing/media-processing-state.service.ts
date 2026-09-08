@@ -27,9 +27,17 @@ import {
  *
  * `doc-render` and `unstructured` are deliberately absent: neither has a single `ngModel` — they report
  * env-only infrastructure, so a Save button on them would be a control that cannot do anything.
+ *
+ * **The three document cards were absent for the same reason and it was the wrong reason.** Their model and
+ * endpoint are env-only, which is what `[infra]` says; their per-slot budget and reasoning effort are
+ * neither, and there is deliberately no environment variable for those at all. One flag was answering two
+ * questions, so the only door to three of the ten slot budgets did not exist.
  */
-export type ModelCardId = 'embedding' | 'rerank' | 'nli' | 'vision' | 'stt' | 'assist' | 'face';
-export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'rerank', 'nli', 'vision', 'stt', 'assist', 'face'];
+export type ModelCardId =
+  | 'embedding' | 'rerank' | 'nli' | 'vision' | 'stt' | 'assist' | 'face'
+  | 'doc-vlm' | 'doc-repair' | 'doc-verify';
+export const MODEL_CARDS: readonly ModelCardId[] =
+  ['embedding', 'rerank', 'nli', 'vision', 'stt', 'assist', 'face', 'doc-vlm', 'doc-repair', 'doc-verify'];
 
 /**
  * One pipeline on the Pipelines tab.
@@ -449,6 +457,13 @@ export class MediaProcessingStateService {
           baseUrl: a.baseUrl || undefined, model: a.model || undefined, acknowledgedHost: a.acknowledgedHost,
         } } });
       }
+      // The three document cards own their SLOT and nothing else — the model and the endpoint really are
+      // env-only. `withSlot` on an empty block sends `modelSlots` alone, which is the whole patch: the
+      // server merges slot by slot, so this cannot disturb another card's tuning or any document setting.
+      case 'doc-vlm':
+      case 'doc-repair':
+      case 'doc-verify':
+        return withSlot({});
     }
   }
 

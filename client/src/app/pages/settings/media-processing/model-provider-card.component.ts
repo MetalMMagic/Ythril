@@ -42,6 +42,15 @@ import { HealthState, CARD_SLOT, SLOT_DEFAULT_MS } from './media-processing.type
     /* Infra-owned: dashed and dimmed, so "you cannot change this here" is legible before reading. */
     .card.infra { border-style: dashed; background: transparent; }
     .card.infra .card-b { opacity: .62; }
+    /* Except the slot control, which is NOT infra-owned even on an infra card.
+       The three document cards carry the infra flag because their model and endpoint come from environment
+       variables -- and their call budget and reasoning effort do not: there is deliberately no environment
+       variable for those, so this card is the only place they can be set. Dimming them alongside the
+       read-only fields says the opposite, and a control that looks disabled is one nobody tries. When infra
+       DOES pin a slot, isLocked disables the inputs themselves, which is the honest signal.
+       (No backticks in here -- one would terminate the styles template literal, and the error then points
+       at the decorator rather than at the comment.) */
+    .card.infra .card-b app-slot-tuning { opacity: 1; }
 
     .card-h { display: flex; align-items: flex-start; gap: 12px; padding: 15px 18px 0; }
     .ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none;

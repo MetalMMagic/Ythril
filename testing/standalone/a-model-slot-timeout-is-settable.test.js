@@ -31,6 +31,16 @@
  * So "settable" and "the floor sees it" are one property, asserted together. A slot that is settable and
  * invisible to the floor is worse than one that is not settable at all.
  *
+ * ## What this file does NOT check, and the gate that does
+ *
+ * It checks that no call site holds a LITERAL and that the resolver is reached. Both stayed true while four
+ * slots were inert: the document pipeline passed `timeoutMs: cfg.pageTimeoutMs` and the clients resolved
+ * `opts.timeoutMs ?? slotTimeoutMs(…)`, so the caller's number won every time. The title of this file claims
+ * the property; the body checks a proxy for it, and the proxy held.
+ *
+ * `a-slot-budget-is-not-shadowed.test.js` asserts the property itself — that what the operator set is what
+ * bounds the call — and that every slot has a control to set it with.
+ *
  * ## Why one resolver rather than a field on each provider block
  *
  * `MediaProviderConfig` covers vision, stt, nli and rerank — four of the ten. `embedding` has its own shape,
@@ -150,11 +160,16 @@ describe('no call site keeps its own budget', () => {
   it('every slot budget resolves through the one resolver', () => {
     // Not merely "not a literal" — a per-file helper would satisfy that while being a second implementation.
     // `vlm-client.ts` had FIVE copies of `?? 60_000`, which is what that looks like when it happens.
+    //
+    // `slotTimeoutMsOr` counts, and it is the same resolver: it is what a caller with a default of its own
+    // calls, and it ends in `MODEL_SLOT_DEFAULT_MS` like the other. Matching only `slotTimeoutMs(` failed
+    // the document clients the day they stopped shadowing the operator, which would have read as the fix
+    // breaking the gate rather than as the gate naming one spelling of one function.
     const offenders = [];
     for (const f of FILES) {
       const s = src(f);
       if (!/AbortSignal\.timeout|timeoutMs/.test(s)) continue;
-      if (!/slotTimeoutMs\(/.test(s)) offenders.push(f);
+      if (!/slotTimeoutMs(?:Or)?\(/.test(s)) offenders.push(f);
     }
     assert.deepEqual(offenders, [],
       'these bound a model call without going through slotTimeoutMs(), so their budget is resolved a second '

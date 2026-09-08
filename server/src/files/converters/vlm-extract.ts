@@ -156,7 +156,7 @@ export async function vlmExtractDocument(
 
       const windowParts = await mapLimit(window.pages, cfg.concurrency, async (img) => {
         const t = await transcribePageImage(img, {
-          ...vlmEp, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+          ...vlmEp, prompt: TRANSCRIBE_PROMPT, defaultTimeoutMs: cfg.pageTimeoutMs,
         });
         // A finished page is the smallest honest unit of progress on this path — it is what makes a
         // long document slow rather than wedged. Counting completions rather than using the map index
@@ -238,11 +238,11 @@ export async function vlmExtractDocument(
         const r = useExternal
           ? await repairMarkdownExternal({
               baseUrl: assist!.baseUrl!, model: assist!.model!, apiKey: getDocAssistApiKey(),
-              draft: markdown, evidence, issues: v.issues, timeoutMs: cfg.pageTimeoutMs,
+              draft: markdown, evidence, issues: v.issues, defaultTimeoutMs: cfg.pageTimeoutMs,
             })
           : await repairMarkdown({
               ...repairEp, model: repairModel, draft: markdown, evidence, issues: v.issues,
-              timeoutMs: cfg.pageTimeoutMs,
+              defaultTimeoutMs: cfg.pageTimeoutMs,
             });
         const repaired = r.text.trim();
         const rv = validateExtraction(repaired, evidence, { finishReason: r.truncated ? 'length' : undefined });
@@ -290,7 +290,7 @@ async function runConsensus(
     // `docVerify`, not `docVlm`: this is the second-opinion model, on its own endpoint, and the slot it is
     // charged to decides its budget, its egress permission and how hard it is asked to think.
     const t = await transcribePageImage(img, {
-      ...verifyEp, slot: 'docVerify', prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+      ...verifyEp, slot: 'docVerify', prompt: TRANSCRIBE_PROMPT, defaultTimeoutMs: cfg.pageTimeoutMs,
     });
     return t.text.trim();
   });
@@ -304,7 +304,7 @@ async function runConsensus(
     try {
       const r = await reconcileConsensus({
         ...repairEp,
-        draftA: primary, draftB: second, evidence, timeoutMs: cfg.pageTimeoutMs,
+        draftA: primary, draftB: second, evidence, defaultTimeoutMs: cfg.pageTimeoutMs,
       });
       const reconciled = r.text.trim();
       if (reconciled) candidates.push({ text: reconciled, label: 'consensus' });

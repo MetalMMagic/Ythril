@@ -125,7 +125,51 @@ export const MODEL_TIMEOUT_MAX_MS = 1_800_000;
  */
 export function slotTimeoutMs(slot: ModelSlot, cfg: ModelSlotsConfig | undefined): number {
   const set = cfg?.[slot]?.timeoutMs;
-  return typeof set === 'number' && Number.isFinite(set) && set > 0 ? set : MODEL_SLOT_DEFAULT_MS[slot];
+  return usableMs(set) ?? MODEL_SLOT_DEFAULT_MS[slot];
+}
+
+/** A budget only if it is one. Shared so both sides of `slotTimeoutMsOr` refuse the same values. */
+function usableMs(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+}
+
+/**
+ * The budget for one call to `slot`, when the CALLER also has a number of its own.
+ *
+ * ## The bug this exists to make unwriteable
+ *
+ * The document pipeline has a per-page control, `documentProcessing.pageTimeoutMs`, and it was handed to the
+ * model clients as `opts.timeoutMs ?? slotTimeoutMs(slot, …)`. `??` takes the left side whenever it is
+ * present, so the caller's number won every time and the resolver was dead code on that path. Four slots —
+ * `docVlm`, `docRepair`, `docVerify` and `assist` — were documented in the field table, accepted by the admin
+ * PATCH and pinnable, with no effect at all.
+ *
+ * **Both defaults are 60 000 ms**, so the documented number and the used number agreed exactly until an
+ * operator changed one. Nothing ever contradicted it.
+ *
+ * ## The ordering, and why it is here rather than at each call site
+ *
+ * Operator's slot setting, then the caller's default, then the built-in. A caller supplying a default is
+ * saying *"this is the number when nobody chose one"* — which is what `pageTimeoutMs` is for the document
+ * slots, and why it stays meaningful for operators who never open the per-slot controls.
+ *
+ * Written at the three call sites instead, this is one `??` away from being the original defect again, and
+ * the two spellings read identically in a diff. `a-slot-budget-is-not-shadowed.test.js` refuses a caller
+ * value in front of the resolver anywhere in the model path for exactly that reason.
+ *
+ * A caller that genuinely OWNS the deadline — the Verify probe, which must not hang for the half hour a slot
+ * budget may legally be — passes its number as a hard `timeoutMs` and does not come through here.
+ *
+ * Both sides are refused the same way `slotTimeoutMs` refuses one: `pageTimeoutMs` reaches this from a config
+ * block that a hand edit can put a `NaN` in, and a `NaN` at `AbortSignal.timeout` makes every comparison
+ * against it false.
+ */
+export function slotTimeoutMsOr(
+  slot: ModelSlot,
+  cfg: ModelSlotsConfig | undefined,
+  callerDefaultMs: number | undefined,
+): number {
+  return usableMs(cfg?.[slot]?.timeoutMs) ?? usableMs(callerDefaultMs) ?? MODEL_SLOT_DEFAULT_MS[slot];
 }
 /**
  * How hard a thinking model should think, per slot — the values llama.cpp's own server accepts.

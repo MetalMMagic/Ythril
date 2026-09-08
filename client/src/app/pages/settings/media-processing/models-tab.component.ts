@@ -16,6 +16,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { ModelProviderCardComponent } from './model-provider-card.component';
+import { CardSaveComponent } from './card-save.component';
 import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { SchemaApi } from '../../../core/schema-api.service';
@@ -25,7 +26,8 @@ import { TestTarget } from './media-processing.types';
   selector: 'app-models-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, ModelProviderCardComponent],
+  imports: [FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, ModelProviderCardComponent,
+    CardSaveComponent],
   styles: [`
     :host { display: block; }
     /* align-items: stretch is what pins every footer to a shared baseline (owner's point 4). */
@@ -94,8 +96,9 @@ import { TestTarget } from './media-processing.types';
     .testrow > button { order: 0; }
     .testrow > app-status-pill, .testrow > .hint { order: 1; }
     /* Save belongs to the card it sits in and appears only when that card has an unsaved change, so it
-       is pushed to the far end of the row rather than sitting beside Test as a peer action. */
-    .testrow .card-save { order: 2; margin-left: auto; }
+       is pushed to the far end of the row rather than sitting beside Test as a peer action. That rule now
+       lives in card-save.component.ts, with the button: view encapsulation scopes these styles to elements
+       written in THIS template, so a copy here would match nothing and only look reassuring. */
   `],
   template: `
     <div class="cards">
@@ -197,12 +200,7 @@ import { TestTarget } from './media-processing.types';
             (click)="s.verifyModel('embedding')">
             {{ (s.verifyOf('embedding')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
           </button>
-          @if (s.cardDirty('embedding')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('embedding')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="embedding"/>
         </div>
       </app-model-provider-card>
 
@@ -257,12 +255,7 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
-          @if (s.cardDirty('rerank')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('rerank')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="rerank"/>
         </div>
       </app-model-provider-card>
 
@@ -311,12 +304,7 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.detail || null">{{ r.detail || (r.latencyMs + ' ms') }}</span>
           }
-          @if (s.cardDirty('nli')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('nli')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="nli"/>
         </div>
       </app-model-provider-card>
 
@@ -369,12 +357,7 @@ import { TestTarget } from './media-processing.types';
             (click)="s.verifyModel('vision')">
             {{ (s.verifyOf('vision')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
           </button>
-          @if (s.cardDirty('vision')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('vision')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="vision"/>
         </div>
       </app-model-provider-card>
 
@@ -427,12 +410,7 @@ import { TestTarget } from './media-processing.types';
             (click)="s.verifyModel('stt')">
             {{ (s.verifyOf('stt')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
           </button>
-          @if (s.cardDirty('stt')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('stt')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="stt"/>
         </div>
       </app-model-provider-card>
 
@@ -494,12 +472,7 @@ import { TestTarget } from './media-processing.types';
             (click)="s.verifyModel('assist')">
             {{ (s.verifyOf('assist')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
           </button>
-          @if (s.cardDirty('assist')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('assist')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="assist"/>
         </div>
       </app-model-provider-card>
 
@@ -507,8 +480,11 @@ import { TestTarget } from './media-processing.types';
       <!-- These had NO cards. A customer's ticket enumerated nine model endpoints from this screen and
            missed vlmModel, which is the tenth — and the Pipelines tab pointed its step at the VISION
            card, showing a different value, so the tenth was displayed as if it were one of the nine.
-           They are env-only (no PATCH schema accepts them), so they render read-only with the env badge,
-           the way the storage pins do: visible even when unsettable. -->
+           Their MODEL and ENDPOINT are env-only (no PATCH schema accepts them), so those render read-only
+           with the env badge, the way the storage pins do: visible even when unsettable. Their per-slot
+           budget and reasoning effort are NOT env-only -- there is deliberately no environment variable for
+           those at all -- so the card renders its slot control and a Save for it. One flag was answering
+           both questions, which left three of the ten slot budgets with no door anywhere. -->
       <!-- Written out rather than looped: the completeness gate greps for a literal card element with a
            literal id attribute, and a card that only exists behind a binding is a card the gate cannot
            see. Three repetitions is a fair price for a check that cannot be fooled.
@@ -527,6 +503,9 @@ import { TestTarget } from './media-processing.types';
           <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
           <div class="ro">{{ s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
         </div>
+              <div footer class="testrow">
+          <app-card-save card="doc-vlm"/>
+        </div>
       </app-model-provider-card>
 
       <app-model-provider-card id="doc-repair" icon="file-image"
@@ -542,6 +521,9 @@ import { TestTarget } from './media-processing.types';
           <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
           <div class="ro">{{ s.docCfg().repairBaseUrl || s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
         </div>
+              <div footer class="testrow">
+          <app-card-save card="doc-repair"/>
+        </div>
       </app-model-provider-card>
 
       <app-model-provider-card id="doc-verify" icon="file-image"
@@ -556,6 +538,9 @@ import { TestTarget } from './media-processing.types';
         <div class="field">
           <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
           <div class="ro">{{ s.docCfg().verifyBaseUrl || s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
+        </div>
+              <div footer class="testrow">
+          <app-card-save card="doc-verify"/>
         </div>
       </app-model-provider-card>
 
@@ -716,12 +701,7 @@ import { TestTarget } from './media-processing.types';
           <div class="ro">BlazeFace + FaceRes</div>
         </div>
         <div footer class="testrow">
-          @if (s.cardDirty('face')) {
-            <button class="btn btn-sm btn-primary card-save" type="button"
-              [disabled]="s.saving()" (click)="s.saveCard('face')">
-              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
-            </button>
-          }
+          <app-card-save card="face"/>
         </div>
       </app-model-provider-card>
     </div>

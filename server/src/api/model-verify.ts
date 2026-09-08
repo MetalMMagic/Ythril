@@ -150,7 +150,7 @@ export async function verifyTarget(target: z.infer<typeof VerifySchema>['target'
       // The assist path is an acknowledged egress path, so it gets synthetic text like everything else.
       const r = await withBudget(repairMarkdownExternal({
         baseUrl: assist.baseUrl, model: assist.model, apiKey: getDocAssistApiKey(),
-        draft: 'ping', evidence: 'ping', timeoutMs: VERIFY_TIMEOUT_MS,
+        draft: 'ping', evidence: 'ping', hardTimeoutMs: VERIFY_TIMEOUT_MS,
       }));
       if (r.timedOut) return done('still-loading');
       return done('ok', { sample: (r.value?.text ?? '').slice(0, 120) });

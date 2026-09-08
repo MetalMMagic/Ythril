@@ -77,7 +77,13 @@ describe('describeTimeoutMs', () => {
     // The bug was a literal at the call site. A grep is the right check for "is there still one", because
     // the alternative is a live model call, and the point is precisely that nobody notices this path.
     const src = readFileSync(join(SERVER_SRC, 'files', 'converters', 'describe.ts'), 'utf8');
-    const callSite = /timeoutMs:\s*describeTimeoutMs\(getDocumentProcessingConfig\(\)\)/;
+    // `hardTimeoutMs`, and the qualifier is load-bearing rather than cosmetic. Every document model call
+    // now resolves through the per-slot budget, and this one must NOT: a description is one short call with
+    // its own tight, separately settable budget, where the repair slot's is sized for reconciling a whole
+    // document. The name is what says the caller owns this deadline, and it is what the shadowing gate
+    // (`a-slot-budget-is-not-shadowed.test.js`) exempts — so a plain `timeoutMs` here would either be
+    // overridden by the slot or be an unexplained exception.
+    const callSite = /hardTimeoutMs:\s*describeTimeoutMs\(getDocumentProcessingConfig\(\)\)/;
     assert.match(src, callSite, 'the describe call must read the configured budget, not a constant');
     // Any OTHER `timeoutMs: <number>` in this file would be a second, unconfigurable budget.
     const literals = [...src.matchAll(/timeoutMs:\s*(\d[\d_]*)/g)].map(m => m[1]);

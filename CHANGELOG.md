@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three of the ten per-model time limits could not be set anywhere, and four of them had no effect when
+  they were.**
+
+  Each model Ythril calls has its own budget — how long one request to it may take. The Models tab offered
+  seven of them. The three document models — Document VLM, Document repair and Document verify — offered
+  none, and there is deliberately no environment variable for these, so there was no door at all. All three
+  now have a call budget, a reasoning effort and their own Save.
+
+  **The larger half was behind the missing door.** Every model call the document pipeline makes was handed
+  the DOCUMENTS per-page time limit as an override, so whatever an operator set for `docVlm`, `docRepair`,
+  `docVerify` or `assist` was discarded — including the one slot of those four that did have a control.
+  Both numbers default to 60 seconds, so the setting an operator read and the one the code used agreed
+  exactly until somebody changed one.
+
+  **What changes for you:** the page limit is now the DEFAULT those four models fall back to, and a budget
+  set on a model wins for that model. Set nothing and nothing moves. If you had set one of those four and
+  wondered why it did nothing, it works now — check the value is one you still want.
+
+### Internal
+
+- The Save button on a model card was the same five lines of markup in ten places; it is one component, and
+  the Models tab is 21 lines smaller than before three cards gained one.
+
 ## [4.1.0] — 2026-09-08
 
 ### Added

@@ -46,7 +46,12 @@ const TOP_LEVEL = /^(?:export\s+)?(?:async\s+function|function|const|class|inter
  */
 export function bodyOf(src, name, label = name) {
   const lines = src.split(/\r?\n/);
-  const declared = new RegExp(`^(?:export\\s+)?(?:async\\s+function|function|const|class)\\s+${name}\\b`);
+  // The SAME kinds `TOP_LEVEL` recognises, and the two disagreed: it knew where an `interface` or a `type`
+  // ENDS and this could not find where one STARTS, so `bodyOf(src, 'SomeInterface')` threw "no top-level
+  // declaration" against a declaration plainly there. One question, two expressions, and only one of them
+  // updated — this repository's signature defect, arriving inside the helper written to prevent it.
+  const declared = new RegExp(
+    `^(?:export\\s+)?(?:async\\s+function|function|const|class|interface|type|abstract\\s+class)\\s+${name}\\b`);
   const start = lines.findIndex(l => declared.test(l));
   assert.ok(start > -1, `${label}: no top-level declaration of \`${name}\` — re-anchor this gate`);
 

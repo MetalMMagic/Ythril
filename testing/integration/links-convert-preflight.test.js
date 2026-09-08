@@ -19,8 +19,11 @@
  * ## What it drives, deliberately end to end
  *
  * A memory CREATE carrying `entityIds` — the case the audit log cannot see at all, which is half the reason
- * this feature is not built on the audit log — then the endpoint, then the same question through the MCP
- * tool's own resolver via a second write to a different field.
+ * this feature is not built on the audit log — then the endpoint, then a second write to prove a repeat is
+ * COUNTED rather than duplicated, then the window bounds.
+ *
+ * The MCP twin is not driven here; it shares `legacyArrayWriters` with the route, and its schema agreeing
+ * with the route's bounds is asserted in `a-door-that-refuses-arrays-also-records-them.test.js`.
  *
  * Run: node --test testing/integration/links-convert-preflight.test.js
  */
@@ -30,7 +33,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, delWithBody } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -46,17 +49,33 @@ describe('the links conversion pre-flight names a writer that actually wrote', (
     token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
     const created = await post(INSTANCES.a, token, '/api/spaces', { id: SPACE, label: 'Preflight' });
     assert.equal(created.status, 201, JSON.stringify(created.body));
+    // `concept` rather than an invented type: a new space defaults to strict validation, and the
+    // neighbouring `entity-refs.test.js` proves this one is accepted on a fresh space. A `before` hook that
+    // fails on a schema refusal reports as "the pre-flight is broken", which it would not be.
     const ent = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`, {
-      name: 'Acme Ltd', type: 'organization',
+      name: `Acme-${RUN}`, type: 'concept',
     });
     assert.equal(ent.status, 201, JSON.stringify(ent.body));
     entityId = ent.body._id;
+    assert.match(entityId, /^[0-9a-f-]{36}$/i, 'entity ids are UUIDs');
   });
 
   after(async () => {
-    // Always, and not only on success: a leaked space fails somebody else's suite, and these share one
-    // instance pair.
-    await del(INSTANCES.a, token, `/api/spaces/${SPACE}`).catch(() => {});
+    /*
+     * `delWithBody` with `confirm`, and it is not optional: a space in no network answers
+     * `400 {"error":"This space is not in any network. Send { \"confirm\": true } to delete it permanently."}`
+     * to a bare DELETE. A bodyless call here would fail on every run and leak the fixture — and these suites
+     * share one instance pair, so a leaked space fails somebody else's test, not this one.
+     *
+     * Reported rather than swallowed. A cleanup failure must not fail the suite (it would mask the real
+     * result) but it must be VISIBLE, which is the same lesson the recorder this file tests had to learn.
+     */
+    const r = await delWithBody(INSTANCES.a, token, `/api/spaces/${SPACE}`, { confirm: true })
+      .catch(err => ({ status: 0, body: String(err) }));
+    if (r.status !== 204 && r.status !== 200) {
+      console.error(`cleanup: space '${SPACE}' was not deleted (${r.status}) — it will leak into other suites`,
+        JSON.stringify(r.body));
+    }
   });
 
   it('starts by reporting nobody, and says over what window', async () => {

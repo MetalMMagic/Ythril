@@ -47,6 +47,7 @@ import { KNOWLEDGE_TYPES } from '../config/types-knowledge.js';
 import { hasReDoSRisk, REDOS_REFUSAL } from '../util/redos.js';
 import type { KnowledgeType } from '../config/types.js';
 import { RECORD_TYPES } from '../config/types.js';
+import { DATE_PASSED_VALUES } from '../brain/chrono-date-policy.js';
 
 // ── Zod schema for PropertySchema ──────────────────────────────────────────
 /**
@@ -136,6 +137,19 @@ export const TypeSchemaZ = z.union([
     // space setting — which is why this is a plain optional boolean and not defaulted to `false` here. A default
     // would turn "said nothing" into "said no" at the edge, and the tier resolver would never see the space.
     suppressEmbeddings: z.boolean().optional(),
+    /*
+     * `F-26`: what a passed due moment MEANS for this type. The schema tier of schema > space, and the same
+     * reason as the two above for it having to be listed at all — `.strict()` rejects an unlisted key, so
+     * without this line every PATCH carrying it is a 400 and the field silently does not exist.
+     *
+     * Chrono only, and refused elsewhere rather than ignored, the way `retention.contentDays` is: a Zod
+     * schema for one type object cannot see which collection it was filed under, so that check lives in
+     * `schema-validation.ts` where the collection is known.
+     *
+     * The enum is `DATE_PASSED_VALUES`, not a second copy of the two strings — a vocabulary written twice is
+     * the defect this repository produces most.
+     */
+    whenDuePasses: z.enum(DATE_PASSED_VALUES).optional(),
     /*
      * Edge-collection only, and refused elsewhere rather than ignored — the same treatment
      * `retention.contentDays` gets off chrono. Enforced in `schema-validation.ts`, which is where the
@@ -301,6 +315,8 @@ export const SpaceMetaBody = z.object({
   // it the field would be REJECTED as unknown, not silently ignored — which is the right failure, but still a
   // failure for a field the type now declares.
   suppressEmbeddings: z.boolean().optional(),
+  // `F-26`: the space tier. Absent is today's behaviour, so an instance that sets nothing sees no change.
+  whenDuePasses: z.enum(DATE_PASSED_VALUES).optional(),
 }).strict();
 
 /**
